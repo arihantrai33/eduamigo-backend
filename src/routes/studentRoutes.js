@@ -3,8 +3,11 @@ const router = express.Router();
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 const {
   getStudents, getStudent, createStudent,
-  updateStudent, deleteStudent
+  updateStudent, deleteStudent, getMe
 } = require('../controllers/studentController');
+
+// ✅ /me route PEHLE hona chahiye /:id se
+router.get('/me', protect, getMe);
 
 router.route('/')
   .get(protect, authorizeRoles('admin', 'teacher'), getStudents)
