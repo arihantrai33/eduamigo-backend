@@ -44,6 +44,7 @@ exports.getTeachersByClass = async (req, res) => {
 
 // POST /api/teachers — Teacher create
 exports.createTeacher = async (req, res) => {
+  let user = null;
   try {
     // Duplicate check
     const existing = await Teacher.findOne({

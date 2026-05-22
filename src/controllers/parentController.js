@@ -18,7 +18,7 @@ const createParent = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(phone, 10); // default password = phone number
-    const user = await User.create({
+    user = await User.create({
       name, email,
       password: hashedPassword,
       role: 'parent',

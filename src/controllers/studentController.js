@@ -27,6 +27,7 @@ exports.getStudent = async (req, res) => {
 };
 
 exports.createStudent = async (req, res) => {
+  let user = null;
   try {
     const {
       name, email, phone, rollNumber, class: cls, section,
@@ -40,7 +41,7 @@ exports.createStudent = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(phone, 10); // default password = phone number
-    const user = await User.create({
+    user = await User.create({
       name, email,
       password: hashedPassword,
       role: 'student',
@@ -61,6 +62,7 @@ exports.createStudent = async (req, res) => {
 
     res.status(201).json({ success: true, data: student });
   } catch (err) {
+    if (user) await User.findByIdAndDelete(user._id);
     res.status(400).json({ success: false, message: err.message });
   }
 };
