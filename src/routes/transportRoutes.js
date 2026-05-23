@@ -126,25 +126,32 @@ router.get('/students', protect, authorizeRoles('admin'), async (req, res) => {
 // PARENT
 // ─────────────────────────────────────────
 
-router.get('/my-child-bus', protect, authorizeRoles('parent'), async (req, res) => {
+router.get('/my-child-bus', protect, authorizeRoles('parent', 'student'), async (req, res) => {
   try {
-    const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
-    if (!parent || !parent.children.length) {
-      return res.status(404).json({ success: false, message: 'No children linked to this account' });
+    let student;
+
+    if (req.user.role === 'student') {
+      student = await Student.findOne({ userId: req.user._id }).populate({
+        path: 'bus',
+        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
+      });
+    } else {
+      const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
+      if (!parent || !parent.children.length) {
+        return res.status(404).json({ success: false, message: 'No children linked to this account' });
+      }
+      const child = parent.children[0];
+      student = await Student.findById(child._id).populate({
+        path: 'bus',
+        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
+      });
     }
 
-    const child   = parent.children[0];
-    const student = await Student.findById(child._id).populate({
-      path:   'bus',
-      select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
-    });
-
     if (!student?.bus) {
-      return res.status(404).json({ success: false, message: 'No bus assigned to your child' });
+      return res.status(404).json({ success: false, message: 'No bus assigned' });
     }
 
     const bus = student.bus;
-
     res.json({
       success: true,
       data: {
@@ -154,12 +161,12 @@ router.get('/my-child-bus', protect, authorizeRoles('parent'), async (req, res) 
         driverPhone:      bus.driverPhone,
         routeName:        bus.routeName,
         busStatus:        bus.busStatus,
-        firebasePath:     bus.driverToken,        // ✅ Firebase listen ke liye — e.g. "BUS42-0k94ZU"
-        stops:            bus.stops,               // ✅ real stops array from DB
+        firebasePath:     bus.driverToken,
+        stops:            bus.stops,
         currentStopIndex: bus.currentStopIndex,
-        studentName:      child.name,
-        studentClass:     child.class
-          ? `Class ${child.class}${child.section ? '-' + child.section : ''}`
+        studentName:      student.name,
+        studentClass:     student.class
+          ? `Class ${student.class}${student.section ? '-' + student.section : ''}`
           : '—',
       },
     });
