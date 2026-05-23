@@ -23,6 +23,7 @@ app.use('/api/leaves',        require('./src/routes/leaveRoutes'));
 app.use('/api/notifications', require('./src/routes/notificationRoutes'));
 app.use('/api/transport',     require('./src/routes/transportRoutes'));
 app.use('/api/users',         require('./src/routes/userRoutes'));
+app.use('/api/chat',         require('./src/routes/chatRoutes'));
 app.use('/api/notes',         require('./src/routes/noteRoutes'));   // ✅ ADDED
 
 app.get('/', (req, res) => {
