@@ -1,13 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const {
-  addResult,
-  getStudentResults,
-  getClassResults
-} = require('../controllers/examController');
+const { addResult, getStudentResults, getClassResults, getMyResults } = require('../controllers/examController');
+const { protect } = require('../middleware/authMiddleware');
 
-router.post('/result', addResult);
+// ⚠️ /my-results PEHLE hona chahiye /:studentId se
+router.get('/my-results', protect, getMyResults);
 router.get('/class/:className', getClassResults);
 router.get('/:studentId', getStudentResults);
+router.post('/result', addResult);
 
 module.exports = router;
