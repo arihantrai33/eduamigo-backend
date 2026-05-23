@@ -1,115 +1,107 @@
 const Timetable = require('../models/Timetable');
+const Student = require('../models/Student');
 
-// POST /api/timetable — Timetable create
 const createTimetable = async (req, res) => {
   try {
     const { class: cls, section, day, periods } = req.body;
-
     const existing = await Timetable.findOne({ class: cls, section, day });
     if (existing) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Is class ka is din ka timetable already exists' 
-      });
+      return res.status(400).json({ success: false, message: 'Is class ka is din ka timetable already exists' });
     }
-
     const timetable = await Timetable.create({ class: cls, section, day, periods });
-    res.status(201).json({ 
-      success: true, 
-      message: 'Timetable created successfully!', 
-      data: timetable 
-    });
+    res.status(201).json({ success: true, message: 'Timetable created successfully!', data: timetable });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// GET /api/timetable/class/:class — Class ka pura timetable (saare din)
 const getClassTimetable = async (req, res) => {
   try {
     const timetable = await Timetable.find({ class: req.params.class })
       .populate('periods.teacher', 'name subjects')
       .sort({ day: 1 });
-
     if (!timetable.length) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Is class ka koi timetable nahi mila' 
-      });
+      return res.status(404).json({ success: false, message: 'Is class ka koi timetable nahi mila' });
     }
-
     res.status(200).json({ success: true, data: timetable });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// GET /api/timetable/class/:class/:day — Class ka ek din ka timetable
 const getClassDayTimetable = async (req, res) => {
   try {
-    const timetable = await Timetable.findOne({ 
+    const timetable = await Timetable.findOne({
       class: req.params.class,
-      day: req.params.day 
+      day: req.params.day
     }).populate('periods.teacher', 'name subjects');
-
     if (!timetable) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Timetable not found' 
-      });
+      return res.status(404).json({ success: false, message: 'Timetable not found' });
     }
-
     res.status(200).json({ success: true, data: timetable });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// GET /api/timetable/teacher/:teacherId — Teacher ka apna schedule
 const getTeacherTimetable = async (req, res) => {
   try {
-    const timetable = await Timetable.find({ 
-      'periods.teacher': req.params.teacherId 
+    const timetable = await Timetable.find({
+      'periods.teacher': req.params.teacherId
     }).sort({ day: 1 });
-
-    // Sirf us teacher ke periods filter karo
     const filtered = timetable.map(day => ({
       class: day.class,
       section: day.section,
       day: day.day,
-      periods: day.periods.filter(p => 
+      periods: day.periods.filter(p =>
         p.teacher && p.teacher.toString() === req.params.teacherId
       )
     }));
-
     res.status(200).json({ success: true, data: filtered });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// PUT /api/timetable/:id — Timetable update
-const updateTimetable = async (req, res) => {
+// ✅ NEW — Student apna timetable dekhe (class+section se auto fetch)
+const getMyTimetable = async (req, res) => {
   try {
-    const timetable = await Timetable.findByIdAndUpdate(
-      req.params.id, 
-      { $set: req.body }, 
-      { new: true, runValidators: true }
-    );
-    if (!timetable) {
-      return res.status(404).json({ success: false, message: 'Timetable not found' });
+    const student = await Student.findOne({ userId: req.user._id });
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
     }
-    res.status(200).json({ 
-      success: true, 
-      message: 'Timetable updated successfully!', 
-      data: timetable 
-    });
+    const { day } = req.query;
+    const filter = { class: student.class, section: student.section };
+    if (day) filter.day = day;
+    const timetable = await Timetable.find(filter)
+      .populate('periods.teacher', 'name')
+      .sort({ day: 1 });
+    // Agar specific day mila toh periods return karo
+    if (day && timetable.length > 0) {
+      return res.status(200).json({ success: true, data: timetable[0].periods || [] });
+    }
+    res.status(200).json({ success: true, data: timetable });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// DELETE /api/timetable/:id — Timetable delete
+const updateTimetable = async (req, res) => {
+  try {
+    const timetable = await Timetable.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true, runValidators: true }
+    );
+    if (!timetable) {
+      return res.status(404).json({ success: false, message: 'Timetable not found' });
+    }
+    res.status(200).json({ success: true, message: 'Timetable updated successfully!', data: timetable });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const deleteTimetable = async (req, res) => {
   try {
     const timetable = await Timetable.findByIdAndDelete(req.params.id);
@@ -122,11 +114,12 @@ const deleteTimetable = async (req, res) => {
   }
 };
 
-module.exports = { 
-  createTimetable, 
-  getClassTimetable, 
+module.exports = {
+  createTimetable,
+  getClassTimetable,
   getClassDayTimetable,
   getTeacherTimetable,
+  getMyTimetable,
   updateTimetable,
   deleteTimetable
 };
