@@ -24,9 +24,10 @@ const addFee = async (req, res) => {
 const getStudentFees = async (req, res) => {
   try {
     const fees = await Fee.find({ studentId: req.params.studentId }).sort({ year: -1, month: -1 });
-    const totalDue  = fees.filter(f => f.status === 'Unpaid').reduce((sum, f) => sum + f.amount, 0);
+    const total     = fees.reduce((sum, f) => sum + f.amount, 0);
     const totalPaid = fees.filter(f => f.status === 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    res.status(200).json({ success: true, summary: { totalPaid, totalDue }, data: fees });
+    const totalDue  = fees.filter(f => f.status !== 'Paid').reduce((sum, f) => sum + f.amount, 0);
+    res.status(200).json({ success: true, summary: { total, totalPaid, totalDue }, data: fees });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -50,9 +51,9 @@ const getMyFees = async (req, res) => {
       fees = await Fee.find({ studentId: student._id }).sort({ year: -1, month: -1 });
     }
 
-    const totalDue  = fees.filter(f => f.status === 'Unpaid').reduce((sum, f) => sum + f.amount, 0);
+    const total     = fees.reduce((sum, f) => sum + f.amount, 0);
     const totalPaid = fees.filter(f => f.status === 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    const total = totalDue + totalPaid;
+    const totalDue  = fees.filter(f => f.status !== 'Paid').reduce((sum, f) => sum + f.amount, 0);
 
     res.status(200).json({ success: true, summary: { total, totalPaid, totalDue }, data: fees });
   } catch (error) {
@@ -70,7 +71,9 @@ const markFeePaid = async (req, res) => {
     fee.paidAmount = fee.amount;
     await fee.save();
 
-    const parent = await Parent.findOne({ children: fee.studentId });
+    const parent = await Student.findById(fee.studentId).then(student =>
+      Parent.findOne({ children: fee.studentId })
+    );
     if (parent) {
       const student = await Student.findById(fee.studentId);
       await Notification.create({
@@ -90,7 +93,7 @@ const markFeePaid = async (req, res) => {
 
 const getAllPendingFees = async (req, res) => {
   try {
-    const fees = await Fee.find({ status: 'Unpaid' }).populate('studentId', 'name rollNumber class');
+    const fees = await Fee.find({ status: { $ne: 'Paid' } }).populate('studentId', 'name rollNumber class');
     res.status(200).json({ success: true, count: fees.length, data: fees });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
