@@ -39,9 +39,8 @@ const getParentTeachers = async (req, res) => {
 
     const child = parent.children[0];
 
-    // Timetable schema: periods array ke andar teacher field hai
+    // school filter removed — class+section se query, school isolation teacher model se hogi
     const timetables = await Timetable.find({
-      school:  req.user.school,
       class:   child.class,
       section: child.section,
     }).populate({
