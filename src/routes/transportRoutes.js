@@ -14,9 +14,57 @@ const makeToken = (busNumber) => {
 };
 
 // ─────────────────────────────────────────
+// PARENT — must be BEFORE /:id routes
+// ─────────────────────────────────────────
+router.get('/my-child-bus', protect, async (req, res) => {
+  try {
+    let student;
+    if (req.user.role === 'student') {
+      student = await Student.findOne({ userId: req.user._id }).populate({
+        path: 'bus',
+        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
+      });
+    } else {
+      const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
+      if (!parent || !parent.children.length) {
+        return res.status(404).json({ success: false, message: 'No children linked to this account' });
+      }
+      const child = parent.children[0];
+      student = await Student.findById(child._id).populate({
+        path: 'bus',
+        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
+      });
+    }
+    if (!student?.bus) {
+      return res.status(404).json({ success: false, message: 'No bus assigned' });
+    }
+    const bus = student.bus;
+    res.json({
+      success: true,
+      data: {
+        _id:              bus._id,
+        busNumber:        bus.busNumber,
+        driverName:       bus.driverName,
+        driverPhone:      bus.driverPhone,
+        routeName:        bus.routeName,
+        busStatus:        bus.busStatus,
+        firebasePath:     bus.driverToken,
+        stops:            bus.stops,
+        currentStopIndex: bus.currentStopIndex,
+        studentName:      student.name,
+        studentClass:     student.class
+          ? `Class ${student.class}${student.section ? '-' + student.section : ''}`
+          : '—',
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ─────────────────────────────────────────
 // ADMIN
 // ─────────────────────────────────────────
-
 router.get('/', protect, authorizeRoles('admin'), async (req, res) => {
   try {
     const buses = await Transport.find({ school: req.user.school })
@@ -49,6 +97,17 @@ router.post('/', protect, authorizeRoles('admin'), async (req, res) => {
     res.status(201).json({ success: true, data: bus });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+router.get('/students', protect, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const students = await Student.find({ school: req.user.school, isActive: true })
+      .select('name rollNumber class section bus')
+      .populate('bus', 'busNumber');
+    res.json({ success: true, data: students });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
@@ -111,74 +170,9 @@ router.delete('/:id', protect, authorizeRoles('admin'), async (req, res) => {
   }
 });
 
-router.get('/students', protect, authorizeRoles('admin'), async (req, res) => {
-  try {
-    const students = await Student.find({ school: req.user.school, isActive: true })
-      .select('name rollNumber class section bus')
-      .populate('bus', 'busNumber');
-    res.json({ success: true, data: students });
-  } catch (e) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
-
-// ─────────────────────────────────────────
-// PARENT
-// ─────────────────────────────────────────
-
-router.get('/my-child-bus', protect, authorizeRoles('parent', 'student'), async (req, res) => {
-  try {
-    let student;
-
-    if (req.user.role === 'student') {
-      student = await Student.findOne({ userId: req.user._id }).populate({
-        path: 'bus',
-        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
-      });
-    } else {
-      const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
-      if (!parent || !parent.children.length) {
-        return res.status(404).json({ success: false, message: 'No children linked to this account' });
-      }
-      const child = parent.children[0];
-      student = await Student.findById(child._id).populate({
-        path: 'bus',
-        select: 'busNumber driverName driverPhone routeName firebaseKey driverToken busStatus stops currentStopIndex',
-      });
-    }
-
-    if (!student?.bus) {
-      return res.status(404).json({ success: false, message: 'No bus assigned' });
-    }
-
-    const bus = student.bus;
-    res.json({
-      success: true,
-      data: {
-        _id:              bus._id,
-        busNumber:        bus.busNumber,
-        driverName:       bus.driverName,
-        driverPhone:      bus.driverPhone,
-        routeName:        bus.routeName,
-        busStatus:        bus.busStatus,
-        firebasePath:     bus.driverToken,
-        stops:            bus.stops,
-        currentStopIndex: bus.currentStopIndex,
-        studentName:      student.name,
-        studentClass:     student.class
-          ? `Class ${student.class}${student.section ? '-' + student.section : ''}`
-          : '—',
-      },
-    });
-  } catch (e) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
-
 // ─────────────────────────────────────────
 // DRIVER
 // ─────────────────────────────────────────
-
 router.get('/driver/:token', async (req, res) => {
   try {
     const bus = await Transport.findOne({ driverToken: req.params.token })
