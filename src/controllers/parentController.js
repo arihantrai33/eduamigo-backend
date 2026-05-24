@@ -11,14 +11,14 @@ const createParent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email and phone are required' });
     }
 
-    // Parent ka User account bhi banao
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    const hashedPassword = await bcrypt.hash(phone, 10); // default password = phone number
-    user = await User.create({
+    const hashedPassword = await bcrypt.hash(phone, 10);
+
+    const user = await User.create({       // ✅ const added — was missing
       name, email,
       password: hashedPassword,
       role: 'parent',
@@ -30,7 +30,7 @@ const createParent = async (req, res) => {
       children: children || [],
       gender, address, occupation,
       school: req.user.school,
-      userId: user._id,       // ✅ yeh link critical hai
+      userId: user._id,
     });
 
     await User.findByIdAndUpdate(user._id, { profileId: parent._id });
@@ -41,7 +41,40 @@ const createParent = async (req, res) => {
       data: parent,
       loginInfo: {
         email,
-        defaultPassword: phone, // admin ko dikhao
+        defaultPassword: phone,
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ✅ NEW — Parent apna linked child dekhe
+const getMyChild = async (req, res) => {
+  try {
+    const parent = await Parent.findOne({ userId: req.user._id })
+      .populate('children', 'name rollNumber class section photo');
+
+    if (!parent) {
+      return res.status(404).json({ success: false, message: 'Parent profile not found' });
+    }
+
+    if (!parent.children || parent.children.length === 0) {
+      return res.status(404).json({ success: false, message: 'No child linked to this parent' });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        parent: {
+          name: parent.name,
+          email: parent.email,
+          phone: parent.phone,
+          gender: parent.gender,
+          address: parent.address,
+          occupation: parent.occupation,
+        },
+        children: parent.children,
       }
     });
   } catch (error) {
@@ -53,7 +86,9 @@ const getParentById = async (req, res) => {
   try {
     const parent = await Parent.findById(req.params.parentId)
       .populate('children', 'name rollNumber class section');
+
     if (!parent) return res.status(404).json({ success: false, message: 'Parent not found' });
+
     res.status(200).json({ success: true, data: parent });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -64,7 +99,9 @@ const getParentByStudent = async (req, res) => {
   try {
     const parent = await Parent.findOne({ children: req.params.studentId })
       .populate('children', 'name rollNumber class section');
+
     if (!parent) return res.status(404).json({ success: false, message: 'Parent not found' });
+
     res.status(200).json({ success: true, data: parent });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -76,7 +113,9 @@ const getParentDashboard = async (req, res) => {
     const { studentId } = req.params;
     const student = await Student.findById(studentId)
       .select('name rollNumber class section');
+
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
     res.status(200).json({
       success: true,
       data: { student, message: 'Use separate APIs for fees, attendance and results' }
@@ -86,4 +125,10 @@ const getParentDashboard = async (req, res) => {
   }
 };
 
-module.exports = { createParent, getParentById, getParentByStudent, getParentDashboard };
+module.exports = {
+  createParent,
+  getMyChild,        // ✅ exported
+  getParentById,
+  getParentByStudent,
+  getParentDashboard
+};
