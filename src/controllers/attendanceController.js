@@ -38,13 +38,13 @@ const getStudentAttendance = async (req, res) => {
     const filter = { studentId };
     if (month && year) {
       const start = new Date(year, month - 1, 1);
-      const end = new Date(year, month, 0);
+      const end   = new Date(year, month, 0);
       filter.date = { $gte: start, $lte: end };
     }
-    const records = await Attendance.find(filter).sort({ date: -1 });
-    const total = records.length;
-    const present = records.filter(r => r.status === 'Present').length;
-    const absent = records.filter(r => r.status === 'Absent').length;
+    const records    = await Attendance.find(filter).sort({ date: -1 });
+    const total      = records.length;
+    const present    = records.filter(r => r.status === 'Present').length;
+    const absent     = records.filter(r => r.status === 'Absent').length;
     const percentage = total > 0 ? ((present / total) * 100).toFixed(1) : 0;
     res.status(200).json({
       success: true,
@@ -75,10 +75,10 @@ const getMyAttendanceSummary = async (req, res) => {
     if (!student) {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
-    const records = await Attendance.find({ studentId: student._id }).sort({ date: -1 });
-    const total = records.length;
-    const present = records.filter(r => r.status === 'Present').length;
-    const absent = records.filter(r => r.status === 'Absent').length;
+    const records    = await Attendance.find({ studentId: student._id }).sort({ date: -1 });
+    const total      = records.length;
+    const present    = records.filter(r => r.status === 'Present').length;
+    const absent     = records.filter(r => r.status === 'Absent').length;
     const percentage = total > 0 ? ((present / total) * 100).toFixed(1) : 0;
     res.status(200).json({
       success: true,
@@ -89,4 +89,50 @@ const getMyAttendanceSummary = async (req, res) => {
   }
 };
 
-module.exports = { markAttendance, getStudentAttendance, getClassAttendance, getMyAttendanceSummary };
+// ✅ NEW — Parent: child ka attendance summary
+const getChildAttendanceSummary = async (req, res) => {
+  try {
+    const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
+    if (!parent || !parent.children.length) {
+      return res.status(404).json({ success: false, message: 'No child linked to this account' });
+    }
+    const studentId  = parent.children[0]._id;
+    const records    = await Attendance.find({ studentId });
+    const total      = records.length;
+    const present    = records.filter(r => r.status === 'Present').length;
+    const absent     = records.filter(r => r.status === 'Absent').length;
+    const late       = records.filter(r => r.status === 'Late').length;
+    const leave      = records.filter(r => r.status === 'Leave').length;
+    const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
+    res.status(200).json({
+      success: true,
+      data: { present, absent, late, leave, total, percentage }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ NEW — Parent: child ki attendance records
+const getChildAttendanceRecords = async (req, res) => {
+  try {
+    const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
+    if (!parent || !parent.children.length) {
+      return res.status(404).json({ success: false, message: 'No child linked to this account' });
+    }
+    const studentId = parent.children[0]._id;
+    const records   = await Attendance.find({ studentId }).sort({ date: -1 });
+    res.status(200).json({ success: true, data: records });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+module.exports = {
+  markAttendance,
+  getStudentAttendance,
+  getClassAttendance,
+  getMyAttendanceSummary,
+  getChildAttendanceSummary,
+  getChildAttendanceRecords,
+};

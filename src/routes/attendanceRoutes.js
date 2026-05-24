@@ -5,12 +5,16 @@ const {
   markAttendance,
   getStudentAttendance,
   getClassAttendance,
-  getMyAttendanceSummary
+  getMyAttendanceSummary,
+  getChildAttendanceSummary,
+  getChildAttendanceRecords,
 } = require('../controllers/attendanceController');
 
-router.post('/mark', protect, markAttendance);
-router.get('/my-summary', protect, getMyAttendanceSummary);
-router.get('/class/:className', protect, getClassAttendance);
-router.get('/:studentId', getStudentAttendance);
+router.post('/mark',                protect, markAttendance);
+router.get('/my-summary',          protect, getMyAttendanceSummary);
+router.get('/child-summary',       protect, getChildAttendanceSummary);
+router.get('/child-records',       protect, getChildAttendanceRecords);
+router.get('/class/:className',    protect, getClassAttendance);
+router.get('/:studentId',          getStudentAttendance);
 
 module.exports = router;
