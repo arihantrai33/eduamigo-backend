@@ -28,16 +28,15 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+
+    const user = await User.findOne({ email }).populate("school", "name");
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Wrong password' });
-    }
-    if (user.school) {
-      await user.populate("school", "name");
     }
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -48,11 +47,11 @@ const loginUser = async (req, res) => {
       success: true,
       token,
       user: {
-        _id:    user._id,
-        name:   user.name,
-        email:  user.email,
-        role:   user.role,
-        school: user.school?.name || user.school || null,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        school: user.school?.name || null,
       },
     });
   } catch (error) {
