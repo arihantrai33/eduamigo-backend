@@ -5,12 +5,10 @@ const jwt = require('jsonwebtoken');
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, role, school } = req.body;
-
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({
       name, email,
@@ -18,7 +16,6 @@ const registerUser = async (req, res) => {
       role,
       school: school || null,
     });
-
     res.status(201).json({
       success: true,
       data: { _id: user._id, name: user.name, email: user.email, role: user.role, school: user.school },
@@ -31,23 +28,19 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).populate("school", "name");
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Wrong password' });
     }
-
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET || 'eduamigo_secret',
       { expiresIn: '7d' }
     );
-
     res.status(200).json({
       success: true,
       token,
@@ -56,7 +49,7 @@ const loginUser = async (req, res) => {
         name:   user.name,
         email:  user.email,
         role:   user.role,
-        school: user.school,
+        school: user.school?.name || user.school,
       },
     });
   } catch (error) {
