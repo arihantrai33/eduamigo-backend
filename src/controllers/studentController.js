@@ -10,9 +10,39 @@ exports.getStudents = async (req, res) => {
     if (cls)     query.class   = cls;
     if (section) query.section = section;
     if (search)  query.name    = { $regex: search, $options: 'i' };
-
     const students = await Student.find(query).sort({ createdAt: -1 });
     res.json({ success: true, count: students.length, data: students });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// GET /students/classes — Admin: DB mein jo classes hain
+exports.getClasses = async (req, res) => {
+  try {
+    const classes = await Student.distinct('class', {
+      isActive: true,
+      school: req.user.school
+    });
+    const sorted = classes.sort((a, b) => Number(a) - Number(b));
+    res.json({ success: true, data: sorted });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// GET /students/sections?class=9 — Admin: us class ke actual sections
+exports.getSections = async (req, res) => {
+  try {
+    const { class: cls } = req.query;
+    if (!cls) return res.status(400).json({ success: false, message: 'class query param required' });
+    const sections = await Student.distinct('section', {
+      class: cls,
+      isActive: true,
+      school: req.user.school
+    });
+    const sorted = sections.sort();
+    res.json({ success: true, data: sorted });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -21,10 +51,7 @@ exports.getStudents = async (req, res) => {
 // GET /students/my-profile — Student: apna profile
 exports.getMyProfile = async (req, res) => {
   try {
-    const student = await Student.findOne({
-      userId: req.user._id,
-      isActive: true
-    });
+    const student = await Student.findOne({ userId: req.user._id, isActive: true });
     if (!student) return res.status(404).json({ success: false, message: 'Profile not found' });
     res.json({ success: true, data: student });
   } catch (err) {
@@ -35,10 +62,7 @@ exports.getMyProfile = async (req, res) => {
 // GET /students/my-child — Parent: apne bachche ka profile
 exports.getMyChild = async (req, res) => {
   try {
-    const student = await Student.findOne({
-      parentUserId: req.user._id,
-      isActive: true
-    });
+    const student = await Student.findOne({ parentUserId: req.user._id, isActive: true });
     if (!student) return res.status(404).json({ success: false, message: 'Child profile not found' });
     res.json({ success: true, data: student });
   } catch (err) {
@@ -61,7 +85,6 @@ exports.getStudent = async (req, res) => {
 exports.createStudent = async (req, res) => {
   let studentUser = null;
   let parentUser  = null;
-
   try {
     const {
       name, email, phone, rollNumber,
@@ -70,16 +93,15 @@ exports.createStudent = async (req, res) => {
       feeStatus
     } = req.body;
 
-    // Validation
     if (!name || !email || !phone || !rollNumber || !cls || !section) {
       return res.status(400).json({ success: false, message: 'Required fields missing' });
     }
 
-    // Email conflict check
     const existingStudent = await User.findOne({ email });
     if (existingStudent) {
       return res.status(400).json({ success: false, message: 'Student email already registered' });
     }
+
     if (parentEmail) {
       const existingParent = await User.findOne({ email: parentEmail });
       if (existingParent) {
@@ -87,29 +109,24 @@ exports.createStudent = async (req, res) => {
       }
     }
 
-    // Student User account — password = phone number
     const hashedStudentPass = await bcrypt.hash(phone, 10);
     studentUser = await User.create({
-      name,
-      email,
+      name, email,
       password: hashedStudentPass,
-      role:     'student',
-      school:   req.user.school,
+      role: 'student',
+      school: req.user.school,
     });
 
-    // Parent User account — password = parentPhone (fallback: phone)
     if (parentEmail && parentName) {
       const hashedParentPass = await bcrypt.hash(parentPhone || phone, 10);
       parentUser = await User.create({
-        name:   parentName,
-        email:  parentEmail,
+        name: parentName, email: parentEmail,
         password: hashedParentPass,
-        role:   'parent',
+        role: 'parent',
         school: req.user.school,
       });
     }
 
-    // Student record
     const student = await Student.create({
       name, email, phone, rollNumber,
       class: cls, section, gender, dateOfBirth,
@@ -120,7 +137,6 @@ exports.createStudent = async (req, res) => {
       parentUserId: parentUser ? parentUser._id : null,
     });
 
-    // profileId update
     await User.findByIdAndUpdate(studentUser._id, { profileId: student._id });
     if (parentUser) {
       await User.findByIdAndUpdate(parentUser._id, { profileId: student._id });
@@ -131,14 +147,10 @@ exports.createStudent = async (req, res) => {
       data: student,
       credentials: {
         student: { email, password: phone },
-        parent: parentEmail
-          ? { email: parentEmail, password: parentPhone || phone }
-          : null,
+        parent: parentEmail ? { email: parentEmail, password: parentPhone || phone } : null,
       }
     });
-
   } catch (err) {
-    // Rollback on failure
     if (studentUser) await User.findByIdAndDelete(studentUser._id);
     if (parentUser)  await User.findByIdAndDelete(parentUser._id);
     res.status(400).json({ success: false, message: err.message });
@@ -154,12 +166,9 @@ exports.updateStudent = async (req, res) => {
       { new: true, runValidators: true }
     );
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-
-    // User name sync
     if (req.body.name && student.userId) {
       await User.findByIdAndUpdate(student.userId, { name: req.body.name });
     }
-
     res.json({ success: true, data: student });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -175,12 +184,10 @@ exports.deleteStudent = async (req, res) => {
       { new: true }
     );
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-
     if (student.userId)
       await User.findByIdAndUpdate(student.userId,       { isActive: false });
     if (student.parentUserId)
       await User.findByIdAndUpdate(student.parentUserId, { isActive: false });
-
     res.json({ success: true, message: 'Student removed successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
