@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { registerUser, loginUser, getProfile, updateFcmToken } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
+const User = require('../models/User');
 
 // POST /api/users/register
 router.post('/register', registerUser);
@@ -14,6 +15,7 @@ router.get('/profile', protect, getProfile);
 
 // PATCH /api/users/fcm-token — Auth chahiye
 router.patch('/fcm-token', protect, updateFcmToken);
+
 router.post('/reset-temp', async (req, res) => {
   try {
     const bcrypt = require('bcryptjs');
