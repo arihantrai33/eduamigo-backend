@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
+
 const feeReminderJob = require('./src/jobs/feeReminder');
 const app = express();
 
@@ -12,19 +13,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api/students',      require('./src/routes/studentRoutes'));
-app.use('/api/teachers',      require('./src/routes/teacherRoutes'));
-app.use('/api/parents',       require('./src/routes/parentRoutes'));
-app.use('/api/fees',          require('./src/routes/feeRoutes'));
-app.use('/api/attendance',    require('./src/routes/attendanceRoutes'));
-app.use('/api/exams',         require('./src/routes/examRoutes'));
-app.use('/api/timetable',     require('./src/routes/timetableRoutes'));
-app.use('/api/leaves',        require('./src/routes/leaveRoutes'));
-app.use('/api/notifications', require('./src/routes/notificationRoutes'));
-app.use('/api/transport',     require('./src/routes/transportRoutes'));
-app.use('/api/users',         require('./src/routes/userRoutes'));
-app.use('/api/chat',         require('./src/routes/chatRoutes'));
-app.use('/api/notes',         require('./src/routes/noteRoutes'));   // ✅ ADDED
+app.use('/api/students',       require('./src/routes/studentRoutes'));
+app.use('/api/teachers',       require('./src/routes/teacherRoutes'));
+app.use('/api/parents',        require('./src/routes/parentRoutes'));
+app.use('/api/fees',           require('./src/routes/feeRoutes'));
+app.use('/api/attendance',     require('./src/routes/attendanceRoutes'));
+app.use('/api/exams',          require('./src/routes/examRoutes'));
+app.use('/api/timetable',      require('./src/routes/timetableRoutes'));
+app.use('/api/leaves',         require('./src/routes/leaveRoutes'));
+app.use('/api/notifications',  require('./src/routes/notificationRoutes'));
+app.use('/api/transport',      require('./src/routes/transportRoutes'));
+app.use('/api/users',          require('./src/routes/userRoutes'));
+app.use('/api/chat',           require('./src/routes/chatRoutes'));
+app.use('/api/notes',          require('./src/routes/noteRoutes'));
+app.use('/api/fee-structures', require('./src/routes/feeStructureRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'EduAmigo Backend Running! 🚀' });
