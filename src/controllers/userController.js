@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+require('../models/School');
 
 const registerUser = async (req, res) => {
   try {
@@ -28,9 +29,7 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email }).populate("school", "name");
-
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
