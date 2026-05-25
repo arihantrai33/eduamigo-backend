@@ -9,8 +9,18 @@ const feeStructureSchema = new mongoose.Schema({
   dueDate:       { type: Date,   required: true },
   description:   { type: String, default: '' },
   createdBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  applyHistory:  [{
+    appliedAt:     { type: Date },
+    appliedBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    totalStudents: { type: Number },
+    created:       { type: Number },
+    skipped:       { type: Number },
+  }],
 }, { timestamps: true });
 
-feeStructureSchema.index({ academicYear: 1, class: 1, section: 1, feeType: 1 }, { unique: true });
+feeStructureSchema.index(
+  { academicYear: 1, class: 1, section: 1, feeType: 1 },
+  { unique: true }
+);
 
 module.exports = mongoose.model('FeeStructure', feeStructureSchema);
