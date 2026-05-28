@@ -1,3 +1,4 @@
+// src/api/transport.js
 import axios from 'axios';
 
 const API = import.meta.env.VITE_API_URL;
@@ -11,8 +12,12 @@ const authHeader = () => ({
 // ─────────────────────────────────────────
 
 export const getChildBus = async () => {
-  const res = await axios.get(`${API}/transport/my-child-bus`, authHeader());
-  return res.data;
+  try {
+    const res = await axios.get(`${API}/transport/my-child-bus`, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to fetch child bus details' };
+  }
 };
 
 // ─────────────────────────────────────────
@@ -20,38 +25,70 @@ export const getChildBus = async () => {
 // ─────────────────────────────────────────
 
 export const getAllBuses = async () => {
-  const res = await axios.get(`${API}/transport`, authHeader());
-  return res.data;
+  try {
+    const res = await axios.get(`${API}/transport`, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to fetch buses' };
+  }
 };
 
 export const createBus = async (data) => {
-  const res = await axios.post(`${API}/transport`, data, authHeader());
-  return res.data;
+  try {
+    const res = await axios.post(`${API}/transport`, data, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to create bus' };
+  }
 };
 
 export const updateBus = async (id, data) => {
-  const res = await axios.put(`${API}/transport/${id}`, data, authHeader());
-  return res.data;
+  try {
+    const res = await axios.put(`${API}/transport/${id}`, data, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to update bus' };
+  }
 };
 
 export const updateBusStops = async (id, stops) => {
-  const res = await axios.put(`${API}/transport/${id}/stops`, { stops }, authHeader());
-  return res.data;
+  try {
+    const res = await axios.put(`${API}/transport/${id}/stops`, { stops }, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to update bus stops' };
+  }
 };
 
 export const assignStudents = async (busId, studentIds) => {
-  const res = await axios.put(`${API}/transport/${busId}/assign-students`, { studentIds }, authHeader());
-  return res.data;
+  try {
+    const res = await axios.put(
+      `${API}/transport/${busId}/assign-students`,
+      { studentIds },
+      authHeader()
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to assign students to bus' };
+  }
 };
 
 export const deleteBus = async (id) => {
-  const res = await axios.delete(`${API}/transport/${id}`, authHeader());
-  return res.data;
+  try {
+    const res = await axios.delete(`${API}/transport/${id}`, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to delete bus' };
+  }
 };
 
 export const getStudentsForBus = async () => {
-  const res = await axios.get(`${API}/transport/students`, authHeader());
-  return res.data;
+  try {
+    const res = await axios.get(`${API}/transport/students`, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to fetch students for bus' };
+  }
 };
 
 // ─────────────────────────────────────────
@@ -59,26 +96,62 @@ export const getStudentsForBus = async () => {
 // ─────────────────────────────────────────
 
 export const getDriverBus = async (token) => {
-  const res = await axios.get(`${API}/transport/driver/${token}`);
-  return res.data;
+  try {
+    const res = await axios.get(`${API}/transport/driver/${token}`, authHeader());
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to fetch driver bus details' };
+  }
 };
 
 export const startTrip = async (token) => {
-  const res = await axios.patch(`${API}/transport/driver/${token}/start-trip`);
-  return res.data;
+  try {
+    const res = await axios.patch(
+      `${API}/transport/driver/${token}/start-trip`,
+      {},
+      authHeader()
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to start trip' };
+  }
 };
 
 export const markStopDone = async (token) => {
-  const res = await axios.patch(`${API}/transport/driver/${token}/stop-done`);
-  return res.data;
+  try {
+    const res = await axios.patch(
+      `${API}/transport/driver/${token}/stop-done`,
+      {},
+      authHeader()
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to mark stop as done' };
+  }
 };
 
 export const endTrip = async (token) => {
-  const res = await axios.patch(`${API}/transport/driver/${token}/end-trip`);
-  return res.data;
+  try {
+    const res = await axios.patch(
+      `${API}/transport/driver/${token}/end-trip`,
+      {},
+      authHeader()
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to end trip' };
+  }
 };
 
 export const updateDriverLocation = async (token, lat, lng) => {
-  const res = await axios.post(`${API}/transport/driver/${token}/update-location`, { lat, lng });
-  return res.data;
+  try {
+    const res = await axios.post(
+      `${API}/transport/driver/${token}/update-location`,
+      { lat, lng },
+      authHeader()
+    );
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { message: 'Failed to update driver location' };
+  }
 };
