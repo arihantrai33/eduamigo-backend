@@ -5,10 +5,14 @@ const bcrypt  = require('bcryptjs');
 // GET /api/teachers
 exports.getTeachers = async (req, res) => {
   try {
+    if (!req.user.school) {
+      return res.status(400).json({ success: false, message: 'Admin is not linked to any school' });
+    }
     const { subject, search } = req.query;
-    let query = { school: req.user.school };
-    if (subject) query.subject = subject;
-    if (search) query.name = { $regex: search, $options: 'i' };
+    const query = { school: req.user.school._id || req.user.school, isActive: true };
+    if (subject) query.subjects = subject;
+    if (search)  query.name = { $regex: search, $options: 'i' };
+
     const teachers = await Teacher.find(query).sort({ name: 1 });
     res.json({ success: true, count: teachers.length, data: teachers });
   } catch (err) {
@@ -19,7 +23,8 @@ exports.getTeachers = async (req, res) => {
 // GET /api/teachers/:id
 exports.getTeacher = async (req, res) => {
   try {
-    const teacher = await Teacher.findOne({ _id: req.params.id, school: req.user.school });
+    const schoolId = req.user.school._id || req.user.school;
+    const teacher = await Teacher.findOne({ _id: req.params.id, school: schoolId });
     if (!teacher) return res.status(404).json({ success: false, message: 'Teacher not found' });
     res.json({ success: true, data: teacher });
   } catch (err) {
@@ -30,9 +35,11 @@ exports.getTeacher = async (req, res) => {
 // GET /api/teachers/class/:class
 exports.getTeachersByClass = async (req, res) => {
   try {
+    const schoolId = req.user.school._id || req.user.school;
     const teachers = await Teacher.find({
       assignedClasses: req.params.class,
-      school: req.user.school,
+      school: schoolId,
+      isActive: true,
     });
     res.json({ success: true, count: teachers.length, data: teachers });
   } catch (err) {
@@ -43,18 +50,22 @@ exports.getTeachersByClass = async (req, res) => {
 // POST /api/teachers
 exports.createTeacher = async (req, res) => {
   try {
+    if (!req.user.school) {
+      return res.status(400).json({ success: false, message: 'Admin is not linked to any school' });
+    }
+    const schoolId = req.user.school._id || req.user.school;
     const { email, employeeId, name, phone, ...rest } = req.body;
 
-    // Duplicate check — same school mein
+    // Same school mein duplicate check
     const existing = await Teacher.findOne({
-      school: req.user.school,
+      school: schoolId,
       $or: [{ email }, { employeeId }],
     });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email or Employee ID already exists in your school' });
     }
 
-    // User account — already exist karta ho toh reuse karo
+    // User account banana ya reuse karna
     let user = await User.findOne({ email });
     if (!user) {
       const hashedPassword = await bcrypt.hash(phone || employeeId, 10);
@@ -62,15 +73,17 @@ exports.createTeacher = async (req, res) => {
         name, email, phone,
         password: hashedPassword,
         role: 'teacher',
-        school: req.user.school,
+        school: schoolId,
       });
+    } else if (!user.school) {
+      await User.findByIdAndUpdate(user._id, { school: schoolId });
     }
 
     const teacher = await Teacher.create({
       ...rest,
       name, email, phone, employeeId,
       userId: user._id,
-      school: req.user.school,
+      school: schoolId,
     });
 
     res.status(201).json({
@@ -87,13 +100,16 @@ exports.createTeacher = async (req, res) => {
 // PUT /api/teachers/:id
 exports.updateTeacher = async (req, res) => {
   try {
+    const schoolId = req.user.school._id || req.user.school;
     const { school, userId, ...updateData } = req.body;
+
     const teacher = await Teacher.findOneAndUpdate(
-      { _id: req.params.id, school: req.user.school },
+      { _id: req.params.id, school: schoolId },
       updateData,
       { new: true, runValidators: true }
     );
     if (!teacher) return res.status(404).json({ success: false, message: 'Teacher not found' });
+
     if (teacher.userId) {
       await User.findByIdAndUpdate(teacher.userId, {
         name:  updateData.name  || undefined,
@@ -110,8 +126,9 @@ exports.updateTeacher = async (req, res) => {
 // PATCH /api/teachers/:id/assign-class
 exports.assignClass = async (req, res) => {
   try {
+    const schoolId = req.user.school._id || req.user.school;
     const { className } = req.body;
-    const teacher = await Teacher.findOne({ _id: req.params.id, school: req.user.school });
+    const teacher = await Teacher.findOne({ _id: req.params.id, school: schoolId });
     if (!teacher) return res.status(404).json({ success: false, message: 'Teacher not found' });
     if (teacher.assignedClasses.includes(className)) {
       return res.status(400).json({ success: false, message: `Class ${className} already assigned` });
@@ -127,8 +144,9 @@ exports.assignClass = async (req, res) => {
 // PATCH /api/teachers/:id/remove-class
 exports.removeClass = async (req, res) => {
   try {
+    const schoolId = req.user.school._id || req.user.school;
     const { className } = req.body;
-    const teacher = await Teacher.findOne({ _id: req.params.id, school: req.user.school });
+    const teacher = await Teacher.findOne({ _id: req.params.id, school: schoolId });
     if (!teacher) return res.status(404).json({ success: false, message: 'Teacher not found' });
     teacher.assignedClasses = teacher.assignedClasses.filter(c => c !== className);
     await teacher.save();
@@ -141,8 +159,9 @@ exports.removeClass = async (req, res) => {
 // DELETE /api/teachers/:id
 exports.deleteTeacher = async (req, res) => {
   try {
+    const schoolId = req.user.school._id || req.user.school;
     const teacher = await Teacher.findOneAndUpdate(
-      { _id: req.params.id, school: req.user.school },
+      { _id: req.params.id, school: schoolId },
       { isActive: false },
       { new: true }
     );
