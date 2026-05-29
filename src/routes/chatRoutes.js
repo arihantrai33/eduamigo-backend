@@ -9,9 +9,11 @@ const {
   getBroadcasts,
   getAdminContact,
   getUnreadCount,
+  getTeacherContacts,
 } = require('../controllers/chatController');
 
-router.get('/unread-count',    protect, getUnreadCount);
+router.get("/teacher-contacts", protect, getTeacherContacts);
+router.get("/unread-count",    protect, getUnreadCount);
 router.get('/teachers',        protect, getMyTeachers);
 router.get('/parent-teachers', protect, authorizeRoles('parent'), getParentTeachers);
 router.get('/messages/:roomId',protect, getMessages);

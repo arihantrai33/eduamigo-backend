@@ -166,6 +166,49 @@ const getUnreadCount = async (req, res) => {
   }
 };
 
+const getTeacherContacts = async (req, res) => {
+  try {
+    const teacher = await Teacher.findOne({ userId: req.user._id })
+      .populate("userId", "name");
+    if (!teacher) return res.status(404).json({ success: false, message: "Teacher not found" });
+
+    const students = await Student.find({
+      class: { $in: teacher.assignedClasses || [] },
+      school: req.user.school,
+    }).populate("userId", "name email");
+
+    const contacts = [];
+    for (const s of students) {
+      if (!s.userId) continue;
+      contacts.push({
+        type: "student",
+        _id: s._id,
+        userId: s.userId._id,
+        name: s.userId.name,
+        class: s.class,
+        section: s.section,
+        roomId: [req.user._id, s.userId._id].sort().join("_"),
+      });
+      const parent = await Parent.findOne({ children: s._id }).populate("userId", "name");
+      if (parent&&parent.userId) {
+        contacts.push({
+          type: "parent",
+          _id: parent._id,
+          userId: parent.userId._id,
+          name: parent.userId.name,
+          childName: s.userId.name,
+          class: s.class,
+          section: s.section,
+          roomId: [req.user._id, parent.userId._id].sort().join("_"),
+        });
+      }
+    }
+    res.json({ success: true, data: contacts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 module.exports = {
   getMyTeachers,
   getParentTeachers,
@@ -174,4 +217,5 @@ module.exports = {
   getBroadcasts,
   getAdminContact,
   getUnreadCount,
+  getTeacherContacts,
 };
