@@ -121,6 +121,7 @@ const updateTimetable = async (req, res) => {
   try {
     // school override prevent — school field body se nahi aayegi
     const { school, ...updateData } = req.body;
+    if (!updateData.classTeacher) delete updateData.classTeacher;
 
     const timetable = await Timetable.findOneAndUpdate(
       { _id: req.params.id, school: req.user.school },
