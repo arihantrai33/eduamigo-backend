@@ -1,8 +1,9 @@
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const {
   getTeachers,
   getTeacher,
+  getMe,
   getTeachersByClass,
   createTeacher,
   updateTeacher,
@@ -12,7 +13,10 @@ const {
 } = require('../controllers/teacherController');
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
-// Saare teachers + Create
+// /me — MUST be before /:id
+router.get('/me', protect, authorizeRoles('teacher'), getMe);
+
+// All teachers + Create
 router.route('/')
   .get(protect, authorizeRoles('admin', 'teacher'), getTeachers)
   .post(protect, authorizeRoles('admin'), createTeacher);
@@ -20,7 +24,7 @@ router.route('/')
 // Class ke teachers
 router.get('/class/:class', protect, authorizeRoles('admin', 'teacher', 'parent'), getTeachersByClass);
 
-// Ek teacher + Update + Delete
+// Single teacher + Update + Delete
 router.route('/:id')
   .get(protect, authorizeRoles('admin', 'teacher'), getTeacher)
   .put(protect, authorizeRoles('admin'), updateTeacher)

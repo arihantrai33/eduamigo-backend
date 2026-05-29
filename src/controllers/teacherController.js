@@ -2,6 +2,21 @@ const Teacher = require('../models/Teacher');
 const User    = require('../models/User');
 const bcrypt  = require('bcryptjs');
 
+// GET /api/teachers/me
+exports.getMe = async (req, res) => {
+  try {
+    const teacher = await Teacher.findOne({
+      userId: req.user._id,
+      school: req.user.school._id || req.user.school,
+      isActive: true,
+    });
+    if (!teacher) return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+    res.json({ success: true, data: teacher });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // GET /api/teachers
 exports.getTeachers = async (req, res) => {
   try {
@@ -56,7 +71,6 @@ exports.createTeacher = async (req, res) => {
     const schoolId = req.user.school._id || req.user.school;
     const { email, employeeId, name, phone, ...rest } = req.body;
 
-    // Same school mein duplicate check
     const existing = await Teacher.findOne({
       school: schoolId,
       $or: [{ email }, { employeeId }],
@@ -65,7 +79,6 @@ exports.createTeacher = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email or Employee ID already exists in your school' });
     }
 
-    // User account banana ya reuse karna
     let user = await User.findOne({ email });
     if (!user) {
       const hashedPassword = await bcrypt.hash(phone || employeeId, 10);
