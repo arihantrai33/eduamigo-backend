@@ -42,6 +42,7 @@ const applyLeave = async (req, res) => {
           console.log('Notification failed:', notifErr.message);
         }
       }
+    }
 
     res.status(201).json({ success: true, message: 'Leave request submitted successfully!', data: leave });
   } catch (error) {
