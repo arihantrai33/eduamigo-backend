@@ -32,7 +32,7 @@ const applyLeave = async (req, res) => {
 
     if (user.role === 'student') {
       const student = await Student.findById(user._id);
-      if (student && student.parentId) {
+      if (student && student.parentId) { try {
         await Notification.create({
           userId: student.parentId,
           message: `Leave request submitted for ${user.name} from ${new Date(fromDate).toDateString()} to ${new Date(toDate).toDateString()}. Status: Pending.`,
