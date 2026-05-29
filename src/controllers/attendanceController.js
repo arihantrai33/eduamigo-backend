@@ -2,6 +2,7 @@ const Attendance = require('../models/Attendance');
 const Student = require('../models/Student');
 const Parent = require('../models/Parent');
 const Notification = require('../models/Notification');
+const Teacher = require('../models/Teacher');
 
 const markAttendance = async (req, res) => {
   try {
@@ -26,6 +27,63 @@ const markAttendance = async (req, res) => {
       });
     }
     res.status(201).json({ success: true, message: 'Attendance marked successfully!', data: attendance });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// BULK — puri class ka attendance ek saath save karo
+const markBulkAttendance = async (req, res) => {
+  try {
+    const { records, date, class: studentClass, section } = req.body;
+    if (!records?.length || !date || !studentClass || !section) {
+      return res.status(400).json({ success: false, message: 'records, date, class and section are required' });
+    }
+
+    const teacherDoc = req.user.role === 'teacher'
+      ? await Teacher.findOne({ userId: req.user._id })
+      : null;
+    const teacherId = teacherDoc?._id || null;
+
+    const results = [];
+    for (const r of records) {
+      const existing = await Attendance.findOne({ studentId: r.studentId, date: new Date(date) });
+      if (existing) {
+        existing.status   = r.status;
+        existing.remarks  = r.remarks || '';
+        existing.markedBy = teacherId;
+        await existing.save();
+        results.push(existing);
+      } else {
+        const att = await Attendance.create({
+          studentId: r.studentId,
+          date:      new Date(date),
+          status:    r.status,
+          remarks:   r.remarks || '',
+          class:     studentClass,
+          section,
+          markedBy:  teacherId,
+        });
+        results.push(att);
+      }
+
+      // Parent ko notify karo agar Absent/Late
+      if (r.status !== 'Present') {
+        const parent = await Parent.findOne({ children: r.studentId });
+        if (parent) {
+          const student = await Student.findById(r.studentId);
+          await Notification.create({
+            title:      `Attendance: ${r.status}`,
+            message:    `${student?.name || 'Your child'} was marked ${r.status} on ${date}.`,
+            targetRole: 'parent',
+            targetId:   parent._id,
+            type:       'Info',
+          });
+        }
+      }
+    }
+
+    res.status(200).json({ success: true, message: 'Attendance saved successfully!', count: results.length });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -89,7 +147,6 @@ const getMyAttendanceSummary = async (req, res) => {
   }
 };
 
-// ✅ NEW — Parent: child ka attendance summary
 const getChildAttendanceSummary = async (req, res) => {
   try {
     const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
@@ -113,7 +170,6 @@ const getChildAttendanceSummary = async (req, res) => {
   }
 };
 
-// ✅ NEW — Parent: child ki attendance records
 const getChildAttendanceRecords = async (req, res) => {
   try {
     const parent = await Parent.findOne({ userId: req.user._id }).populate('children');
@@ -130,6 +186,7 @@ const getChildAttendanceRecords = async (req, res) => {
 
 module.exports = {
   markAttendance,
+  markBulkAttendance,
   getStudentAttendance,
   getClassAttendance,
   getMyAttendanceSummary,
