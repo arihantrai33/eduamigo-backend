@@ -32,13 +32,16 @@ const applyLeave = async (req, res) => {
 
     if (user.role === 'student') {
       const student = await Student.findById(user._id);
-      if (student && student.parentId) { try {
-        await Notification.create({
-          userId: student.parentId,
-          message: `Leave request submitted for ${user.name} from ${new Date(fromDate).toDateString()} to ${new Date(toDate).toDateString()}. Status: Pending.`,
-        });
+      if (student && student.parentId) {
+        try {
+          await Notification.create({
+            userId: student.parentId,
+            message: `Leave request submitted for ${user.name} from ${new Date(fromDate).toDateString()} to ${new Date(toDate).toDateString()}. Status: Pending.`,
+          });
+        } catch (notifErr) {
+          console.log('Notification failed:', notifErr.message);
+        }
       }
-    }
 
     res.status(201).json({ success: true, message: 'Leave request submitted successfully!', data: leave });
   } catch (error) {
