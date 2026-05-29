@@ -31,6 +31,8 @@ app.use('/api/marks',          require('./src/routes/markRoutes'));
 app.use('/api/schools',        require('./src/routes/schoolRoutes'));
 
 // Root
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
+
 app.get('/', (req, res) => {
   res.json({ message: 'EduAmigo Backend Running! 🚀' });
 });
