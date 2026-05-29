@@ -28,6 +28,7 @@ app.use('/api/chat',           require('./src/routes/chatRoutes'));
 app.use('/api/notes',          require('./src/routes/noteRoutes'));
 app.use('/api/fee-structures', require('./src/routes/feeStructureRoutes'));
 app.use('/api/marks',          require('./src/routes/markRoutes'));
+app.use('/api/schools',        require('./src/routes/schoolRoutes'));
 
 // Root
 app.get('/', (req, res) => {
