@@ -6,7 +6,7 @@ const Parent    = require('../models/Parent');
 const Timetable = require('../models/Timetable');
 const User      = require('../models/User');
 
-// GET /api/chat/teachers — student ke class ke teachers
+// GET /api/chat/teachers
 const getMyTeachers = async (req, res) => {
   try {
     const student = await Student.findOne({ userId: req.user._id });
@@ -29,7 +29,7 @@ const getMyTeachers = async (req, res) => {
   }
 };
 
-// GET /api/chat/parent-teachers — parent ke child ki class ke teachers (timetable se)
+// GET /api/chat/parent-teachers
 const getParentTeachers = async (req, res) => {
   try {
     const parent = await Parent.findOne({ userId: req.user._id })
@@ -39,7 +39,6 @@ const getParentTeachers = async (req, res) => {
 
     const child = parent.children[0];
 
-    // school filter removed — class+section se query, school isolation teacher model se hogi
     const timetables = await Timetable.find({
       class:   child.class,
       section: child.section,
@@ -49,7 +48,6 @@ const getParentTeachers = async (req, res) => {
       populate: { path: 'userId', select: 'name' },
     });
 
-    // periods flatten + deduplicate by teacher._id
     const seen = new Set();
     const teacherList = [];
 
@@ -155,6 +153,19 @@ const getAdminContact = async (req, res) => {
   }
 };
 
+// GET /api/chat/unread-count
+const getUnreadCount = async (req, res) => {
+  try {
+    const count = await Message.countDocuments({
+      receiverId: req.user._id,
+      read: false,
+    });
+    res.json({ success: true, count });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 module.exports = {
   getMyTeachers,
   getParentTeachers,
@@ -162,4 +173,5 @@ module.exports = {
   sendMessage,
   getBroadcasts,
   getAdminContact,
+  getUnreadCount,
 };

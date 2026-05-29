@@ -59,4 +59,13 @@ const uploadNote = async (req, res) => {
   }
 };
 
-module.exports = { getMyNotes, getMyAssignments, uploadNote };
+const getTeacherUploads = async (req, res) => {
+  try {
+    const notes = await Note.find({ uploadedBy: req.user._id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: notes });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+module.exports = { getMyNotes, getMyAssignments, uploadNote, getTeacherUploads };
