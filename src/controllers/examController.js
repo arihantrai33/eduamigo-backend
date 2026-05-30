@@ -39,7 +39,7 @@ const getMyResults = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
-    const results = await ExamResult.find({ studentId: student._id })
+    const results = await ExamResult.find({ student: student._id })
       .sort({ createdAt: -1 });
 
     const avg = results.length
