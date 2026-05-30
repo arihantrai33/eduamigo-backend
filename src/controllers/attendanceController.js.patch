@@ -1,3 +1,0 @@
-// Replace the notification block in markBulkAttendance
-// Old: if (r.status !== 'Present') { ... Notification.create ... }
-// New: Check existing notification first
