@@ -67,18 +67,25 @@ const markBulkAttendance = async (req, res) => {
         results.push(att);
       }
 
-      // Parent ko notify karo agar Absent/Late
+      // Parent ko notify karo agar Absent/Late — no duplicates
       if (r.status !== 'Present') {
         const parent = await Parent.findOne({ children: r.studentId });
         if (parent) {
           const student = await Student.findById(r.studentId);
-          await Notification.create({
-            title:      `Attendance: ${r.status}`,
-            message:    `${student?.name || 'Your child'} was marked ${r.status} on ${date}.`,
-            targetRole: 'parent',
-            targetId:   parent._id,
-            type:       'Info',
+          const alreadyNotified = await Notification.findOne({
+            targetId: parent._id,
+            title: `Attendance: ${r.status}`,
+            message: { $regex: date }
           });
+          if (!alreadyNotified) {
+            await Notification.create({
+              title:      `Attendance: ${r.status}`,
+              message:    `${student?.name || 'Your child'} was marked ${r.status} on ${date}.`,
+              targetRole: 'parent',
+              targetId:   parent._id,
+              type:       'Info',
+            });
+          }
         }
       }
     }
