@@ -29,6 +29,9 @@ app.use('/api/transport',     require('./src/routes/transportRoutes'));
 app.use('/api/users',         require('./src/routes/userRoutes'));
 app.use('/api/chat',         require('./src/routes/chatRoutes'));
 app.use('/api/notes',         require('./src/routes/noteRoutes'));
+app.use('/api/library',       require('./src/routes/libraryRoutes'));
+app.use('/api/marks',         require('./src/routes/markRoutes'));
+app.use('/api/fee-structure', require('./src/routes/feeStructureRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'EduAmigo Backend Running! 🚀' });

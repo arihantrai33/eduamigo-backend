@@ -81,3 +81,27 @@ const updateFcmToken = async (req, res) => {
 };
 
 module.exports = { registerUser, loginUser, getProfile, updateFcmToken };
+const getAllUsers = async (req, res) => {
+  try {
+    const { role } = req.query;
+    const filter = role && role !== 'all' ? { role } : {};
+    const users = await User.find(filter).select('-password').populate('school', 'name').sort({ createdAt: -1 });
+    res.status(200).json({ success: true, count: users.length, data: users });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const toggleUserStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    user.isActive = !user.isActive;
+    await user.save();
+    res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { registerUser, loginUser, getProfile, updateFcmToken, getAllUsers, toggleUserStatus };
