@@ -25,6 +25,7 @@ app.use('/api/notifications',  require('./src/routes/notificationRoutes'));
 app.use("/api/announcements", require("./src/routes/announcementRoutes"));
 app.use("/api/events", require("./src/routes/eventRoutes"));
 app.use("/api/bulk", require("./src/routes/bulkRoutes"));
+app.use("/api/hr", require("./src/routes/hrRoutes"));
 app.use('/api/transport',      require('./src/routes/transportRoutes'));
 app.use('/api/users',          require('./src/routes/userRoutes'));
 app.use('/api/chat',           require('./src/routes/chatRoutes'));
