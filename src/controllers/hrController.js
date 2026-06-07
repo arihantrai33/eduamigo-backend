@@ -40,8 +40,9 @@ const deleteSalary = async (req, res) => {
 const generateMonthlySalaries = async (req, res) => {
   try {
     const { month, year } = req.body;
-    const teachers = await Teacher.find({ school: req.user.schoolId, isActive: true });
-    const existing = await Salary.find({ month, year, school: req.user.schoolId }).select("teacher");
+    const schoolId = req.user.schoolId || req.user.school;
+    const teachers = await Teacher.find({ school: schoolId });
+    const existing = await Salary.find({ month, year, school: schoolId }).select("teacher");
     const existingIds = existing.map(s => s.teacher.toString());
     const toCreate = teachers.filter(t => !existingIds.includes(t._id.toString()));
     const records = toCreate.map(t => ({
@@ -49,7 +50,7 @@ const generateMonthlySalaries = async (req, res) => {
       basicSalary: t.salary || 0,
       allowances: 0, deductions: 0,
       netSalary: t.salary || 0,
-      school: req.user.schoolId
+      school: schoolId
     }));
     await Salary.insertMany(records);
     res.json({ success: true, message: `Generated salary for ${records.length} teachers`, data: records.length });
