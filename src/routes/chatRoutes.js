@@ -10,9 +10,11 @@ const {
   getAdminContact,
   getUnreadCount,
   getTeacherContacts,
+  getAdminContacts,
 } = require('../controllers/chatController');
 
 router.get("/teacher-contacts", protect, getTeacherContacts);
+router.get("/admin-contacts",   protect, authorizeRoles("admin"), getAdminContacts);
 router.get("/unread-count",    protect, getUnreadCount);
 router.get('/teachers',        protect, getMyTeachers);
 router.get('/parent-teachers', protect, authorizeRoles('parent'), getParentTeachers);

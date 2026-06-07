@@ -209,6 +209,70 @@ const getTeacherContacts = async (req, res) => {
   }
 };
 
+
+// GET /api/chat/admin-contacts — all people who can message admin
+const getAdminContacts = async (req, res) => {
+  try {
+    const adminId = req.user._id;
+    const school  = req.user.school;
+
+    const [students, teachers, parents] = await Promise.all([
+      Student.find({ school }).populate('userId', 'name email'),
+      Teacher.find({ school, isActive: true }).populate('userId', 'name email'),
+      Parent.find({ school }).populate('userId', 'name email').populate('children', 'name class section'),
+    ]);
+
+    const contacts = [];
+
+    for (const s of students) {
+      if (!s.userId) continue;
+      const roomId = [adminId, s.userId._id].sort().join('_');
+      const unread = await Message.countDocuments({ roomId, receiverId: adminId, read: false });
+      const last   = await Message.findOne({ roomId }).sort({ createdAt: -1 });
+      contacts.push({
+        type: 'student', userId: s.userId._id, name: s.userId.name,
+        sub: `Class ${s.class}${s.section ? '-' + s.section : ''}`,
+        roomId, unread, lastMsg: last?.text || '', lastTime: last?.createdAt || null,
+      });
+    }
+
+    for (const t of teachers) {
+      if (!t.userId) continue;
+      const roomId = [adminId, t.userId._id].sort().join('_');
+      const unread = await Message.countDocuments({ roomId, receiverId: adminId, read: false });
+      const last   = await Message.findOne({ roomId }).sort({ createdAt: -1 });
+      contacts.push({
+        type: 'teacher', userId: t.userId._id, name: t.userId.name,
+        sub: t.subject || 'Teacher',
+        roomId, unread, lastMsg: last?.text || '', lastTime: last?.createdAt || null,
+      });
+    }
+
+    for (const p of parents) {
+      if (!p.userId) continue;
+      const roomId = [adminId, p.userId._id].sort().join('_');
+      const unread = await Message.countDocuments({ roomId, receiverId: adminId, read: false });
+      const last   = await Message.findOne({ roomId }).sort({ createdAt: -1 });
+      const child  = p.children?.[0];
+      contacts.push({
+        type: 'parent', userId: p.userId._id, name: p.userId.name,
+        sub: child ? `Parent of ${child.name}` : 'Parent',
+        roomId, unread, lastMsg: last?.text || '', lastTime: last?.createdAt || null,
+      });
+    }
+
+    // Sort: unread first, then by lastTime
+    contacts.sort((a, b) => {
+      if (b.unread !== a.unread) return b.unread - a.unread;
+      return new Date(b.lastTime || 0) - new Date(a.lastTime || 0);
+    });
+
+    res.json({ success: true, data: contacts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 module.exports = {
   getMyTeachers,
   getParentTeachers,
@@ -218,4 +282,5 @@ module.exports = {
   getAdminContact,
   getUnreadCount,
   getTeacherContacts,
+  getAdminContacts,
 };
