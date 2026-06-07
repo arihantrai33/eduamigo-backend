@@ -6,7 +6,8 @@ const StaffLeave = require("../models/StaffLeave");
 const getSalaries = async (req, res) => {
   try {
     const { month, year, teacherId } = req.query;
-    const filter = { school: req.user.schoolId };
+    const schoolId = req.user.schoolId || req.user.school;
+    const filter = { school: schoolId };
     if (month) filter.month = month;
     if (year) filter.year = year;
     if (teacherId) filter.teacher = teacherId;
@@ -61,7 +62,8 @@ const generateMonthlySalaries = async (req, res) => {
 const getStaffLeaves = async (req, res) => {
   try {
     const { status, teacherId } = req.query;
-    const filter = { school: req.user.schoolId };
+    const schoolId = req.user.schoolId || req.user.school;
+    const filter = { school: schoolId };
     if (status) filter.status = status;
     if (teacherId) filter.teacher = teacherId;
     const leaves = await StaffLeave.find(filter).populate("teacher", "name employeeId").sort({ createdAt: -1 });
