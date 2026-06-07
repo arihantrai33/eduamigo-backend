@@ -125,8 +125,21 @@ const getParentDashboard = async (req, res) => {
   }
 };
 
+
+const getAllParents = async (req, res) => {
+  try {
+    const parents = await Parent.find({ school: req.user.school })
+      .populate('children', 'name rollNumber class section photo')
+      .sort({ createdAt: -1 });
+    res.status(200).json({ success: true, count: parents.length, data: parents });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   createParent,
+  getAllParents,
   getMyChild,        // ✅ exported
   getParentById,
   getParentByStudent,

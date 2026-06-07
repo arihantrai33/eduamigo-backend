@@ -3,12 +3,14 @@ const router = express.Router();
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 const {
   createParent,
+  getAllParents,
   getMyChild,
   getParentById,
   getParentByStudent,
   getParentDashboard
 } = require('../controllers/parentController');
 
+router.get('/',                         protect, authorizeRoles('admin'), getAllParents);
 router.post('/',                        protect, authorizeRoles('admin'), createParent);
 router.get('/my-child',                 protect, authorizeRoles('parent'), getMyChild);          // ✅ NEW
 router.get('/dashboard/:studentId',     protect, authorizeRoles('admin', 'parent'), getParentDashboard);
