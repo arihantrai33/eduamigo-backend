@@ -219,7 +219,7 @@ const getAdminContacts = async (req, res) => {
     const [students, teachers, parents] = await Promise.all([
       Student.find({ school }).populate('userId', 'name email'),
       Teacher.find({ school, isActive: true }).populate('userId', 'name email'),
-      Parent.find({ school }).populate('userId', 'name email').populate('children', 'name class section'),
+      Parent.find({ school }).populate('userId', 'name email').populate('children', 'name class section rollNumber'),
     ]);
 
     const contacts = [];
@@ -232,6 +232,9 @@ const getAdminContacts = async (req, res) => {
       contacts.push({
         type: 'student', userId: s.userId._id, name: s.userId.name,
         sub: `Class ${s.class}${s.section ? '-' + s.section : ''}`,
+        studentClass: s.class || null,
+        studentSection: s.section || null,
+        studentRoll: s.rollNumber || null,
         roomId, unread, lastMsg: last?.text || '', lastTime: last?.createdAt || null,
       });
     }
@@ -257,6 +260,10 @@ const getAdminContacts = async (req, res) => {
       contacts.push({
         type: 'parent', userId: p.userId._id, name: p.userId.name,
         sub: child ? `Parent of ${child.name}` : 'Parent',
+        childName: child?.name || null,
+        childClass: child?.class || null,
+        childSection: child?.section || null,
+        childRoll: child?.rollNumber || null,
         roomId, unread, lastMsg: last?.text || '', lastTime: last?.createdAt || null,
       });
     }
