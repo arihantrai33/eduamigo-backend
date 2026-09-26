@@ -7,6 +7,7 @@ const noteSchema = new mongoose.Schema({
   fileUrl:    { type: String },
   fileName:   { type: String },
   fileSize:   { type: String },
+  school:     { type: mongoose.Schema.Types.ObjectId, ref: 'School' },
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
   teacherName:{ type: String },
   class:      { type: String },

@@ -1,6 +1,22 @@
 const Student = require('../models/Student');
 const User    = require('../models/User');
 const bcrypt  = require('bcryptjs');
+const cloudinary   = require('../config/cloudinary');
+const streamifier  = require('streamifier');
+
+// Helper: upload a photo buffer to Cloudinary
+function uploadPhotoToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: 'student_photos', resource_type: 'image' },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+}
 
 // GET /students — Admin: all students
 exports.getStudents = async (req, res) => {
@@ -97,6 +113,12 @@ exports.createStudent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Required fields missing' });
     }
 
+    let photoUrl;
+    if (req.file) {
+      const result = await uploadPhotoToCloudinary(req.file.buffer);
+      photoUrl = result.secure_url;
+    }
+
     const existingStudent = await User.findOne({ email });
     if (existingStudent) {
       return res.status(400).json({ success: false, message: 'Student email already registered' });
@@ -132,6 +154,7 @@ exports.createStudent = async (req, res) => {
       class: cls, section, gender, dateOfBirth,
       address, parentName, parentPhone, parentEmail,
       feeStatus:    feeStatus || 'Pending',
+      photo:        photoUrl,
       school:       req.user.school,
       userId:       studentUser._id,
       parentUserId: parentUser ? parentUser._id : null,
@@ -160,9 +183,14 @@ exports.createStudent = async (req, res) => {
 // PUT /students/:id — Admin: student update karo
 exports.updateStudent = async (req, res) => {
   try {
+    const updateData = { ...req.body };
+    if (req.file) {
+      const result = await uploadPhotoToCloudinary(req.file.buffer);
+      updateData.photo = result.secure_url;
+    }
     const student = await Student.findOneAndUpdate(
       { _id: req.params.id, school: req.user.school },
-      req.body,
+      updateData,
       { new: true, runValidators: true }
     );
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const uploadImage = require('../middleware/uploadImageMiddleware');
 const {
   getStudents,
   getStudent,
@@ -26,12 +27,12 @@ router.get('/my-child',   protect, authorizeRoles('parent'), getMyChild);
 // Admin/Teacher: all students
 router.route('/')
   .get(protect,  authorizeRoles('admin', 'teacher'), getStudents)
-  .post(protect, authorizeRoles('admin'),             createStudent);
+  .post(protect, authorizeRoles('admin'), uploadImage.single('photo'), createStudent);
 
 // Admin: single student CRUD
 router.route('/:id')
   .get(protect,    authorizeRoles('admin', 'teacher'), getStudent)
-  .put(protect,    authorizeRoles('admin'),             updateStudent)
+  .put(protect,    authorizeRoles('admin'), uploadImage.single('photo'), updateStudent)
   .delete(protect, authorizeRoles('admin'),             deleteStudent);
 
 module.exports = router;
