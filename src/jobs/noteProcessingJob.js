@@ -1,106 +1,139 @@
 const axios = require('axios');
-const { PDFParse } = require('pdf-parse');
 const cron = require('node-cron');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const Note = require('../models/Note');
 const NoteEmbedding = require('../models/NoteEmbedding');
+const ai = require('../services/ai');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const MAX_ATTEMPTS = 3;
+const LOCK_MINUTES = 15;
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
-// ---- STEP A: split extracted text into overlapping chunks ----
+// Splits text into ~chunkSize character pieces on paragraph/sentence boundaries,
+// with a small overlap so an idea that spans two chunks is still retrievable.
 function chunkText(text, chunkSize = 1200, overlap = 150) {
-  // chunkSize/overlap are in characters here (simple + good enough to start).
+  const clean = String(text).replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  const pieces = clean.split(/(?<=[.!?।])\s+|\n\n/).map((p) => p.trim()).filter(Boolean);
   const chunks = [];
-  let start = 0;
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end).trim());
-    start += chunkSize - overlap;
+  let current = '';
+  for (const piece of pieces) {
+    if (piece.length > chunkSize) {
+      if (current) { chunks.push(current); current = ''; }
+      for (let i = 0; i < piece.length; i += chunkSize - overlap) chunks.push(piece.slice(i, i + chunkSize));
+      continue;
+    }
+    if ((current + ' ' + piece).length > chunkSize && current) {
+      chunks.push(current);
+      current = current.slice(-overlap).replace(/^\S*\s/, '') + ' ' + piece;
+    } else {
+      current = current ? `${current} ${piece}` : piece;
+    }
   }
-  return chunks.filter(c => c.length > 30); // drop tiny/empty leftover chunks
+  if (current) chunks.push(current);
+  return chunks.map((c) => c.trim()).filter((c) => c.length > 30);
 }
 
-// ---- STEP B: generate an embedding for one chunk using Gemini ----
-async function generateEmbedding(text) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
-}
-
-// ---- STEP C: process a single note end-to-end ----
-async function processNote(note) {
-  let parser;
+async function extractPdfText(url) {
+  const { PDFParse } = require('pdf-parse');
+  const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000, maxContentLength: MAX_PDF_BYTES });
+  const parser = new PDFParse({ data: Buffer.from(response.data) });
   try {
-    console.log(`Processing note: ${note.title} (${note._id})`);
-
-    // 1. Download the PDF from Cloudinary
-    const response = await axios.get(note.fileUrl, { responseType: 'arraybuffer' });
-    const pdfBuffer = Buffer.from(response.data);
-
-    // 2. Extract raw text (pdf-parse v2 API — uses PDFParse class)
-    parser = new PDFParse({ data: pdfBuffer });
     const parsed = await parser.getText();
-    const rawText = parsed.text;
-
-    if (!rawText || rawText.trim().length < 50) {
-      console.warn(`Note ${note._id} produced very little text — might be a scanned/image PDF.`);
-      return;
-    }
-
-    // 3. Split into chunks
-    const chunks = chunkText(rawText);
-
-    // 4. Generate embeddings + save, one chunk at a time
-    for (let i = 0; i < chunks.length; i++) {
-      const embedding = await generateEmbedding(chunks[i]);
-
-      await NoteEmbedding.create({
-        noteId: note._id,
-        school: note.school,       // make sure Note.js actually has a `school` field — add it if missing
-        class: note.class,
-        section: note.section,
-        subject: note.subject,
-        chunkText: chunks[i],
-        chunkIndex: i,
-        embedding,
-      });
-    }
-
-    console.log(`Done: ${chunks.length} chunks saved for note ${note._id}`);
-  } catch (err) {
-    console.error(`Failed to process note ${note._id}:`, err.message);
-    // TODO: mark note as "processingFailed" so an admin can see and retry
+    return parsed.text || '';
   } finally {
-    if (parser) {
-      await parser.destroy(); // free memory used by the PDF parser
+    await parser.destroy();
+  }
+}
+
+// Atomically claims one note so two server instances (or overlapping runs) never process the same note.
+async function claimNextNote() {
+  const now = new Date();
+  return Note.findOneAndUpdate(
+    {
+      type: 'Notes',
+      fileUrl: { $ne: null },
+      $or: [
+        { 'processing.status': { $in: ['pending', null] } },
+        { 'processing.status': { $exists: false } },
+        { 'processing.status': 'failed', 'processing.attempts': { $lt: MAX_ATTEMPTS } },
+        { 'processing.status': 'processing', 'processing.lockedUntil': { $lt: now } },
+      ],
+    },
+    {
+      $set: { 'processing.status': 'processing', 'processing.lockedUntil': new Date(now.getTime() + LOCK_MINUTES * 60000) },
+      $inc: { 'processing.attempts': 1 },
+    },
+    { sort: { createdAt: 1 }, returnDocument: 'after' },
+  );
+}
+
+async function processNote(note, deps = {}) {
+  const extract = deps.extractPdfText || extractPdfText;
+  const embed = deps.embedDocuments || ai.embedDocuments;
+  try {
+    if (!note.school || !note.class) throw Object.assign(new Error('Note is missing school or class'), { permanent: true });
+
+    const rawText = await extract(note.fileUrl);
+    if (!rawText || rawText.trim().length < 50) {
+      await Note.updateOne({ _id: note._id }, { $set: {
+        'processing.status': 'skipped', 'processing.error': 'No readable text found (scanned or image-only PDF)',
+        'processing.lockedUntil': null, 'processing.processedAt': new Date(), 'processing.chunks': 0,
+      } });
+      return { status: 'skipped' };
     }
+
+    const chunks = chunkText(rawText);
+    const vectors = await embed(chunks.map((c) => `${note.subject}: ${c}`), note.title);
+    if (vectors.length !== chunks.length) throw new Error('Embedding count mismatch');
+
+    // Replace any partial results from an earlier failed attempt, then insert everything at once.
+    await NoteEmbedding.deleteMany({ noteId: note._id });
+    await NoteEmbedding.insertMany(chunks.map((chunkTextValue, i) => ({
+      noteId: note._id, school: note.school, class: note.class, section: note.section || '',
+      subject: note.subject, chunkText: chunkTextValue, chunkIndex: i, embedding: vectors[i], model: ai.EMBEDDING_MODEL,
+    })));
+
+    await Note.updateOne({ _id: note._id }, { $set: {
+      'processing.status': 'ready', 'processing.chunks': chunks.length, 'processing.error': null,
+      'processing.lockedUntil': null, 'processing.processedAt': new Date(),
+    } });
+    return { status: 'ready', chunks: chunks.length };
+  } catch (err) {
+    await NoteEmbedding.deleteMany({ noteId: note._id });
+    await Note.updateOne({ _id: note._id }, { $set: {
+      'processing.status': 'failed', 'processing.error': String(err.message).slice(0, 500), 'processing.lockedUntil': null,
+      ...(err.permanent ? { 'processing.attempts': MAX_ATTEMPTS } : {}),
+    } });
+    console.error(`Note ${note._id} processing failed:`, err.message);
+    return { status: 'failed', error: err.message };
   }
 }
 
-// ---- STEP D: find notes that haven't been processed yet, and run them ----
-async function runPendingNotes() {
-  // Only picks up notes of type "Notes" (not Assignment/Question Paper) that
-  // don't already have embeddings.
-  const processedNoteIds = await NoteEmbedding.distinct('noteId');
-  const pendingNotes = await Note.find({
-    type: 'Notes',
-    _id: { $nin: processedNoteIds },
-  });
-
-  console.log(`Found ${pendingNotes.length} note(s) waiting to be processed`);
-  for (const note of pendingNotes) {
-    await processNote(note);
+let running = false;
+async function runPendingNotes({ maxNotes = 20, deps } = {}) {
+  if (running) return { skipped: true };
+  running = true;
+  const results = [];
+  try {
+    for (let i = 0; i < maxNotes; i += 1) {
+      const note = await claimNextNote();
+      if (!note) break;
+      results.push(await processNote(note, deps));
+    }
+  } finally {
+    running = false;
   }
+  return { processed: results.length, results };
 }
 
-// ---- STEP E: schedule this to run automatically ----
 function startNoteProcessingJob() {
-  // Runs every 5 minutes — adjust as needed
   cron.schedule('*/5 * * * *', () => {
-    runPendingNotes().catch(err => console.error('noteProcessingJob error:', err.message));
+    runPendingNotes().catch((err) => console.error('noteProcessingJob error:', err.message));
   });
-  console.log('📄 Note processing job scheduled (every 5 min)');
+  console.log('Note processing job scheduled (every 5 minutes)');
 }
 
 module.exports = startNoteProcessingJob;
+module.exports.runPendingNotes = runPendingNotes;
+module.exports.processNote = processNote;
+module.exports.chunkText = chunkText;

@@ -1,102 +1,102 @@
 const Note = require('../models/Note');
-const Student = require('../models/Student');
+const NoteEmbedding = require('../models/NoteEmbedding');
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
+const { HttpError, asyncHandler, assertId } = require('../utils/http');
+const { parseClassKey, teacherCoversClass } = require('../utils/classes');
+const { toDayKey } = require('../utils/dates');
+const { studentForUser, teacherForUser } = require('../services/directory');
 
-// Helper: upload a buffer to Cloudinary using a stream
-function uploadBufferToCloudinary(buffer, originalName) {
+const TYPES = ['Notes', 'Assignment', 'Resource', 'Question Paper'];
+
+function uploadBufferToCloudinary(buffer, originalName, school) {
+  const safeName = String(originalName).replace(/\.[^/.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60);
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: 'raw', // PDFs are treated as raw files by Cloudinary
-        folder: 'eduamigo_notes',
-        public_id: `${Date.now()}_${originalName.replace(/\.[^/.]+$/, '')}`,
-      },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }
+      { resource_type: 'raw', folder: `eduamigo/${school}/notes`, public_id: `${Date.now()}_${safeName}.pdf` },
+      (error, result) => (error ? reject(error) : resolve(result)),
     );
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 }
 
-// GET /api/notes/my — student ke class ke notes
-const getMyNotes = async (req, res) => {
-  try {
-    const student = await Student.findOne({ userId: req.user._id });
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+async function notesForStudent(req, types) {
+  const student = await studentForUser(req.user);
+  if (!student) throw new HttpError(404, 'Student not found');
+  return Note.find({
+    school: req.schoolId, class: student.class, section: { $in: [student.section, '', null] }, type: { $in: types },
+  }).select('-processing.lockedUntil');
+}
 
-    const notes = await Note.find({
-      class: student.class,
-      section: student.section,
-      type: { $in: ['Notes', 'Resource', 'Question Paper'] }
-    }).sort({ createdAt: -1 });
+// GET /api/notes/my (student)
+const getMyNotes = asyncHandler(async (req, res) => {
+  const notes = await (await notesForStudent(req, ['Notes', 'Resource', 'Question Paper'])).sort((a, b) => b.createdAt - a.createdAt);
+  res.json({ success: true, data: notes });
+});
 
-    res.json({ success: true, data: notes });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+// GET /api/notes/assignments (student)
+const getMyAssignments = asyncHandler(async (req, res) => {
+  const list = (await notesForStudent(req, ['Assignment'])).sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
+  res.json({ success: true, data: list });
+});
+
+// POST /api/notes/upload (teacher of that class, or admin) — multipart with a PDF "file"
+const uploadNote = asyncHandler(async (req, res) => {
+  const { title, subject, dueDate } = req.body || {};
+  const type = TYPES.includes(req.body?.type) ? req.body.type : 'Notes';
+  const key = parseClassKey(req.body?.class, req.body?.section);
+  if (!title || !subject || !key.class) throw new HttpError(400, 'Title, subject and class are required');
+  if (!req.file) throw new HttpError(400, 'PDF file is required');
+  if (type === 'Assignment' && !dueDate) throw new HttpError(400, 'Due date is required for assignments');
+
+  if (req.user.role === 'teacher') {
+    const teacher = await teacherForUser(req.user);
+    if (!teacherCoversClass(teacher, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
   }
-};
 
-// GET /api/notes/assignments — student ke assignments
-const getMyAssignments = async (req, res) => {
-  try {
-    const student = await Student.findOne({ userId: req.user._id });
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+  const result = await uploadBufferToCloudinary(req.file.buffer, req.file.originalname, req.schoolId);
+  const due = dueDate ? toDayKey(dueDate) : null;
+  const note = await Note.create({
+    school: req.schoolId, title: String(title).trim(), subject: String(subject).trim(), type,
+    class: key.class, section: key.section,
+    fileUrl: result.secure_url, fileName: req.file.originalname, fileSize: String(req.file.size),
+    dueDate: due, teacherName: req.user.name, uploadedBy: req.user._id,
+    status: due && due - new Date() < 86400000 ? 'Urgent' : 'Pending',
+    processing: { status: type === 'Notes' ? 'pending' : 'skipped' },
+  });
+  res.status(201).json({ success: true, message: 'Uploaded successfully. It will be available in AI revision within a few minutes.', data: note });
+});
 
-    const assignments = await Note.find({
-      class: student.class,
-      section: student.section,
-      type: 'Assignment'
-    }).sort({ dueDate: 1 });
+// GET /api/notes/teacher (teacher: own uploads; admin: all uploads in the school)
+const getTeacherUploads = asyncHandler(async (req, res) => {
+  const filter = { school: req.schoolId };
+  if (req.user.role === 'teacher') filter.uploadedBy = req.user._id;
+  const notes = await Note.find(filter).sort({ createdAt: -1 });
+  res.json({ success: true, data: notes });
+});
 
-    res.json({ success: true, data: assignments });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+// DELETE /api/notes/:id (uploader or admin) — also removes the note from AI revision
+const deleteNote = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const note = await Note.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!note) throw new HttpError(404, 'Note not found');
+  if (req.user.role !== 'admin' && String(note.uploadedBy) !== String(req.user._id)) {
+    throw new HttpError(403, 'You can only delete your own uploads');
   }
-};
+  await NoteEmbedding.deleteMany({ noteId: note._id });
+  await note.deleteOne();
+  res.json({ success: true, message: 'Deleted' });
+});
 
-// POST /api/notes/upload — teacher note upload kare (real PDF file -> Cloudinary)
-const uploadNote = async (req, res) => {
-  try {
-    const { title, subject, type, class: cls, section, dueDate } = req.body;
+// POST /api/notes/:id/reprocess (uploader or admin) — retry AI processing
+const reprocessNote = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const note = await Note.findOne({ _id: req.params.id, school: req.schoolId, type: 'Notes' });
+  if (!note) throw new HttpError(404, 'Note not found');
+  if (req.user.role !== 'admin' && String(note.uploadedBy) !== String(req.user._id)) throw new HttpError(403, 'Not allowed');
+  note.processing = { status: 'pending', attempts: 0, chunks: 0, error: null, lockedUntil: null };
+  await note.save();
+  res.json({ success: true, message: 'Queued for processing' });
+});
 
-    if (!title || !subject || !cls) {
-      return res.status(400).json({ success: false, message: 'title, subject, class are required' });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'PDF file is required' });
-    }
-
-    const result = await uploadBufferToCloudinary(req.file.buffer, req.file.originalname);
-
-    const note = await Note.create({
-      title, subject, type, class: cls, section,
-      fileUrl: result.secure_url,
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-      dueDate,
-      teacherName: req.user?.name || 'Teacher',
-      uploadedBy: req.user._id,
-      school: req.user.school._id,
-      status: dueDate && new Date(dueDate) - new Date() < 86400000 ? 'Urgent' : 'Pending'
-    });
-
-    res.status(201).json({ success: true, message: 'Note uploaded successfully', data: note });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-const getTeacherUploads = async (req, res) => {
-  try {
-    const notes = await Note.find({ uploadedBy: req.user._id }).sort({ createdAt: -1 });
-    res.json({ success: true, data: notes });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-module.exports = { getMyNotes, getMyAssignments, uploadNote, getTeacherUploads };
+module.exports = { getMyNotes, getMyAssignments, uploadNote, getTeacherUploads, deleteNote, reprocessNote };

@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
-const { getMyNotes, getMyAssignments, uploadNote, getTeacherUploads } = require('../controllers/noteController');
+const c = require('../controllers/noteController');
 
-router.get('/my',           protect, getMyNotes);
-router.get('/assignments',  protect, getMyAssignments);
-router.post('/upload',      protect, upload.single('file'), uploadNote);
-router.get('/teacher',      protect, getTeacherUploads);
+router.use(protect);
+router.get('/my',              authorizeRoles('student'), c.getMyNotes);
+router.get('/assignments',     authorizeRoles('student'), c.getMyAssignments);
+router.post('/upload',         authorizeRoles('teacher', 'admin'), upload.single('file'), c.uploadNote);
+router.get('/teacher',         authorizeRoles('teacher', 'admin'), c.getTeacherUploads);
+router.delete('/:id',          authorizeRoles('teacher', 'admin'), c.deleteNote);
+router.post('/:id/reprocess',  authorizeRoles('teacher', 'admin'), c.reprocessNote);
 
 module.exports = router;
