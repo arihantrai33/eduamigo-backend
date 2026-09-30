@@ -15,6 +15,8 @@ const leaveSchema = new mongoose.Schema({
   toDate:      { type: Date, required: true },
   days:        { type: Number, default: 1 },
   reason:      { type: String, required: true, maxlength: 1000 },
+  attachmentUrl:  { type: String, default: null },
+  attachmentName: { type: String, default: null },
 
   status:      { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending' },
   reviewedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

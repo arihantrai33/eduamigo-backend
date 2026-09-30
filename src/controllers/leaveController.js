@@ -26,6 +26,8 @@ const applyLeave = asyncHandler(async (req, res) => {
   if (!from || !to) throw new HttpError(400, 'Invalid dates');
   if (to < from) throw new HttpError(400, 'End date cannot be before start date');
   const days = daysBetweenInclusive(from, to);
+  const attachmentUrl = req.body.attachmentUrl ? String(req.body.attachmentUrl) : null;
+  if (attachmentUrl && !/^https:\/\//i.test(attachmentUrl)) throw new HttpError(400, 'Invalid attachment link');
   if (days > 60) throw new HttpError(400, 'A single leave request cannot exceed 60 days');
 
   let student = null;
@@ -44,6 +46,7 @@ const applyLeave = asyncHandler(async (req, res) => {
     class: student?.class,
     section: student?.section,
     leaveType, fromDate: from, toDate: to, days, reason,
+    attachmentUrl, attachmentName: attachmentUrl ? String(req.body.attachmentName || 'Attachment').slice(0, 200) : null,
   });
 
   if (student && req.user.role === 'student') {

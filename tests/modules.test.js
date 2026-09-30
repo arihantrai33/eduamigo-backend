@@ -175,8 +175,9 @@ describe('HR', () => {
 describe('leave requests', () => {
   test('parent applies for child, class teacher approves, parent is notified', async () => {
     const applied = await api().post('/api/leaves/apply').set(auth(A.parentUser))
-      .send({ leaveType: 'Sick', fromDate: '2026-09-10', toDate: '2026-09-11', reason: 'Fever' });
+      .send({ leaveType: 'Sick', fromDate: '2026-09-10', toDate: '2026-09-11', reason: 'Fever', attachmentUrl: 'https://res.cloudinary.com/x/report.pdf', attachmentName: 'report.pdf' });
     expect(applied.status).toBe(201);
+    expect(applied.body.data.attachmentName).toBe('report.pdf');
     expect(applied.body.data.class).toBe('10');
     expect(applied.body.data.days).toBe(2);
 
@@ -312,6 +313,21 @@ describe('notifications read state', () => {
     expect(mine.body.unread).toBe(0);
     const teacher = await api().get('/api/notifications/my').set(auth(A.teacherUser));
     expect(teacher.body.data).toHaveLength(0);
+  });
+});
+
+describe('parents with more than one child', () => {
+  test('parent chooses which child fees, attendance and leave apply to', async () => {
+    const Student = require('../src/models/Student');
+    const sibling = await Student.create({ name: 'Kiara', email: 'kiara@x.com', phone: '1', rollNumber: '9', class: '6', section: 'B', school: A.school._id, parentUserId: A.parentUser._id });
+    const leave = await api().post('/api/leaves/apply').set(auth(A.parentUser))
+      .send({ leaveType: 'Family', fromDate: '2026-09-10', toDate: '2026-09-10', reason: 'Wedding', studentId: String(sibling._id) });
+    expect(leave.body.data.name).toBe('Kiara');
+    expect(leave.body.data.class).toBe('6');
+    const summary = await api().get(`/api/attendance/child-summary?studentId=${sibling._id}`).set(auth(A.parentUser));
+    expect(summary.body.student.name).toBe('Kiara');
+    const stranger = await api().get(`/api/attendance/child-summary?studentId=${A.otherStudent._id}`).set(auth(A.parentUser));
+    expect(stranger.status).toBe(404);
   });
 });
 
