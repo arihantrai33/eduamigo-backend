@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const c = require('../controllers/hrController');
 
 // Salary and staff data is admin-only.
-router.use(protect, authorizeRoles('admin'));
+router.use(protect, requirePermission('hr.manage'));
 router.get('/salaries',           c.getSalaries);
 router.post('/salaries',          c.createSalary);
 router.post('/salaries/generate', c.generateMonthlySalaries);

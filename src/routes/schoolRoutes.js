@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const School  = require('../models/School');
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 
 // GET /api/schools/subjects — school ki subjects list
 router.get('/subjects', protect, async (req, res) => {
@@ -15,7 +15,7 @@ router.get('/subjects', protect, async (req, res) => {
 });
 
 // POST /api/schools/subjects — add a custom subject
-router.post('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
+router.post('/subjects', protect, requirePermission('settings.manage'), async (req, res) => {
   try {
     const { subject } = req.body;
     if (!subject?.trim()) return res.status(400).json({ success: false, message: 'Subject is required' });
@@ -33,7 +33,7 @@ router.post('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
 });
 
 // DELETE /api/schools/subjects — remove a custom subject
-router.delete('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
+router.delete('/subjects', protect, requirePermission('settings.manage'), async (req, res) => {
   try {
     const { subject } = req.body;
     const school = await School.findById(req.user.school._id || req.user.school);

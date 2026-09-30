@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const c = require('../controllers/libraryController');
 
 router.use(protect);
 router.get('/',       c.getBooks);
-router.post('/',      authorizeRoles('admin'), c.addBook);
-router.patch('/:id',  authorizeRoles('admin'), c.updateBook);
-router.put('/:id',    authorizeRoles('admin'), c.updateBook);
-router.delete('/:id', authorizeRoles('admin'), c.deleteBook);
+router.post('/',      requirePermission('library.manage'), c.addBook);
+router.patch('/:id',  requirePermission('library.manage'), c.updateBook);
+router.put('/:id',    requirePermission('library.manage'), c.updateBook);
+router.delete('/:id', requirePermission('library.manage'), c.deleteBook);
 
 module.exports = router;

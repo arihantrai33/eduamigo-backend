@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const c = require('../controllers/bulkController');
 
-router.use(protect, authorizeRoles('admin'));
+router.use(protect, requirePermission('bulk.manage'));
 router.post('/attendance',      c.bulkAttendance);
 router.post('/promote',         c.bulkPromote);
 router.post('/fee-reminder',    c.bulkFeeReminder);

@@ -314,3 +314,12 @@ describe('notifications read state', () => {
     expect(teacher.body.data).toHaveLength(0);
   });
 });
+
+describe('row-level access', () => {
+  test('teachers read academic records only for their own classes', async () => {
+    const own = await api().get(`/api/attendance/student/${A.student._id}/summary`).set(auth(A.teacherUser));
+    expect(own.status).toBe(200);
+    const other = await api().get(`/api/exams/student/${A.otherStudent._id}/results`).set(auth(A.teacherUser));
+    expect(other.status).toBe(404);
+  });
+});

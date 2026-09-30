@@ -5,6 +5,7 @@
 const Student = require('../models/Student');
 const Teacher = require('../models/Teacher');
 const Parent = require('../models/Parent');
+const { teacherCoversClass } = require('../utils/classes');
 
 async function studentForUser(user) {
   return Student.findOne({ userId: user._id, school: user.school._id || user.school, isActive: true });
@@ -45,12 +46,14 @@ async function parentUserIdsForStudent(student) {
   return [...ids];
 }
 
-// Can this user read data about this student? (admin/teacher of school, the student, or a linked parent)
+// Can this user read academic data about this student?
 async function canAccessStudent(user, student) {
   if (!student) return false;
   const school = String(user.school._id || user.school);
   if (String(student.school) !== school) return false;
-  if (user.role === 'admin' || user.role === 'teacher') return true;
+  // Academic records (attendance, results): admins see everyone, teachers only their assigned classes.
+  if (user.role === 'admin') return true;
+  if (user.role === 'teacher') return teacherCoversClass(await teacherForUser(user), student.class, student.section);
   if (user.role === 'student') return String(student.userId) === String(user._id);
   if (user.role === 'parent') return (await parentUserIdsForStudent(student)).includes(String(user._id));
   return false;

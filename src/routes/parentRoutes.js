@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const {
   createParent,
   getAllParents,
@@ -10,11 +10,11 @@ const {
   getParentDashboard
 } = require('../controllers/parentController');
 
-router.get('/',                         protect, authorizeRoles('admin'), getAllParents);
-router.post('/',                        protect, authorizeRoles('admin'), createParent);
+router.get('/',                         protect, requirePermission('parents.read'), getAllParents);
+router.post('/',                        protect, requirePermission('parents.manage'), createParent);
 router.get('/my-child',                 protect, authorizeRoles('parent'), getMyChild);
 router.get('/dashboard/:studentId',     protect, authorizeRoles('admin', 'parent'), getParentDashboard);
-router.get('/student/:studentId',       protect, authorizeRoles('admin'), getParentByStudent);
+router.get('/student/:studentId',       protect, requirePermission('parents.read'), getParentByStudent);
 router.get('/:parentId',               protect, authorizeRoles('admin', 'parent'), getParentById);
 
 module.exports = router;

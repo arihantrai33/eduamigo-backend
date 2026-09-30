@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { jwtSecret } = require('../config/env');
+const { hasPermission } = require('../config/permissions');
 
 // Verifies the JWT, loads the user, and attaches the tenant (school) to the request.
 // Every protected route can rely on req.user and req.schoolId being set.
@@ -48,4 +49,12 @@ const authorizeRoles = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { protect, authorizeRoles };
+// Allows the request if the user's role grants the permission (see config/permissions.js).
+const requirePermission = (permission) => (req, res, next) => {
+  if (!hasPermission(req.user?.role, permission)) {
+    return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
+  }
+  next();
+};
+
+module.exports = { protect, authorizeRoles, requirePermission };

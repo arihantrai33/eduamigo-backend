@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const { loginLimiter } = require('../middleware/rateLimit');
 const c = require('../controllers/userController');
 
@@ -11,9 +11,9 @@ router.get('/profile', c.getProfile);
 router.patch('/password', c.changePassword);
 router.patch('/fcm-token', c.updateFcmToken);
 
-router.post('/register', authorizeRoles('admin'), c.registerUser);
-router.get('/', authorizeRoles('admin'), c.getAllUsers);
-router.patch('/:id/toggle', authorizeRoles('admin'), c.toggleUserStatus);
-router.post('/:id/reset-password', authorizeRoles('admin'), c.resetPassword);
+router.post('/register', requirePermission('users.manage'), c.registerUser);
+router.get('/', requirePermission('users.manage'), c.getAllUsers);
+router.patch('/:id/toggle', requirePermission('users.manage'), c.toggleUserStatus);
+router.post('/:id/reset-password', requirePermission('users.manage'), c.resetPassword);
 
 module.exports = router;

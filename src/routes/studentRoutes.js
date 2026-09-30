@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const uploadImage = require('../middleware/uploadImageMiddleware');
 const {
   getStudents,
@@ -15,8 +15,8 @@ const {
 } = require('../controllers/studentController');
 
 // Dynamic classes & sections — Fee Structure ke liye
-router.get('/classes',    protect, authorizeRoles('admin', 'teacher'), getClasses);
-router.get('/sections',   protect, authorizeRoles('admin', 'teacher'), getSections);
+router.get('/classes',    protect, requirePermission('students.read'), getClasses);
+router.get('/sections',   protect, requirePermission('students.read'), getSections);
 
 // Student: own profile
 router.get('/my-profile', protect, authorizeRoles('student'), getMyProfile);
@@ -26,13 +26,13 @@ router.get('/my-child',   protect, authorizeRoles('parent'), getMyChild);
 
 // Admin/Teacher: all students
 router.route('/')
-  .get(protect,  authorizeRoles('admin', 'teacher'), getStudents)
-  .post(protect, authorizeRoles('admin'), uploadImage.single('photo'), createStudent);
+  .get(protect,  requirePermission('students.read'), getStudents)
+  .post(protect, requirePermission('students.manage'), uploadImage.single('photo'), createStudent);
 
 // Admin: single student CRUD
 router.route('/:id')
-  .get(protect,    authorizeRoles('admin', 'teacher'), getStudent)
-  .put(protect,    authorizeRoles('admin'), uploadImage.single('photo'), updateStudent)
-  .delete(protect, authorizeRoles('admin'),             deleteStudent);
+  .get(protect,    requirePermission('students.read'), getStudent)
+  .put(protect,    requirePermission('students.manage'), uploadImage.single('photo'), updateStudent)
+  .delete(protect, requirePermission('students.manage'),             deleteStudent);
 
 module.exports = router;

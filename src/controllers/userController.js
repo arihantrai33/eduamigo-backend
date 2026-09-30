@@ -4,7 +4,7 @@ const { jwtSecret } = require('../config/env');
 const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
 const { temporaryPassword, hashPassword, validatePasswordStrength } = require('../services/credentials');
 
-const ADMIN_CREATABLE_ROLES = ['admin', 'teacher', 'student', 'parent'];
+const { ASSIGNABLE_ROLES, permissionsFor } = require('../config/permissions');
 
 const publicUser = (user) => ({
   _id: user._id,
@@ -15,6 +15,7 @@ const publicUser = (user) => ({
   schoolId: user.school?._id || user.school || null,
   profileId: user.profileId,
   mustChangePassword: !!user.mustChangePassword,
+  permissions: permissionsFor(user.role),
 });
 
 // POST /api/users/login
@@ -42,7 +43,9 @@ const registerUser = asyncHandler(async (req, res) => {
   const { name, role, phone } = req.body || {};
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!name || !email || !role) throw new HttpError(400, 'Name, email and role are required');
-  if (!ADMIN_CREATABLE_ROLES.includes(role)) throw new HttpError(400, 'Invalid role');
+  if (!ASSIGNABLE_ROLES.includes(role)) {
+    throw new HttpError(400, 'Only admin and accountant logins can be created here. Add students, parents and teachers from their own screens.');
+  }
   if (await User.exists({ email })) throw new HttpError(409, 'Email already registered');
 
   let password = req.body.password;

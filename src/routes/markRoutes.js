@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const c = require('../controllers/markController');
 
 router.use(protect);
-router.get('/classes',   authorizeRoles('teacher'), c.getMyClasses);
-router.get('/students',  authorizeRoles('teacher'), c.getStudentsByClass);
-router.get('/',          authorizeRoles('teacher', 'admin'), c.getMarks);
-router.post('/save',     authorizeRoles('teacher'), c.saveMarks);
-router.patch('/publish', authorizeRoles('teacher'), c.publishMarks);
+router.get('/classes',   requirePermission('marks.enter'), c.getMyClasses);
+router.get('/students',  requirePermission('marks.enter'), c.getStudentsByClass);
+router.get('/',          requirePermission('results.read'), c.getMarks);
+router.post('/save',     requirePermission('marks.enter'), c.saveMarks);
+router.patch('/publish', requirePermission('marks.enter'), c.publishMarks);
 
 module.exports = router;

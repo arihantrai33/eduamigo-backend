@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const Transport = require('../models/Transport');
 const Student = require('../models/Student');
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 const { studentForUser, resolveChild } = require('../services/directory');
 
@@ -108,12 +108,12 @@ router.post('/sos', protect, authorizeRoles('student', 'parent'), asyncHandler(a
 
 const BUS_FIELDS = ['busNumber', 'driverName', 'driverPhone', 'routeName', 'capacity'];
 
-router.get('/', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.get('/', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   const buses = await Transport.find({ school: req.schoolId }).populate('assignedStudents', 'name rollNumber class section');
   res.json({ success: true, data: buses });
 }));
 
-router.post('/', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.post('/', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   const data = pick(req.body, BUS_FIELDS);
   if (!data.busNumber || !data.driverName || !data.driverPhone || !data.routeName) {
     throw new HttpError(400, 'Bus number, driver name, driver phone and route name are required');
@@ -130,13 +130,13 @@ router.post('/', protect, authorizeRoles('admin'), asyncHandler(async (req, res)
   res.status(201).json({ success: true, data: bus });
 }));
 
-router.get('/students', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.get('/students', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   const students = await Student.find({ school: req.schoolId, isActive: true })
     .select('name rollNumber class section bus').populate('bus', 'busNumber');
   res.json({ success: true, data: students });
 }));
 
-router.put('/:id', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.put('/:id', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const bus = await Transport.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, pick(req.body, BUS_FIELDS), { returnDocument: 'after', runValidators: true });
   if (!bus) throw new HttpError(404, 'Bus not found');
@@ -144,7 +144,7 @@ router.put('/:id', protect, authorizeRoles('admin'), asyncHandler(async (req, re
 }));
 
 // POST /api/transport/:id/regenerate-token — use when a driver leaves or a token card is lost
-router.post('/:id/regenerate-token', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.post('/:id/regenerate-token', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const bus = await Transport.findOne({ _id: req.params.id, school: req.schoolId });
   if (!bus) throw new HttpError(404, 'Bus not found');
@@ -154,7 +154,7 @@ router.post('/:id/regenerate-token', protect, authorizeRoles('admin'), asyncHand
   res.json({ success: true, data: { driverToken: bus.driverToken } });
 }));
 
-router.put('/:id/stops', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.put('/:id/stops', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const stops = Array.isArray(req.body?.stops) ? req.body.stops : [];
   for (const s of stops) {
@@ -171,7 +171,7 @@ router.put('/:id/stops', protect, authorizeRoles('admin'), asyncHandler(async (r
   res.json({ success: true, data: bus });
 }));
 
-router.put('/:id/assign-students', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.put('/:id/assign-students', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const ids = Array.isArray(req.body?.studentIds) ? req.body.studentIds.map(String) : [];
   ids.forEach((id) => assertId(id, 'student id'));
@@ -192,7 +192,7 @@ router.put('/:id/assign-students', protect, authorizeRoles('admin'), asyncHandle
   res.json({ success: true, data: updated });
 }));
 
-router.delete('/:id', protect, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+router.delete('/:id', protect, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const bus = await Transport.findOne({ _id: req.params.id, school: req.schoolId });
   if (!bus) throw new HttpError(404, 'Bus not found');

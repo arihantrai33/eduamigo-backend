@@ -28,7 +28,7 @@ describe('authentication', () => {
 
   test('admin-created users always belong to the admin\'s school', async () => {
     const res = await api().post('/api/users/register').set(auth(A.admin))
-      .send({ name: 'New Teacher', email: 'new@x.com', role: 'teacher', school: String(B.school._id) });
+      .send({ name: 'New Accountant', email: 'new@x.com', role: 'accountant', school: String(B.school._id) });
     expect(res.status).toBe(201);
     expect(res.body.credentials.password).toBeTruthy();
     const user = await User.findOne({ email: 'new@x.com' });
@@ -69,6 +69,11 @@ describe('authentication', () => {
     expect(old.status).toBe(401);
     const fresh = await api().get('/api/users/profile').set({ Authorization: `Bearer ${res.body.token}` });
     expect(fresh.status).toBe(200);
+  });
+
+  test('students, parents and teachers cannot be created as bare logins', async () => {
+    const res = await api().post('/api/users/register').set(auth(A.admin)).send({ name: 'x', email: 'bare@x.com', role: 'student' });
+    expect(res.status).toBe(400);
   });
 
   test('admins only see users of their own school', async () => {

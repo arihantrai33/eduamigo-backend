@@ -14,10 +14,11 @@ const roomFor = (a, b) => [String(a), String(b)].sort().join('_');
 
 // Who may talk to whom inside a school. Students and parents cannot message each other directly.
 const ALLOWED = {
-  admin: ['admin', 'teacher', 'student', 'parent'],
+  admin: ['admin', 'accountant', 'teacher', 'student', 'parent'],
+  accountant: ['admin', 'accountant', 'parent'],
   teacher: ['admin', 'teacher', 'student', 'parent'],
   student: ['admin', 'teacher'],
-  parent: ['admin', 'teacher'],
+  parent: ['admin', 'accountant', 'teacher'],
 };
 
 // Unread count + last message for many rooms in two queries (instead of 2 per contact).

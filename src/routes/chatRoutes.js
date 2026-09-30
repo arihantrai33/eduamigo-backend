@@ -1,7 +1,7 @@
 const express = require('express');
 const streamifier = require('streamifier');
 const router = express.Router();
-const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const uploadAttachment = require('../middleware/uploadAttachmentMiddleware');
 const cloudinary = require('../config/cloudinary');
 const { asyncHandler, HttpError } = require('../utils/http');
@@ -9,7 +9,7 @@ const c = require('../controllers/chatController');
 
 router.use(protect);
 router.get('/teacher-contacts', authorizeRoles('teacher'), c.getTeacherContacts);
-router.get('/admin-contacts',   authorizeRoles('admin'), c.getAdminContacts);
+router.get('/admin-contacts',   requirePermission('chat.directory'), c.getAdminContacts);
 router.get('/unread-count',     c.getUnreadCount);
 router.get('/teachers',         authorizeRoles('student'), c.getMyTeachers);
 router.get('/parent-teachers',  authorizeRoles('parent'), c.getParentTeachers);
