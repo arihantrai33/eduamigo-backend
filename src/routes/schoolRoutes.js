@@ -14,7 +14,7 @@ router.get('/subjects', protect, async (req, res) => {
   }
 });
 
-// POST /api/schools/subjects — naya subject add karo
+// POST /api/schools/subjects — add a custom subject
 router.post('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
   try {
     const { subject } = req.body;
@@ -32,7 +32,7 @@ router.post('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
   }
 });
 
-// DELETE /api/schools/subjects — subject remove karo
+// DELETE /api/schools/subjects — remove a custom subject
 router.delete('/subjects', protect, authorizeRoles('admin'), async (req, res) => {
   try {
     const { subject } = req.body;

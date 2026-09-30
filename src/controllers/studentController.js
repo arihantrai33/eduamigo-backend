@@ -24,8 +24,11 @@ const UPDATABLE = ['name', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'addr
 exports.getStudents = asyncHandler(async (req, res) => {
   const { class: cls, section, search } = req.query;
   const query = { isActive: true, school: req.schoolId };
-  if (cls) query.class = normalizeClass(cls);
-  if (section) query.section = normalizeSection(section);
+  if (cls || section) {
+    const key = parseClassKey(cls, section);
+    if (key.class) query.class = key.class;
+    if (key.section) query.section = key.section;
+  }
   if (search) query.name = { $regex: escapeRegex(search), $options: 'i' };
 
   if (req.user.role === 'teacher') {

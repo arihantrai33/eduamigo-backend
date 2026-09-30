@@ -59,7 +59,7 @@ function sanitizeHistory(history) {
   return turns;
 }
 
-// Follow-up questions ("explain the second point", "isme se aur batao") carry little meaning alone,
+// Follow-up questions ("explain the second point", "tell me more about this") carry little meaning alone,
 // so the retrieval query includes the student's recent questions.
 function retrievalQuery(question, history) {
   const recentUser = history.filter((t) => t.role === 'user').slice(-2).map((t) => t.parts[0].text);

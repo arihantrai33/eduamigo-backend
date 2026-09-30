@@ -228,3 +228,18 @@ describe('transport', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('SOS', () => {
+  test('parent SOS reaches the school admins only, and is throttled', async () => {
+    const res = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({ lat: 28.6, lng: 77.2 });
+    expect(res.status).toBe(201);
+    expect(res.body.notified).toBe(1);
+    const admin = await api().get('/api/notifications/my').set(auth(A.admin));
+    expect(admin.body.data[0].title).toBe('SOS alert');
+    expect(admin.body.data[0].message).toContain('Aarav');
+    const otherAdmin = await api().get('/api/notifications/my').set(auth(B.admin));
+    expect(otherAdmin.body.data).toHaveLength(0);
+    const again = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({});
+    expect(again.status).toBe(429);
+  });
+});

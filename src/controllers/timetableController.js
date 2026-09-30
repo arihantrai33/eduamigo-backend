@@ -19,13 +19,35 @@ async function validatePeriods(school, periods) {
   }));
 }
 
+// Merges one period into a list, replacing any existing period with the same number.
+function mergePeriod(periods, period) {
+  const no = Number(period.no ?? period.periodNo);
+  if (!(no >= 1)) throw new HttpError(400, 'Period number is required');
+  const rest = (periods || []).filter((p) => Number(p.no ?? p.periodNo) !== no);
+  return [...rest, { ...period, no, periodNo: no }].sort((a, b) => Number(a.no ?? a.periodNo) - Number(b.no ?? b.periodNo));
+}
+
+// GET /api/timetable?class=&section= (admin) — all timetables in the school
+const listTimetables = asyncHandler(async (req, res) => {
+  const filter = { school: req.schoolId };
+  if (req.query.class) {
+    const key = parseClassKey(req.query.class, req.query.section);
+    filter.class = key.class;
+    if (key.section) filter.section = key.section;
+  }
+  const timetables = (await Timetable.find(filter).populate('periods.teacher', 'name subjects')).sort(byDay);
+  res.json({ success: true, data: timetables });
+});
+
+// POST /api/timetable  { class, section, day, periods?: [...], period?: {...} }
 const createTimetable = asyncHandler(async (req, res) => {
   const { day } = req.body || {};
   const key = parseClassKey(req.body?.class, req.body?.section);
   if (!key.class || !key.section || !DAYS.includes(day)) throw new HttpError(400, 'Class, section and a valid day are required');
   const existing = await Timetable.findOne({ school: req.schoolId, class: key.class, section: key.section, day });
   if (existing) throw new HttpError(409, 'A timetable for this class and day already exists');
-  const periods = await validatePeriods(req.schoolId, req.body.periods);
+  const input = req.body.period ? [req.body.period] : req.body.periods;
+  const periods = await validatePeriods(req.schoolId, input);
   const timetable = await Timetable.create({ school: req.schoolId, class: key.class, section: key.section, day, periods, classTeacher: req.body.classTeacher || undefined });
   res.status(201).json({ success: true, message: 'Timetable created successfully', data: timetable });
 });
@@ -72,6 +94,12 @@ const updateTimetable = asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const update = {};
   if (req.body?.periods !== undefined) update.periods = await validatePeriods(req.schoolId, req.body.periods);
+  if (req.body?.period) {
+    const current = await Timetable.findOne({ _id: req.params.id, school: req.schoolId });
+    if (!current) throw new HttpError(404, 'Timetable not found');
+    const [period] = await validatePeriods(req.schoolId, [req.body.period]);
+    update.periods = mergePeriod(current.periods.map((p) => p.toObject()), period);
+  }
   if (req.body?.classTeacher) update.classTeacher = req.body.classTeacher;
   if (req.body?.day) {
     if (!DAYS.includes(req.body.day)) throw new HttpError(400, 'Invalid day');
@@ -90,6 +118,7 @@ const deleteTimetable = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  listTimetables,
   createTimetable, getClassTimetable, getClassDayTimetable, getTeacherTimetable,
   getMyTimetable, updateTimetable, deleteTimetable,
 };

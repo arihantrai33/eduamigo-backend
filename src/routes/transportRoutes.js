@@ -72,6 +72,38 @@ router.get('/my-child-bus', protect, authorizeRoles('student', 'parent'), asyncH
   });
 }));
 
+// POST /api/transport/sos  { studentId?, lat?, lng?, note? } (student, parent)
+// Sends an urgent personal notification to every active admin of the school.
+router.post('/sos', protect, authorizeRoles('student', 'parent'), asyncHandler(async (req, res) => {
+  const User = require('../models/User');
+  const Notification = require('../models/Notification');
+  const School = require('../models/School');
+  const { notifyUser } = require('../services/notify');
+
+  const recent = await Notification.countDocuments({
+    school: req.schoolId, createdBy: req.user._id, title: 'SOS alert', createdAt: { $gt: new Date(Date.now() - 2 * 60 * 1000) },
+  });
+  if (recent) throw new HttpError(429, 'An SOS alert was just sent. The school has been notified. Please call if it is urgent.');
+
+  const student = req.user.role === 'student'
+    ? await studentForUser(req.user)
+    : (await resolveChild(req.user, req.body?.studentId)).child;
+  const bus = student?.bus ? await Transport.findOne({ _id: student.bus, school: req.schoolId }).select('busNumber routeName driverName driverPhone') : null;
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  const where = Number.isFinite(lat) && Number.isFinite(lng) ? ` Location: https://maps.google.com/?q=${lat},${lng}` : '';
+  const note = req.body?.note ? ` Note: ${String(req.body.note).slice(0, 300)}` : '';
+
+  const admins = await User.find({ school: req.schoolId, role: 'admin', isActive: true }).select('_id');
+  const message = `${req.user.role === 'parent' ? `Parent ${req.user.name}` : `Student ${req.user.name}`} raised an SOS`
+    + `${student ? ` for ${student.name} (Class ${student.class}-${student.section})` : ''}`
+    + `${bus ? ` on bus ${bus.busNumber} (${bus.routeName}, driver ${bus.driverName} ${bus.driverPhone})` : ''}.${where}${note}`;
+  await Promise.all(admins.map((a) => notifyUser(req.schoolId, a._id, { title: 'SOS alert', message, type: 'Transport', createdBy: req.user._id })));
+
+  const school = await School.findById(req.schoolId).select('phone');
+  res.status(201).json({ success: true, notified: admins.length, schoolPhone: school?.phone || null });
+}));
+
 // ---------------- Admin ----------------
 
 const BUS_FIELDS = ['busNumber', 'driverName', 'driverPhone', 'routeName', 'capacity'];

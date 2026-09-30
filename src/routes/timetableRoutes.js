@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const {
+  listTimetables,
   createTimetable,
   getClassTimetable,
   getClassDayTimetable,
@@ -11,6 +12,7 @@ const {
 } = require('../controllers/timetableController');
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
+router.get('/',                     protect, authorizeRoles('admin'), listTimetables);
 router.post('/',                    protect, authorizeRoles('admin'), createTimetable);
 router.get('/my',                   protect, authorizeRoles('student'), getMyTimetable);
 router.get('/class/:class',         protect, authorizeRoles('admin', 'teacher', 'parent', 'student'), getClassTimetable);

@@ -275,3 +275,40 @@ describe('students and families', () => {
     expect(String(res.body.data.school)).toBe(String(A.school._id));
   });
 });
+
+describe('timetable', () => {
+  test('admin builds a day period by period and lists it', async () => {
+    const t1 = { class: '10', section: 'A', day: 'Monday', period: { no: 2, subject: 'Science', teacher: String(A.teacher._id), startTime: '09:00', endTime: '09:40' } };
+    const created = await api().post('/api/timetable').set(auth(A.admin)).send(t1);
+    expect(created.status).toBe(201);
+    await api().put(`/api/timetable/${created.body.data._id}`).set(auth(A.admin))
+      .send({ period: { no: 1, subject: 'Mathematics', startTime: '08:20', endTime: '09:00' } }).expect(200);
+    await api().put(`/api/timetable/${created.body.data._id}`).set(auth(A.admin))
+      .send({ period: { no: 2, subject: 'Physics' } }).expect(200);
+    const list = await api().get('/api/timetable').set(auth(A.admin));
+    expect(list.body.data[0].periods.map((p) => p.subject)).toEqual(['Mathematics', 'Physics']);
+    const mine = await api().get('/api/timetable/my').set(auth(A.studentUser));
+    expect(mine.body.data).toHaveLength(1);
+    const other = await api().get('/api/timetable').set(auth(B.admin));
+    expect(other.body.data).toHaveLength(0);
+  });
+
+  test('cannot assign a teacher from another school', async () => {
+    const res = await api().post('/api/timetable').set(auth(A.admin))
+      .send({ class: '10', section: 'A', day: 'Tuesday', period: { no: 1, subject: 'X', teacher: String(B.teacher._id) } });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('notifications read state', () => {
+  test('marking one notification as read', async () => {
+    const sent = await api().post('/api/notifications/send').set(auth(A.admin)).send({ title: 'Holiday', message: 'Closed tomorrow', targetRole: 'parent' });
+    let mine = await api().get('/api/notifications/my').set(auth(A.parentUser));
+    expect(mine.body.unread).toBe(1);
+    await api().patch(`/api/notifications/${sent.body.data._id}/read`).set(auth(A.parentUser)).expect(200);
+    mine = await api().get('/api/notifications/my').set(auth(A.parentUser));
+    expect(mine.body.unread).toBe(0);
+    const teacher = await api().get('/api/notifications/my').set(auth(A.teacherUser));
+    expect(teacher.body.data).toHaveLength(0);
+  });
+});

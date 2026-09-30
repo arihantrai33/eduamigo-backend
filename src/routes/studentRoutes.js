@@ -18,10 +18,10 @@ const {
 router.get('/classes',    protect, authorizeRoles('admin', 'teacher'), getClasses);
 router.get('/sections',   protect, authorizeRoles('admin', 'teacher'), getSections);
 
-// Student: apna profile
+// Student: own profile
 router.get('/my-profile', protect, authorizeRoles('student'), getMyProfile);
 
-// Parent: apne bachche ka profile
+// Parent: linked child's profile
 router.get('/my-child',   protect, authorizeRoles('parent'), getMyChild);
 
 // Admin/Teacher: all students
