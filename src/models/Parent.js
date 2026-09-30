@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const parentSchema = new mongoose.Schema({
   name:       { type: String, required: true },
-  email:      { type: String, required: true, unique: true },
+  email:      { type: String, required: true, lowercase: true, trim: true },
   phone:      { type: String, required: true },
   children:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'Student' }],
   gender:     { type: String, enum: ['Male', 'Female', 'Other'] },
@@ -13,5 +13,8 @@ const parentSchema = new mongoose.Schema({
   userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   isActive:   { type: Boolean, default: true },
 }, { timestamps: true });
+
+parentSchema.index({ school: 1, email: 1 }, { unique: true });
+parentSchema.index({ children: 1 });
 
 module.exports = mongoose.model('Parent', parentSchema);

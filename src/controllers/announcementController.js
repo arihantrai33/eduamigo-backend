@@ -1,68 +1,47 @@
 const Announcement = require('../models/Announcement');
+const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 
-// Create
-const createAnnouncement = async (req, res) => {
-  try {
-    const { title, message, targetRole, priority, isPinned } = req.body;
-    const ann = await Announcement.create({
-      title, message,
-      targetRole: targetRole || 'all',
-      priority: priority || 'normal',
-      isPinned: isPinned || false,
-      createdBy: req.user.id,
-      school: req.user.schoolId,
-    });
-    res.status(201).json({ success: true, data: ann });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const FIELDS = ['title', 'message', 'targetRole', 'priority', 'isPinned'];
 
-// Get all (admin)
-const getAllAnnouncements = async (req, res) => {
-  try {
-    const anns = await Announcement.find({ school: req.user.schoolId })
-      .populate('createdBy', 'name')
-      .sort({ isPinned: -1, createdAt: -1 });
-    res.json({ success: true, data: anns });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const createAnnouncement = asyncHandler(async (req, res) => {
+  const data = pick(req.body, FIELDS);
+  if (!data.title || !data.message) throw new HttpError(400, 'Title and message are required');
+  const ann = await Announcement.create({ ...data, createdBy: req.user._id, school: req.schoolId });
+  res.status(201).json({ success: true, data: ann });
+});
 
-// Get by role (for student/teacher/parent portals)
-const getMyAnnouncements = async (req, res) => {
-  try {
-    const role = req.user.role;
-    const anns = await Announcement.find({
-      school: req.user.schoolId,
-      $or: [{ targetRole: 'all' }, { targetRole: role }]
-    }).sort({ isPinned: -1, createdAt: -1 });
-    res.json({ success: true, data: anns });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const getAllAnnouncements = asyncHandler(async (req, res) => {
+  const anns = await Announcement.find({ school: req.schoolId }).populate('createdBy', 'name').sort({ isPinned: -1, createdAt: -1 });
+  res.json({ success: true, data: anns });
+});
 
-// Toggle pin
-const togglePin = async (req, res) => {
-  try {
-    const ann = await Announcement.findById(req.params.id);
-    if (!ann) return res.status(404).json({ success: false, message: 'Not found' });
-    ann.isPinned = !ann.isPinned;
-    await ann.save();
-    res.json({ success: true, data: ann });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const getMyAnnouncements = asyncHandler(async (req, res) => {
+  const anns = await Announcement.find({ school: req.schoolId, targetRole: { $in: ['all', req.user.role] } })
+    .sort({ isPinned: -1, createdAt: -1 });
+  res.json({ success: true, data: anns });
+});
 
-// Delete
-const deleteAnnouncement = async (req, res) => {
-  try {
-    await Announcement.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: 'Deleted' });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const togglePin = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const ann = await Announcement.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!ann) throw new HttpError(404, 'Announcement not found');
+  ann.isPinned = !ann.isPinned;
+  await ann.save();
+  res.json({ success: true, data: ann });
+});
 
-// Update
-const updateAnnouncement = async (req, res) => {
-  try {
-    const ann = await Announcement.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json({ success: true, data: ann });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const updateAnnouncement = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const ann = await Announcement.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, pick(req.body, FIELDS), { returnDocument: 'after', runValidators: true });
+  if (!ann) throw new HttpError(404, 'Announcement not found');
+  res.json({ success: true, data: ann });
+});
+
+const deleteAnnouncement = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const ann = await Announcement.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
+  if (!ann) throw new HttpError(404, 'Announcement not found');
+  res.json({ success: true, message: 'Deleted' });
+});
 
 module.exports = { createAnnouncement, getAllAnnouncements, getMyAnnouncements, togglePin, deleteAnnouncement, updateAnnouncement };

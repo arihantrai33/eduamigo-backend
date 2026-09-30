@@ -1,103 +1,91 @@
 const Fee = require('../models/Fee');
-const Parent = require('../models/Parent');
 const Student = require('../models/Student');
-const Notification = require('../models/Notification');
+const { HttpError, asyncHandler, assertId } = require('../utils/http');
+const { toDayKey, currentAcademicYear } = require('../utils/dates');
+const { recordPayment, totals } = require('../services/feeService');
+const { studentForUser, childrenForParent } = require('../services/directory');
+const { notifyParents } = require('../services/notify');
 
-const addFee = async (req, res) => {
-  try {
-    const { studentId, amount, month, year, feeType, dueDate } = req.body;
-    if (!studentId || !amount || !month || !year || !dueDate) {
-      return res.status(400).json({ success: false, message: 'studentId, amount, month, year and dueDate are required' });
-    }
-    const fee = await Fee.create({
-      studentId, amount, month, year,
-      feeType: feeType || 'Tuition',
-      dueDate: new Date(dueDate),
-      status: 'Unpaid'
+const sortFees = { dueDate: -1 };
+
+// POST /api/fees/add (admin) — one-off fee for a single student
+const addFee = asyncHandler(async (req, res) => {
+  const { studentId, amount, feeType, dueDate, month, year, academicYear, remarks } = req.body || {};
+  assertId(studentId, 'studentId');
+  if (!(Number(amount) > 0)) throw new HttpError(400, 'Amount must be greater than 0');
+  const due = toDayKey(dueDate);
+  if (!due) throw new HttpError(400, 'A valid due date is required');
+  const student = await Student.findOne({ _id: studentId, school: req.schoolId });
+  if (!student) throw new HttpError(404, 'Student not found');
+
+  const fee = await Fee.create({
+    school: req.schoolId, studentId, amount: Number(amount), feeType: feeType || 'Tuition',
+    dueDate: due, month, year, academicYear: academicYear || currentAcademicYear(due), remarks, status: 'Unpaid',
+  });
+  res.status(201).json({ success: true, message: 'Fee record created successfully', data: fee });
+});
+
+// GET /api/fees (admin) — all fees in the school, filterable
+const getFees = asyncHandler(async (req, res) => {
+  const filter = { school: req.schoolId };
+  if (req.query.status) filter.status = { $in: String(req.query.status).split(',') };
+  if (req.query.academicYear) filter.academicYear = String(req.query.academicYear);
+  if (req.query.studentId) { assertId(req.query.studentId, 'studentId'); filter.studentId = req.query.studentId; }
+  const fees = await Fee.find(filter).populate('studentId', 'name rollNumber class section').sort(sortFees);
+  res.json({ success: true, count: fees.length, summary: totals(fees), data: fees });
+});
+
+// GET /api/fees/pending/all (admin)
+const getAllPendingFees = asyncHandler(async (req, res) => {
+  const fees = await Fee.find({ school: req.schoolId, status: { $ne: 'Paid' } })
+    .populate('studentId', 'name rollNumber class section').sort({ dueDate: 1 });
+  res.json({ success: true, count: fees.length, summary: totals(fees), data: fees });
+});
+
+// GET /api/fees/:studentId (admin)
+const getStudentFees = asyncHandler(async (req, res) => {
+  assertId(req.params.studentId, 'studentId');
+  const fees = await Fee.find({ school: req.schoolId, studentId: req.params.studentId }).sort(sortFees);
+  res.json({ success: true, summary: totals(fees), data: fees });
+});
+
+// GET /api/fees/my (student: own fees; parent: all linked children)
+const getMyFees = asyncHandler(async (req, res) => {
+  let studentIds = [];
+  if (req.user.role === 'parent') {
+    const children = await childrenForParent(req.user);
+    if (!children.length) throw new HttpError(404, 'No children are linked to this account');
+    studentIds = req.query.studentId
+      ? children.filter((c) => String(c._id) === String(req.query.studentId)).map((c) => c._id)
+      : children.map((c) => c._id);
+  } else {
+    const student = await studentForUser(req.user);
+    if (!student) throw new HttpError(404, 'Student not found');
+    studentIds = [student._id];
+  }
+  const fees = await Fee.find({ school: req.schoolId, studentId: { $in: studentIds } })
+    .populate('studentId', 'name class section').sort(sortFees);
+  res.json({ success: true, summary: totals(fees), data: fees });
+});
+
+// PATCH /api/fees/:feeId/pay (admin)  { amount?, mode?, reference? } — omit amount to pay the full balance
+const markFeePaid = asyncHandler(async (req, res) => {
+  assertId(req.params.feeId, 'feeId');
+  const body = req.body || {};
+  const { fee, payment } = await recordPayment({
+    school: req.schoolId, feeId: req.params.feeId,
+    amount: body.amount ?? body.paidAmount, mode: body.mode || body.paymentMode || body.paymentMethod,
+    reference: body.reference, collectedBy: req.user._id,
+  });
+  const student = await Student.findById(fee.studentId);
+  if (student) {
+    await notifyParents(student, {
+      title: 'Fee payment received',
+      message: `Payment of Rs ${payment.amount} received for ${student.name} (${fee.feeType}). Receipt: ${payment.receiptNo}.${fee.status === 'Partial' ? ` Balance due: Rs ${fee.balance}.` : ''}`,
+      type: 'Fee', createdBy: req.user._id,
     });
-    res.status(201).json({ success: true, message: 'Fee record created successfully!', data: fee });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
   }
-};
+  res.json({ success: true, message: fee.status === 'Paid' ? 'Fee fully paid' : 'Partial payment recorded', data: fee, payment });
+});
 
-const getStudentFees = async (req, res) => {
-  try {
-    const fees = await Fee.find({ studentId: req.params.studentId }).sort({ year: -1, month: -1 });
-    const total     = fees.reduce((sum, f) => sum + f.amount, 0);
-    const totalPaid = fees.filter(f => f.status === 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    const totalDue  = fees.filter(f => f.status !== 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    res.status(200).json({ success: true, summary: { total, totalPaid, totalDue }, data: fees });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-const getMyFees = async (req, res) => {
-  try {
-    let fees = [];
-
-    if (req.user.role === 'parent') {
-      const parent = await Parent.findOne({ userId: req.user._id });
-      if (!parent || !parent.children || parent.children.length === 0) {
-        return res.status(404).json({ success: false, message: 'No children found for this parent' });
-      }
-      fees = await Fee.find({ studentId: { $in: parent.children } }).sort({ year: -1, month: -1 });
-    } else {
-      const student = await Student.findOne({ userId: req.user._id });
-      if (!student) {
-        return res.status(404).json({ success: false, message: 'Student not found' });
-      }
-      fees = await Fee.find({ studentId: student._id }).sort({ year: -1, month: -1 });
-    }
-
-    const total     = fees.reduce((sum, f) => sum + f.amount, 0);
-    const totalPaid = fees.filter(f => f.status === 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    const totalDue  = fees.filter(f => f.status !== 'Paid').reduce((sum, f) => sum + f.amount, 0);
-
-    res.status(200).json({ success: true, summary: { total, totalPaid, totalDue }, data: fees });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-const markFeePaid = async (req, res) => {
-  try {
-    const fee = await Fee.findById(req.params.feeId);
-    if (!fee) return res.status(404).json({ success: false, message: 'Fee record not found' });
-
-    fee.status     = 'Paid';
-    fee.paidDate   = new Date();
-    fee.paidAmount = fee.amount;
-    await fee.save();
-
-    const parent = await Student.findById(fee.studentId).then(student =>
-      Parent.findOne({ children: fee.studentId })
-    );
-    if (parent) {
-      const student = await Student.findById(fee.studentId);
-      await Notification.create({
-        title: 'Fee Payment Confirmed',
-        message: `Fee payment of ₹${fee.amount} for ${student?.name || 'your child'} (${fee.month} ${fee.year}) has been received successfully.`,
-        targetRole: 'parent',
-        targetId: parent._id,
-        type: 'Fee'
-      });
-    }
-
-    res.status(200).json({ success: true, message: 'Fee marked as paid successfully!', data: fee });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-const getAllPendingFees = async (req, res) => {
-  try {
-    const fees = await Fee.find({ status: { $ne: 'Paid' } }).populate('studentId', 'name rollNumber class');
-    res.status(200).json({ success: true, count: fees.length, data: fees });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-module.exports = { addFee, getStudentFees, getMyFees, markFeePaid, getAllPendingFees };
+module.exports = { addFee, getFees, getStudentFees, getMyFees, markFeePaid, getAllPendingFees };

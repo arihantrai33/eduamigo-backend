@@ -1,17 +1,18 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const { protect } = require("../middleware/authMiddleware");
-const { getSalaries, createSalary, updateSalary, deleteSalary, generateMonthlySalaries, getStaffLeaves, createStaffLeave, updateStaffLeave, deleteStaffLeave } = require("../controllers/hrController");
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+const c = require('../controllers/hrController');
 
-router.get("/salaries",              protect, getSalaries);
-router.post("/salaries",             protect, createSalary);
-router.post("/salaries/generate",    protect, generateMonthlySalaries);
-router.put("/salaries/:id",          protect, updateSalary);
-router.delete("/salaries/:id",       protect, deleteSalary);
-
-router.get("/leaves",                protect, getStaffLeaves);
-router.post("/leaves",               protect, createStaffLeave);
-router.put("/leaves/:id",            protect, updateStaffLeave);
-router.delete("/leaves/:id",         protect, deleteStaffLeave);
+// Salary and staff data is admin-only.
+router.use(protect, authorizeRoles('admin'));
+router.get('/salaries',           c.getSalaries);
+router.post('/salaries',          c.createSalary);
+router.post('/salaries/generate', c.generateMonthlySalaries);
+router.put('/salaries/:id',       c.updateSalary);
+router.delete('/salaries/:id',    c.deleteSalary);
+router.get('/leaves',             c.getStaffLeaves);
+router.post('/leaves',            c.createStaffLeave);
+router.put('/leaves/:id',         c.updateStaffLeave);
+router.delete('/leaves/:id',      c.deleteStaffLeave);
 
 module.exports = router;

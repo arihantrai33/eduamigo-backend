@@ -1,38 +1,51 @@
-const jwt  = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { jwtSecret } = require('../config/env');
 
+// Verifies the JWT, loads the user, and attaches the tenant (school) to the request.
+// Every protected route can rely on req.user and req.schoolId being set.
 const protect = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  let decoded;
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, message: 'No token provided' });
+    decoded = jwt.verify(authHeader.slice(7), jwtSecret());
+  } catch {
+    return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
+  }
+
+  try {
+    const user = await User.findById(decoded.id).select('-password').populate('school', '_id name isActive');
+    if (!user || !user.isActive) {
+      return res.status(401).json({ success: false, message: 'Account is inactive or no longer exists' });
     }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'eduamigo_secret');
-
-    const user = await User.findById(decoded.id)
-      .select('-password')
-      .populate('school', '_id name');  // school populate karo
-
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'User not found' });
+    if (!user.school) {
+      return res.status(403).json({ success: false, message: 'Account is not linked to a school' });
+    }
+    if (user.school.isActive === false) {
+      return res.status(403).json({ success: false, message: 'School account is suspended' });
+    }
+    // Tokens issued before a password change are no longer valid.
+    if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
+      return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
     }
 
     req.user = user;
+    req.schoolId = user.school._id;
     next();
   } catch (error) {
-    return res.status(401).json({ success: false, message: 'Invalid token' });
+    next(error);
   }
 };
 
-const authorizeRoles = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
-    next();
-  };
+const authorizeRoles = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
+  }
+  next();
 };
 
 module.exports = { protect, authorizeRoles };

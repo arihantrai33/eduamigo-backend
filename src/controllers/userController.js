@@ -1,107 +1,144 @@
-const User = require('../models/User');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-require('../models/School');
+const User = require('../models/User');
+const { jwtSecret } = require('../config/env');
+const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
+const { temporaryPassword, hashPassword, validatePasswordStrength } = require('../services/credentials');
 
-const registerUser = async (req, res) => {
-  try {
-    const { name, email, password, role, school } = req.body;
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(400).json({ success: false, message: 'Email already registered' });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({
-      name, email,
-      password: hashedPassword,
-      role,
-      school: school || null,
-    });
-    res.status(201).json({
-      success: true,
-      data: { _id: user._id, name: user.name, email: user.email, role: user.role, school: user.school },
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+const ADMIN_CREATABLE_ROLES = ['admin', 'teacher', 'student', 'parent'];
+
+const publicUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  school: user.school?.name || null,
+  schoolId: user.school?._id || user.school || null,
+  profileId: user.profileId,
+  mustChangePassword: !!user.mustChangePassword,
+});
+
+// POST /api/users/login
+const loginUser = asyncHandler(async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  if (!email || !password) throw new HttpError(400, 'Email and password are required');
+
+  const user = await User.findOne({ email }).populate('school', 'name isActive');
+  // Same message for unknown email and wrong password (prevents account discovery).
+  const valid = user && (await user.comparePassword(password));
+  if (!valid) throw new HttpError(401, 'Invalid email or password');
+  if (!user.isActive) throw new HttpError(403, 'This account has been deactivated. Please contact your school.');
+  if (!user.school || user.school.isActive === false) throw new HttpError(403, 'This school account is not active');
+
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+  res.json({ success: true, token, user: publicUser(user) });
+});
+
+// POST /api/users/register  (admin only — creates an account inside the admin's own school)
+const registerUser = asyncHandler(async (req, res) => {
+  const { name, role, phone } = req.body || {};
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!name || !email || !role) throw new HttpError(400, 'Name, email and role are required');
+  if (!ADMIN_CREATABLE_ROLES.includes(role)) throw new HttpError(400, 'Invalid role');
+  if (await User.exists({ email })) throw new HttpError(409, 'Email already registered');
+
+  let password = req.body.password;
+  let generated = false;
+  if (password) {
+    const problem = validatePasswordStrength(password);
+    if (problem) throw new HttpError(400, problem);
+  } else {
+    password = temporaryPassword();
+    generated = true;
   }
-};
 
-const loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email }).populate("school", "name");
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Wrong password' });
-    }
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || 'eduamigo_secret',
-      { expiresIn: '7d' }
-    );
-    res.status(200).json({
-      success: true,
-      token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        school: user.school?.name || null,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+  const user = await User.create({
+    name, email, role, phone: phone || null,
+    password: await hashPassword(password),
+    school: req.schoolId,
+    mustChangePassword: true,
+  });
 
-const getProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('-password');
-    res.status(200).json({ success: true, data: user });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+  res.status(201).json({
+    success: true,
+    data: { _id: user._id, name: user.name, email: user.email, role: user.role },
+    credentials: generated ? { email, password } : undefined,
+  });
+});
 
-const updateFcmToken = async (req, res) => {
-  try {
-    const { fcmToken } = req.body;
-    if (!fcmToken) {
-      return res.status(400).json({ success: false, message: 'fcmToken required' });
-    }
-    await User.findByIdAndUpdate(req.user._id, { fcmToken });
-    res.status(200).json({ success: true, message: 'FCM Token saved!' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+// GET /api/users/profile
+const getProfile = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: publicUser(req.user) });
+});
 
-module.exports = { registerUser, loginUser, getProfile, updateFcmToken };
-const getAllUsers = async (req, res) => {
-  try {
-    const { role } = req.query;
-    const filter = role && role !== 'all' ? { role } : {};
-    const users = await User.find(filter).select('-password').populate('school', 'name').sort({ createdAt: -1 });
-    res.status(200).json({ success: true, count: users.length, data: users });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+// PATCH /api/users/password
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  const problem = validatePasswordStrength(newPassword);
+  if (problem) throw new HttpError(400, problem);
 
-const toggleUserStatus = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    user.isActive = !user.isActive;
-    await user.save();
-    res.status(200).json({ success: true, data: user });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+  const user = await User.findById(req.user._id);
+  if (!(await user.comparePassword(String(currentPassword || '')))) throw new HttpError(400, 'Current password is incorrect');
+  if (await user.comparePassword(newPassword)) throw new HttpError(400, 'New password must be different from the current one');
 
-module.exports = { registerUser, loginUser, getProfile, updateFcmToken, getAllUsers, toggleUserStatus };
+  user.password = await hashPassword(newPassword);
+  user.mustChangePassword = false;
+  user.passwordChangedAt = new Date();
+  await user.save();
+
+  const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+  res.json({ success: true, message: 'Password updated', token });
+});
+
+// POST /api/users/:id/reset-password  (admin: issue a new temporary password)
+const resetPassword = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const user = await User.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!user) throw new HttpError(404, 'User not found');
+  const password = temporaryPassword();
+  user.password = await hashPassword(password);
+  user.mustChangePassword = true;
+  user.passwordChangedAt = new Date();
+  await user.save();
+  res.json({ success: true, credentials: { email: user.email, password } });
+});
+
+// PATCH /api/users/fcm-token
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken } = req.body || {};
+  if (!fcmToken) throw new HttpError(400, 'fcmToken is required');
+  await User.updateOne({ _id: req.user._id }, { fcmToken });
+  res.json({ success: true, message: 'Device registered for notifications' });
+});
+
+// GET /api/users  (admin: users of own school)
+const getAllUsers = asyncHandler(async (req, res) => {
+  const { role, search } = req.query;
+  const filter = { school: req.schoolId };
+  if (role && role !== 'all') filter.role = String(role);
+  if (search) filter.$or = [
+    { name: { $regex: escapeRegex(search), $options: 'i' } },
+    { email: { $regex: escapeRegex(search), $options: 'i' } },
+  ];
+  const users = await User.find(filter).select('-password -fcmToken').populate('school', 'name').sort({ createdAt: -1 });
+  res.json({ success: true, count: users.length, data: users });
+});
+
+// PATCH /api/users/:id/toggle
+const toggleUserStatus = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  if (String(req.params.id) === String(req.user._id)) throw new HttpError(400, 'You cannot deactivate your own account');
+  const user = await User.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!user) throw new HttpError(404, 'User not found');
+  user.isActive = !user.isActive;
+  await user.save();
+  res.json({ success: true, data: { _id: user._id, isActive: user.isActive } });
+});
+
+module.exports = {
+  loginUser, registerUser, getProfile, changePassword, resetPassword,
+  updateFcmToken, getAllUsers, toggleUserStatus,
+};

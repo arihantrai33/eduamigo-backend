@@ -12,7 +12,7 @@ const {
 
 router.get('/',                         protect, authorizeRoles('admin'), getAllParents);
 router.post('/',                        protect, authorizeRoles('admin'), createParent);
-router.get('/my-child',                 protect, authorizeRoles('parent'), getMyChild);          // ✅ NEW
+router.get('/my-child',                 protect, authorizeRoles('parent'), getMyChild);
 router.get('/dashboard/:studentId',     protect, authorizeRoles('admin', 'parent'), getParentDashboard);
 router.get('/student/:studentId',       protect, authorizeRoles('admin'), getParentByStudent);
 router.get('/:parentId',               protect, authorizeRoles('admin', 'parent'), getParentById);

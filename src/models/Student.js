@@ -22,6 +22,8 @@ const studentSchema = new mongoose.Schema({
   isActive:     { type: Boolean, default: true },
 }, { timestamps: true });
 
-studentSchema.index({ rollNumber: 1, class: 1, section: 1 }, { unique: true });
+// Roll numbers are unique per class-section within one school (not across schools).
+studentSchema.index({ school: 1, class: 1, section: 1, rollNumber: 1 }, { unique: true });
+studentSchema.index({ school: 1, isActive: 1, class: 1, section: 1 });
 
 module.exports = mongoose.model('Student', studentSchema);

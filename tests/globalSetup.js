@@ -1,0 +1,10 @@
+// Starts a throwaway MongoDB for the test run.
+// - If MONGO_TEST_URI is set (CI service container, FerretDB, local mongod), it is used as-is.
+// - Otherwise mongodb-memory-server downloads and runs a temporary mongod.
+module.exports = async () => {
+  if (process.env.MONGO_TEST_URI) return;
+  const { MongoMemoryServer } = require('mongodb-memory-server');
+  const server = await MongoMemoryServer.create();
+  globalThis.__MONGO_SERVER__ = server;
+  process.env.MONGO_TEST_URI = server.getUri();
+};

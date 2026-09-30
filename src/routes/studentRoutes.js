@@ -15,8 +15,8 @@ const {
 } = require('../controllers/studentController');
 
 // Dynamic classes & sections — Fee Structure ke liye
-router.get('/classes',    protect, authorizeRoles('admin'), getClasses);
-router.get('/sections',   protect, authorizeRoles('admin'), getSections);
+router.get('/classes',    protect, authorizeRoles('admin', 'teacher'), getClasses);
+router.get('/sections',   protect, authorizeRoles('admin', 'teacher'), getSections);
 
 // Student: apna profile
 router.get('/my-profile', protect, authorizeRoles('student'), getMyProfile);

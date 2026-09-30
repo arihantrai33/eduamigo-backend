@@ -9,7 +9,7 @@ const eventSchema = new mongoose.Schema({
   targetRole:  { type: String, enum: ["all", "student", "teacher", "parent"], default: "all" },
   color:       { type: String, default: "#6366F1" },
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  school:      { type: mongoose.Schema.Types.ObjectId, ref: "School" },
+  school:      { type: mongoose.Schema.Types.ObjectId, ref: "School", required: true, index: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Event", eventSchema);

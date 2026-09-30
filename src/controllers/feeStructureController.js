@@ -1,307 +1,201 @@
 const FeeStructure = require('../models/FeeStructure');
-const Fee          = require('../models/Fee');
-const Student      = require('../models/Student');
-const Parent       = require('../models/Parent');
-const Notification = require('../models/Notification');
+const Fee = require('../models/Fee');
+const Student = require('../models/Student');
+const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
+const { parseClassKey } = require('../utils/classes');
+const { toDayKey } = require('../utils/dates');
+const { statusFor } = require('../services/feeService');
+const { notifyParents } = require('../services/notify');
 
-// Create fee structure
-const createFeeStructure = async (req, res) => {
-  try {
-    const { academicYear, class: cls, section, feeType, amount, dueDate, description } = req.body;
+function structureInput(body) {
+  const data = pick(body, ['academicYear', 'class', 'section', 'feeType', 'amount', 'dueDate', 'description']);
+  if (data.class !== undefined || data.section !== undefined) {
+    const key = parseClassKey(data.class, data.section);
+    if (data.class !== undefined) data.class = key.class;
+    data.section = key.section || 'All';
+  }
+  if (data.amount !== undefined) {
+    data.amount = Number(data.amount);
+    if (!(data.amount >= 0)) throw new HttpError(400, 'Amount must be a positive number');
+  }
+  if (data.dueDate !== undefined) {
+    data.dueDate = toDayKey(data.dueDate);
+    if (!data.dueDate) throw new HttpError(400, 'Invalid due date');
+  }
+  return data;
+}
 
-    if (!academicYear || !cls || !section || !feeType || !amount || !dueDate) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
-    }
+function studentFilter(school, structure) {
+  const f = { school, class: structure.class, isActive: true };
+  if (structure.section && structure.section !== 'All') f.section = structure.section;
+  return f;
+}
 
-    // "All Sections" support
-    if (section === 'All') {
-      const sections = await Student.distinct('section', { class: cls, isActive: true });
-      if (sections.length === 0) {
-        return res.status(404).json({ success: false, message: 'No sections found for this class' });
-      }
+// POST /api/fee-structures
+const createFeeStructure = asyncHandler(async (req, res) => {
+  const data = structureInput(req.body || {});
+  if (!data.academicYear || !data.class || !data.feeType || data.amount === undefined || !data.dueDate) {
+    throw new HttpError(400, 'Academic year, class, fee type, amount and due date are required');
+  }
+  const existing = await FeeStructure.findOne({
+    school: req.schoolId, academicYear: data.academicYear, class: data.class, section: data.section, feeType: data.feeType,
+  });
+  if (existing) {
+    throw new HttpError(409, `A ${data.feeType} fee for Class ${data.class}${data.section !== 'All' ? `-${data.section}` : ''} (${data.academicYear}) already exists. Edit it instead.`, { existingId: existing._id });
+  }
+  const structure = await FeeStructure.create({ ...data, school: req.schoolId, createdBy: req.user._id });
+  res.status(201).json({ success: true, message: 'Fee structure created successfully', data: structure });
+});
 
-      const created = [];
-      const skipped = [];
+// GET /api/fee-structures
+const getAllFeeStructures = asyncHandler(async (req, res) => {
+  const filter = { school: req.schoolId };
+  if (req.query.academicYear) filter.academicYear = String(req.query.academicYear);
+  if (req.query.class) filter.class = parseClassKey(req.query.class).class;
+  if (req.query.section) filter.section = String(req.query.section);
+  const structures = await FeeStructure.find(filter).sort({ class: 1, section: 1, feeType: 1 }).populate('createdBy', 'name');
+  res.json({ success: true, count: structures.length, data: structures });
+});
 
-      for (const sec of sections) {
-        const existing = await FeeStructure.findOne({ academicYear, class: cls, section: sec, feeType });
-        if (existing) { skipped.push(sec); continue; }
-        const s = await FeeStructure.create({
-          academicYear, class: cls, section: sec, feeType,
-          amount, dueDate: new Date(dueDate),
-          description: description || '',
-          createdBy: req.user._id,
-        });
-        created.push(s);
-      }
+// PUT /api/fee-structures/:id
+const updateFeeStructure = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const structure = await FeeStructure.findOneAndUpdate(
+    { _id: req.params.id, school: req.schoolId },
+    structureInput(req.body || {}),
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!structure) throw new HttpError(404, 'Fee structure not found');
+  res.json({ success: true, message: 'Fee structure updated successfully', data: structure });
+});
 
-      if (created.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Fee structure already exists for all sections (${skipped.join(', ')}) of Class ${cls} for ${feeType} in ${academicYear}. Please edit existing ones.`,
-          duplicateSections: skipped,
-        });
-      }
+// PUT /api/fee-structures/:id/reapply — update the structure and every unpaid/partial fee created from it
+const updateAndReapplyFeeStructure = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const structure = await FeeStructure.findOneAndUpdate(
+    { _id: req.params.id, school: req.schoolId },
+    structureInput(req.body || {}),
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!structure) throw new HttpError(404, 'Fee structure not found');
 
-      return res.status(201).json({
-        success: true,
-        message: `Fee structure created for ${created.length} section(s)${skipped.length > 0 ? `. Skipped ${skipped.length} already existing: ${skipped.join(', ')}` : ''}.`,
-        data: created,
+  // Only fees generated from THIS structure, in THIS school, that are not fully paid.
+  const fees = await Fee.find({ school: req.schoolId, feeStructureId: structure._id, status: { $ne: 'Paid' } });
+  let updated = 0;
+  for (const fee of fees) {
+    if (structure.amount < (fee.paidAmount || 0)) continue; // never reduce below what was already paid
+    fee.amount = structure.amount;
+    fee.dueDate = structure.dueDate;
+    fee.status = statusFor(fee.amount, fee.paidAmount || 0);
+    await fee.save();
+    updated += 1;
+    const student = await Student.findById(fee.studentId);
+    if (student) {
+      await notifyParents(student, {
+        title: 'Fee updated',
+        message: `The ${structure.feeType} fee for ${student.name} (${structure.academicYear}) is now Rs ${structure.amount}, due ${structure.dueDate.toISOString().slice(0, 10)}.`,
+        type: 'Fee', createdBy: req.user._id,
       });
     }
+  }
+  res.json({ success: true, message: `Fee structure updated. ${updated} unpaid fee record(s) updated.`, data: structure, updated });
+});
 
-    // Single section
-    const existing = await FeeStructure.findOne({ academicYear, class: cls, section, feeType });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: `Fee structure already exists for Class ${cls}-${section}, ${feeType}, ${academicYear}. Please edit the existing one instead of creating a duplicate.`,
-        existingId: existing._id,
-      });
-    }
+// DELETE /api/fee-structures/:id — blocked once fees have been generated from it
+const deleteFeeStructure = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const structure = await FeeStructure.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!structure) throw new HttpError(404, 'Fee structure not found');
+  const used = await Fee.countDocuments({ school: req.schoolId, feeStructureId: structure._id });
+  if (used) throw new HttpError(409, `This fee structure has been applied to ${used} student(s) and cannot be deleted`);
+  await structure.deleteOne();
+  res.json({ success: true, message: 'Fee structure deleted successfully' });
+});
 
-    const structure = await FeeStructure.create({
-      academicYear, class: cls, section, feeType,
-      amount, dueDate: new Date(dueDate),
-      description: description || '',
-      createdBy: req.user._id,
+// POST /api/fee-structures/:id/apply — generate fee records for every student in the class/section
+const applyFeeStructureToClass = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const structure = await FeeStructure.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!structure) throw new HttpError(404, 'Fee structure not found');
+
+  const students = await Student.find(studentFilter(req.schoolId, structure));
+  if (!students.length) {
+    throw new HttpError(404, `No active students found for Class ${structure.class}${structure.section !== 'All' ? `-${structure.section}` : ''}`);
+  }
+
+  const already = await Fee.find({
+    school: req.schoolId, studentId: { $in: students.map((s) => s._id) },
+    $or: [
+      { feeStructureId: structure._id },
+      { feeType: structure.feeType, academicYear: structure.academicYear },
+    ],
+  }).select('studentId');
+  const skip = new Set(already.map((f) => String(f.studentId)));
+
+  const toCreate = students.filter((s) => !skip.has(String(s._id)));
+  const due = new Date(structure.dueDate);
+  await Fee.insertMany(toCreate.map((s) => ({
+    school: req.schoolId, studentId: s._id, feeType: structure.feeType, amount: structure.amount,
+    dueDate: structure.dueDate, academicYear: structure.academicYear, feeStructureId: structure._id,
+    month: due.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }), year: due.getUTCFullYear(), status: 'Unpaid',
+  })));
+
+  for (const s of toCreate) {
+    await notifyParents(s, {
+      title: 'New fee added',
+      message: `A ${structure.feeType} fee of Rs ${structure.amount} has been added for ${s.name} (${structure.academicYear}). Due date: ${structure.dueDate.toISOString().slice(0, 10)}.`,
+      type: 'Fee', createdBy: req.user._id,
     });
-
-    res.status(201).json({ success: true, message: 'Fee structure created successfully', data: structure });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
   }
-};
 
-// Get all fee structures
-const getAllFeeStructures = async (req, res) => {
-  try {
-    const { academicYear, class: cls, section } = req.query;
-    const filter = {};
-    if (academicYear) filter.academicYear = academicYear;
-    if (cls)          filter.class        = cls;
-    if (section)      filter.section      = section;
+  await FeeStructure.updateOne({ _id: structure._id }, {
+    $push: { applyHistory: { appliedAt: new Date(), appliedBy: req.user._id, totalStudents: students.length, created: toCreate.length, skipped: skip.size } },
+  });
 
-    const structures = await FeeStructure.find(filter)
-      .sort({ class: 1, section: 1, feeType: 1 })
-      .populate('createdBy', 'name');
+  res.json({
+    success: true,
+    message: `Fee applied to ${toCreate.length} student(s). ${skip.size} already had this fee and were skipped.`,
+    data: {
+      created: toCreate.length, skipped: skip.size,
+      appliedTo: toCreate.map((s) => ({ name: s.name, class: s.class, section: s.section })),
+      skippedFor: students.filter((s) => skip.has(String(s._id))).map((s) => ({ name: s.name, reason: 'Fee record already exists' })),
+      appliedAt: new Date().toISOString(),
+    },
+  });
+});
 
-    res.status(200).json({ success: true, count: structures.length, data: structures });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+// GET /api/fee-structures/summary?academicYear=
+const getFeeSummary = asyncHandler(async (req, res) => {
+  const match = { school: req.schoolId };
+  if (req.query.academicYear) match.academicYear = String(req.query.academicYear);
+  const fees = await Fee.find(match).populate('studentId', 'class section').select('amount paidAmount feeType studentId');
 
-// Update fee structure
-const updateFeeStructure = async (req, res) => {
-  try {
-    const structure = await FeeStructure.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body, dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined },
-      { new: true, runValidators: true }
-    );
-    if (!structure) return res.status(404).json({ success: false, message: 'Fee structure not found' });
-    res.status(200).json({ success: true, message: 'Fee structure updated successfully', data: structure });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// Update fee structure and re-apply to all students (Medium Priority #4)
-const updateAndReapplyFeeStructure = async (req, res) => {
-  try {
-    const structure = await FeeStructure.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body, dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined },
-      { new: true, runValidators: true }
-    );
-    if (!structure) return res.status(404).json({ success: false, message: 'Fee structure not found' });
-
-    // Update all existing fee records for this structure
-    const updated = await Fee.updateMany(
-      {
-        feeType:      structure.feeType,
-        academicYear: structure.academicYear,
-        status:       { $ne: 'Paid' }, // already paid fees update nahi honge
-      },
-      {
-        amount:  structure.amount,
-        dueDate: structure.dueDate,
-      }
-    );
-
-    // Notify affected parents
-    const students = await Student.find({ class: structure.class, section: structure.section, isActive: true });
-    for (const student of students) {
-      const parent = await Parent.findOne({ children: student._id });
-      if (parent) {
-        await Notification.create({
-          title:      'Fee Structure Updated',
-          message:    `The ${structure.feeType} fee for ${student.name} (Class ${structure.class}-${structure.section}) has been updated to ₹${structure.amount} for ${structure.academicYear}.`,
-          targetRole: 'parent',
-          targetId:   parent._id,
-          type:       'Fee',
-        });
-      }
+  const round = (n) => Math.round(n * 100) / 100;
+  const add = (bucket, f) => {
+    bucket.billed = round(bucket.billed + f.amount);
+    bucket.paid = round(bucket.paid + (f.paidAmount || 0));
+    bucket.due = round(bucket.billed - bucket.paid);
+  };
+  const totalsAll = { billed: 0, paid: 0, due: 0 };
+  const byType = {};
+  const byClass = {};
+  for (const f of fees) {
+    add(totalsAll, f);
+    byType[f.feeType] = byType[f.feeType] || { billed: 0, paid: 0, due: 0 };
+    add(byType[f.feeType], f);
+    if (f.studentId) {
+      const k = `Class ${f.studentId.class}`;
+      byClass[k] = byClass[k] || { billed: 0, paid: 0, due: 0 };
+      add(byClass[k], f);
     }
-
-    res.status(200).json({
-      success: true,
-      message: `Fee structure updated. ${updated.modifiedCount} unpaid fee records updated. Parents notified.`,
-      data: structure,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
   }
-};
-
-// Delete fee structure
-const deleteFeeStructure = async (req, res) => {
-  try {
-    const structure = await FeeStructure.findByIdAndDelete(req.params.id);
-    if (!structure) return res.status(404).json({ success: false, message: 'Fee structure not found' });
-    res.status(200).json({ success: true, message: 'Fee structure deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// Apply fee structure to class+section (with full history log)
-const applyFeeStructureToClass = async (req, res) => {
-  try {
-    const structure = await FeeStructure.findById(req.params.id);
-    if (!structure) return res.status(404).json({ success: false, message: 'Fee structure not found' });
-
-    // "All Sections" support in apply
-    const sectionFilter = structure.section === 'All'
-      ? { class: structure.class, isActive: true }
-      : { class: structure.class, section: structure.section, isActive: true };
-
-    const students = await Student.find(sectionFilter);
-
-    if (students.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `No active students found for Class ${structure.class}${structure.section !== 'All' ? `-${structure.section}` : ''}.`,
-      });
-    }
-
-    const results = {
-      created:  0,
-      skipped:  0,
-      appliedTo:   [],
-      skippedFor:  [],
-      appliedAt:   new Date().toISOString(),
-    };
-
-    for (const student of students) {
-      const existing = await Fee.findOne({
-        studentId:    student._id,
-        feeType:      structure.feeType,
-        academicYear: structure.academicYear,
-      });
-
-      if (existing) {
-        results.skipped++;
-        results.skippedFor.push({ name: student.name, reason: 'Fee record already exists' });
-        continue;
-      }
-
-      await Fee.create({
-        studentId:    student._id,
-        feeType:      structure.feeType,
-        amount:       structure.amount,
-        dueDate:      structure.dueDate,
-        academicYear: structure.academicYear,
-        month:        new Date(structure.dueDate).toLocaleString('en-US', { month: 'long' }),
-        year:         new Date(structure.dueDate).getFullYear(),
-        status:       'Unpaid',
-      });
-
-      const parent = await Parent.findOne({ children: student._id });
-      if (parent) {
-        await Notification.create({
-          title:      'New Fee Added',
-          message:    `A new fee of ₹${structure.amount} (${structure.feeType}) has been added for ${student.name} for academic year ${structure.academicYear}. Due date: ${new Date(structure.dueDate).toLocaleDateString('en-IN')}.`,
-          targetRole: 'parent',
-          targetId:   parent._id,
-          type:       'Fee',
-        });
-      }
-
-      results.created++;
-      results.appliedTo.push({ name: student.name, class: student.class, section: student.section });
-    }
-
-    // Save apply log on the structure itself
-    await FeeStructure.findByIdAndUpdate(req.params.id, {
-      $push: {
-        applyHistory: {
-          appliedAt:   new Date(),
-          appliedBy:   req.user._id,
-          totalStudents: students.length,
-          created:     results.created,
-          skipped:     results.skipped,
-        }
-      }
-    });
-
-    res.status(200).json({
-      success: true,
-      message: `Fee applied to ${results.created} student(s). ${results.skipped} already had this fee and were skipped.`,
-      data: results,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// Get fee summary
-const getFeeSummary = async (req, res) => {
-  try {
-    const { academicYear } = req.query;
-    const feeFilter = academicYear ? { academicYear } : {};
-
-    const allFees     = await Fee.find(feeFilter);
-    const totalBilled = allFees.reduce((sum, f) => sum + f.amount, 0);
-    const totalPaid   = allFees.filter(f => f.status === 'Paid').reduce((sum, f) => sum + f.amount, 0);
-    const totalDue    = allFees.filter(f => f.status !== 'Paid').reduce((sum, f) => sum + f.amount, 0);
-
-    const byType = {};
-    for (const f of allFees) {
-      if (!byType[f.feeType]) byType[f.feeType] = { billed: 0, paid: 0, due: 0 };
-      byType[f.feeType].billed += f.amount;
-      if (f.status === 'Paid') byType[f.feeType].paid += f.amount;
-      else byType[f.feeType].due += f.amount;
-    }
-
-    // Class-wise summary
-    const byClass = {};
-    for (const f of allFees) {
-      const student = await Student.findById(f.studentId).select('class section');
-      if (!student) continue;
-      const key = `Class ${student.class}`;
-      if (!byClass[key]) byClass[key] = { billed: 0, paid: 0, due: 0 };
-      byClass[key].billed += f.amount;
-      if (f.status === 'Paid') byClass[key].paid += f.amount;
-      else byClass[key].due += f.amount;
-    }
-
-    res.status(200).json({
-      success: true,
-      data: { totalBilled, totalPaid, totalDue, byType, byClass, totalRecords: allFees.length }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+  res.json({
+    success: true,
+    data: { totalBilled: totalsAll.billed, totalPaid: totalsAll.paid, totalDue: totalsAll.due, byType, byClass, totalRecords: fees.length },
+  });
+});
 
 module.exports = {
-  createFeeStructure,
-  getAllFeeStructures,
-  updateFeeStructure,
-  updateAndReapplyFeeStructure,
-  deleteFeeStructure,
-  applyFeeStructureToClass,
-  getFeeSummary,
+  createFeeStructure, getAllFeeStructures, updateFeeStructure, updateAndReapplyFeeStructure,
+  deleteFeeStructure, applyFeeStructureToClass, getFeeSummary,
 };

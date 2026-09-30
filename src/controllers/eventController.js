@@ -1,38 +1,42 @@
-const Event = require("../models/Event");
+const Event = require('../models/Event');
+const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 
-const createEvent = async (req, res) => {
-  try {
-    const event = await Event.create({ ...req.body, createdBy: req.user.id, school: req.user.schoolId });
-    res.status(201).json({ success: true, data: event });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const FIELDS = ['title', 'description', 'date', 'endDate', 'type', 'targetRole', 'color'];
 
-const getAllEvents = async (req, res) => {
-  try {
-    const { month, year } = req.query;
-    let filter = { school: req.user.schoolId };
-    if (month && year) {
-      const start = new Date(year, month - 1, 1);
-      const end = new Date(year, month, 0, 23, 59, 59);
-      filter.date = { $gte: start, $lte: end };
-    }
-    const events = await Event.find(filter).sort({ date: 1 });
-    res.json({ success: true, data: events });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const createEvent = asyncHandler(async (req, res) => {
+  const data = pick(req.body, FIELDS);
+  if (!data.title || !data.date) throw new HttpError(400, 'Title and date are required');
+  if (data.endDate && new Date(data.endDate) < new Date(data.date)) throw new HttpError(400, 'End date cannot be before start date');
+  const event = await Event.create({ ...data, createdBy: req.user._id, school: req.schoolId });
+  res.status(201).json({ success: true, data: event });
+});
 
-const updateEvent = async (req, res) => {
-  try {
-    const event = await Event.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json({ success: true, data: event });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+// Everyone in the school can read the calendar; non-admins only see events targeted to them.
+const getAllEvents = asyncHandler(async (req, res) => {
+  const filter = { school: req.schoolId };
+  if (req.user.role !== 'admin') filter.targetRole = { $in: ['all', req.user.role] };
+  const { month, year } = req.query;
+  if (month && year) {
+    const start = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+    const end = new Date(Date.UTC(Number(year), Number(month), 1));
+    filter.$or = [{ date: { $gte: start, $lt: end } }, { date: { $lt: start }, endDate: { $gte: start } }];
+  }
+  const events = await Event.find(filter).sort({ date: 1 });
+  res.json({ success: true, data: events });
+});
 
-const deleteEvent = async (req, res) => {
-  try {
-    await Event.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: "Deleted" });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-};
+const updateEvent = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const event = await Event.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, pick(req.body, FIELDS), { returnDocument: 'after', runValidators: true });
+  if (!event) throw new HttpError(404, 'Event not found');
+  res.json({ success: true, data: event });
+});
+
+const deleteEvent = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const event = await Event.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
+  if (!event) throw new HttpError(404, 'Event not found');
+  res.json({ success: true, message: 'Deleted' });
+});
 
 module.exports = { createEvent, getAllEvents, updateEvent, deleteEvent };

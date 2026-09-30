@@ -1,19 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
-const {
-  addFee,
-  getAllPendingFees,
-  getStudentFees,
-  getMyFees,
-  markFeePaid,
-} = require('../controllers/feeController');
+const c = require('../controllers/feeController');
 
-router.post('/add',              protect, authorizeRoles('admin'),              addFee);
-router.get('/all',               protect, authorizeRoles('admin'),              getAllPendingFees);
-router.get('/pending/all',       protect, authorizeRoles('admin'),              getAllPendingFees);
-router.get('/my',                protect, authorizeRoles('student', 'parent'),  getMyFees);
-router.get('/:studentId',        protect, authorizeRoles('admin', 'teacher'),   getStudentFees);
-router.patch('/:feeId/pay',      protect, authorizeRoles('admin'),              markFeePaid);
+router.use(protect);
+router.get('/',             authorizeRoles('admin'), c.getFees);
+router.post('/add',         authorizeRoles('admin'), c.addFee);
+router.get('/all',          authorizeRoles('admin'), c.getAllPendingFees);
+router.get('/pending/all',  authorizeRoles('admin'), c.getAllPendingFees);
+router.get('/my',           authorizeRoles('student', 'parent'), c.getMyFees);
+router.patch('/:feeId/pay', authorizeRoles('admin'), c.markFeePaid);
+router.get('/:studentId',   authorizeRoles('admin'), c.getStudentFees);
 
 module.exports = router;

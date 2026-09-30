@@ -18,8 +18,12 @@ const transportSchema = new mongoose.Schema({
   routeName:        { type: String, required: true },
   capacity:         { type: Number, default: 40 },
   availableSeats:   { type: Number, default: 40 },
-  driverToken:      { type: String, unique: true },
-  firebaseKey:      { type: String, unique: true },
+  // Secret used only by the driver app. Never sent to parents or students.
+  driverToken:      { type: String, unique: true, required: true },
+  // Tracking channel id: live location is published at Firebase path `transport/<trackingId>`.
+  // Parents receive this id, which lets them read the location but not act as the driver.
+  trackingId:       { type: String, unique: true, sparse: true },
+  firebaseKey:      { type: String },
   busStatus:        { type: String, enum: ['Idle', 'On Route', 'Completed'], default: 'Idle' },
   currentStopIndex: { type: Number, default: 0 },
   tripStartedAt:    { type: Date },

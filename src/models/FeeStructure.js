@@ -1,11 +1,12 @@
 const mongoose = require('mongoose');
 
 const feeStructureSchema = new mongoose.Schema({
-  academicYear: { type: String, required: true },
-  class:        { type: String, required: true },
-  section:      { type: String, default: 'All' },
-  feeType:      { type: String, required: true },
-  amount:       { type: Number, required: true },
+  school:       { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
+  academicYear: { type: String, required: true, trim: true },
+  class:        { type: String, required: true, trim: true },
+  section:      { type: String, default: 'All', trim: true },
+  feeType:      { type: String, required: true, trim: true },
+  amount:       { type: Number, required: true, min: 0 },
   dueDate:      { type: Date, required: true },
   description:  { type: String, default: '' },
   createdBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -19,7 +20,7 @@ const feeStructureSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 feeStructureSchema.index(
-  { academicYear: 1, class: 1, section: 1, feeType: 1 },
+  { school: 1, academicYear: 1, class: 1, section: 1, feeType: 1 },
   { unique: true }
 );
 

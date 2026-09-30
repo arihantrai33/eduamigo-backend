@@ -7,7 +7,7 @@ const announcementSchema = new mongoose.Schema({
   priority:   { type: String, enum: ['normal', 'important', 'urgent'], default: 'normal' },
   isPinned:   { type: Boolean, default: false },
   createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  school:     { type: mongoose.Schema.Types.ObjectId, ref: 'School' },
+  school:     { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true, index: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Announcement', announcementSchema);

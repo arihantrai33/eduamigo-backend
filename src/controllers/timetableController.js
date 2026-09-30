@@ -1,167 +1,95 @@
 const Timetable = require('../models/Timetable');
-const Student   = require('../models/Student');
+const Teacher = require('../models/Teacher');
+const { HttpError, asyncHandler, assertId } = require('../utils/http');
+const { parseClassKey } = require('../utils/classes');
+const { studentForUser } = require('../services/directory');
 
-const createTimetable = async (req, res) => {
-  try {
-    const { class: cls, section, day, periods } = req.body;
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const byDay = (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
 
-    const existing = await Timetable.findOne({
-      school: req.user.school,
-      class: cls,
-      section,
-      day,
-    });
-    if (existing) {
-      return res.status(400).json({ success: false, message: 'Is class ka is din ka timetable already exists' });
-    }
+async function validatePeriods(school, periods) {
+  if (!Array.isArray(periods)) return [];
+  const teacherIds = [...new Set(periods.map((p) => p.teacher).filter(Boolean).map(String))];
+  teacherIds.forEach((id) => assertId(id, 'teacher'));
+  const count = await Teacher.countDocuments({ _id: { $in: teacherIds }, school });
+  if (count !== teacherIds.length) throw new HttpError(400, 'One or more teachers do not belong to your school');
+  return periods.map((p) => ({
+    no: p.no ?? p.periodNo, periodNo: p.periodNo ?? p.no, subject: p.subject,
+    teacher: p.teacher || undefined, time: p.time, startTime: p.startTime, endTime: p.endTime,
+  }));
+}
 
-    const timetable = await Timetable.create({
-      school: req.user.school,
-      class: cls,
-      section,
-      day,
-      periods,
-    });
+const createTimetable = asyncHandler(async (req, res) => {
+  const { day } = req.body || {};
+  const key = parseClassKey(req.body?.class, req.body?.section);
+  if (!key.class || !key.section || !DAYS.includes(day)) throw new HttpError(400, 'Class, section and a valid day are required');
+  const existing = await Timetable.findOne({ school: req.schoolId, class: key.class, section: key.section, day });
+  if (existing) throw new HttpError(409, 'A timetable for this class and day already exists');
+  const periods = await validatePeriods(req.schoolId, req.body.periods);
+  const timetable = await Timetable.create({ school: req.schoolId, class: key.class, section: key.section, day, periods, classTeacher: req.body.classTeacher || undefined });
+  res.status(201).json({ success: true, message: 'Timetable created successfully', data: timetable });
+});
 
-    res.status(201).json({ success: true, message: 'Timetable created successfully!', data: timetable });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+// GET /api/timetable/class/:class?section=A
+const getClassTimetable = asyncHandler(async (req, res) => {
+  const key = parseClassKey(req.params.class, req.query.section);
+  const filter = { school: req.schoolId, class: key.class };
+  if (key.section) filter.section = key.section;
+  const timetable = (await Timetable.find(filter).populate('periods.teacher', 'name subjects')).sort(byDay);
+  res.json({ success: true, data: timetable });
+});
+
+const getClassDayTimetable = asyncHandler(async (req, res) => {
+  const key = parseClassKey(req.params.class, req.query.section);
+  const filter = { school: req.schoolId, class: key.class, day: req.params.day };
+  if (key.section) filter.section = key.section;
+  const timetable = await Timetable.findOne(filter).populate('periods.teacher', 'name subjects');
+  if (!timetable) throw new HttpError(404, 'Timetable not found');
+  res.json({ success: true, data: timetable });
+});
+
+const getTeacherTimetable = asyncHandler(async (req, res) => {
+  assertId(req.params.teacherId, 'teacherId');
+  const timetable = (await Timetable.find({ school: req.schoolId, 'periods.teacher': req.params.teacherId })).sort(byDay);
+  const data = timetable.map((d) => ({
+    class: d.class, section: d.section, day: d.day,
+    periods: d.periods.filter((p) => p.teacher && String(p.teacher) === String(req.params.teacherId)),
+  }));
+  res.json({ success: true, data });
+});
+
+const getMyTimetable = asyncHandler(async (req, res) => {
+  const student = await studentForUser(req.user);
+  if (!student) throw new HttpError(404, 'Student not found');
+  const filter = { school: req.schoolId, class: student.class, section: student.section };
+  if (req.query.day) filter.day = String(req.query.day);
+  const timetable = (await Timetable.find(filter).populate('periods.teacher', 'name')).sort(byDay);
+  if (req.query.day) return res.json({ success: true, data: timetable[0]?.periods || [] });
+  res.json({ success: true, data: timetable });
+});
+
+const updateTimetable = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const update = {};
+  if (req.body?.periods !== undefined) update.periods = await validatePeriods(req.schoolId, req.body.periods);
+  if (req.body?.classTeacher) update.classTeacher = req.body.classTeacher;
+  if (req.body?.day) {
+    if (!DAYS.includes(req.body.day)) throw new HttpError(400, 'Invalid day');
+    update.day = req.body.day;
   }
-};
+  const timetable = await Timetable.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, { $set: update }, { returnDocument: 'after', runValidators: true });
+  if (!timetable) throw new HttpError(404, 'Timetable not found');
+  res.json({ success: true, message: 'Timetable updated successfully', data: timetable });
+});
 
-const getClassTimetable = async (req, res) => {
-  try {
-    const timetable = await Timetable.find({
-      school: req.user.school,
-      class: req.params.class,
-    })
-      .populate('periods.teacher', 'name subjects')
-      .sort({ day: 1 });
-
-    if (!timetable.length) {
-      return res.status(404).json({ success: false, message: 'Is class ka koi timetable nahi mila' });
-    }
-
-    res.status(200).json({ success: true, data: timetable });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const getClassDayTimetable = async (req, res) => {
-  try {
-    const timetable = await Timetable.findOne({
-      school: req.user.school,
-      class: req.params.class,
-      day: req.params.day,
-    }).populate('periods.teacher', 'name subjects');
-
-    if (!timetable) {
-      return res.status(404).json({ success: false, message: 'Timetable not found' });
-    }
-
-    res.status(200).json({ success: true, data: timetable });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const getTeacherTimetable = async (req, res) => {
-  try {
-    const timetable = await Timetable.find({
-      school: req.user.school,
-      'periods.teacher': req.params.teacherId,
-    }).sort({ day: 1 });
-
-    const filtered = timetable.map(day => ({
-      class:   day.class,
-      section: day.section,
-      day:     day.day,
-      periods: day.periods.filter(p =>
-        p.teacher && p.teacher.toString() === req.params.teacherId
-      ),
-    }));
-
-    res.status(200).json({ success: true, data: filtered });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const getMyTimetable = async (req, res) => {
-  try {
-    const student = await Student.findOne({ userId: req.user._id });
-    if (!student) {
-      return res.status(404).json({ success: false, message: 'Student not found' });
-    }
-
-    const { day } = req.query;
-    const filter = {
-      school:  req.user.school,
-      class:   student.class,
-      section: student.section,
-    };
-    if (day) filter.day = day;
-
-    const timetable = await Timetable.find(filter)
-      .populate('periods.teacher', 'name')
-      .sort({ day: 1 });
-
-    if (day && timetable.length > 0) {
-      return res.status(200).json({ success: true, data: timetable[0].periods || [] });
-    }
-
-    res.status(200).json({ success: true, data: timetable });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const updateTimetable = async (req, res) => {
-  try {
-    // school override prevent — school field body se nahi aayegi
-    const { school, ...updateData } = req.body;
-    if (!updateData.classTeacher) delete updateData.classTeacher;
-
-    const timetable = await Timetable.findOneAndUpdate(
-      { _id: req.params.id, school: req.user.school },
-      { $set: updateData },
-      { new: true, runValidators: true }
-    );
-
-    if (!timetable) {
-      return res.status(404).json({ success: false, message: 'Timetable not found' });
-    }
-
-    res.status(200).json({ success: true, message: 'Timetable updated successfully!', data: timetable });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-const deleteTimetable = async (req, res) => {
-  try {
-    const timetable = await Timetable.findOneAndDelete({
-      _id: req.params.id,
-      school: req.user.school,
-    });
-
-    if (!timetable) {
-      return res.status(404).json({ success: false, message: 'Timetable not found' });
-    }
-
-    res.status(200).json({ success: true, message: 'Timetable deleted successfully!' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
+const deleteTimetable = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const timetable = await Timetable.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
+  if (!timetable) throw new HttpError(404, 'Timetable not found');
+  res.json({ success: true, message: 'Timetable deleted successfully' });
+});
 
 module.exports = {
-  createTimetable,
-  getClassTimetable,
-  getClassDayTimetable,
-  getTeacherTimetable,
-  getMyTimetable,
-  updateTimetable,
-  deleteTimetable,
+  createTimetable, getClassTimetable, getClassDayTimetable, getTeacherTimetable,
+  getMyTimetable, updateTimetable, deleteTimetable,
 };

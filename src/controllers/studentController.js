@@ -1,223 +1,123 @@
 const Student = require('../models/Student');
-const User    = require('../models/User');
-const bcrypt  = require('bcryptjs');
-const cloudinary   = require('../config/cloudinary');
-const streamifier  = require('streamifier');
+const User = require('../models/User');
+const cloudinary = require('../config/cloudinary');
+const streamifier = require('streamifier');
+const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
+const { parseClassKey, normalizeClass, normalizeSection } = require('../utils/classes');
+const { createStudentWithAccounts } = require('../services/studentService');
+const { studentForUser, resolveChild, teacherForUser } = require('../services/directory');
 
-// Helper: upload a photo buffer to Cloudinary
 function uploadPhotoToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       { folder: 'student_photos', resource_type: 'image' },
-      (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      }
+      (err, result) => (err ? reject(err) : resolve(result)),
     );
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 }
 
-// GET /students — Admin: all students
-exports.getStudents = async (req, res) => {
-  try {
-    const { class: cls, section, search } = req.query;
-    let query = { isActive: true, school: req.user.school };
-    if (cls)     query.class   = cls;
-    if (section) query.section = section;
-    if (search)  query.name    = { $regex: search, $options: 'i' };
-    const students = await Student.find(query).sort({ createdAt: -1 });
-    res.json({ success: true, count: students.length, data: students });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+const UPDATABLE = ['name', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
+  'parentName', 'parentPhone', 'parentEmail', 'feeStatus', 'photo', 'class', 'section'];
+
+// GET /students — admin/teacher (teachers only see their assigned classes)
+exports.getStudents = asyncHandler(async (req, res) => {
+  const { class: cls, section, search } = req.query;
+  const query = { isActive: true, school: req.schoolId };
+  if (cls) query.class = normalizeClass(cls);
+  if (section) query.section = normalizeSection(section);
+  if (search) query.name = { $regex: escapeRegex(search), $options: 'i' };
+
+  if (req.user.role === 'teacher') {
+    const teacher = await teacherForUser(req.user);
+    const keys = (teacher?.assignedClasses || []).map((k) => parseClassKey(k));
+    if (!keys.length) return res.json({ success: true, count: 0, data: [] });
+    query.$or = keys.map((k) => (k.section ? { class: k.class, section: k.section } : { class: k.class }));
   }
-};
 
-// GET /students/classes — Admin: DB mein jo classes hain
-exports.getClasses = async (req, res) => {
-  try {
-    const classes = await Student.distinct('class', {
-      isActive: true,
-      school: req.user.school
-    });
-    const sorted = classes.sort((a, b) => Number(a) - Number(b));
-    res.json({ success: true, data: sorted });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+  const students = await Student.find(query).sort({ class: 1, section: 1, rollNumber: 1 });
+  res.json({ success: true, count: students.length, data: students });
+});
+
+exports.getClasses = asyncHandler(async (req, res) => {
+  const classes = await Student.distinct('class', { isActive: true, school: req.schoolId });
+  const sorted = classes.sort((a, b) => {
+    const na = Number(a); const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b));
+  });
+  res.json({ success: true, data: sorted });
+});
+
+exports.getSections = asyncHandler(async (req, res) => {
+  if (!req.query.class) throw new HttpError(400, 'class query parameter is required');
+  const sections = await Student.distinct('section', {
+    class: normalizeClass(req.query.class), isActive: true, school: req.schoolId,
+  });
+  res.json({ success: true, data: sections.sort() });
+});
+
+exports.getMyProfile = asyncHandler(async (req, res) => {
+  const student = await studentForUser(req.user);
+  if (!student) throw new HttpError(404, 'Profile not found');
+  res.json({ success: true, data: student });
+});
+
+// GET /students/my-child?studentId= — parent
+exports.getMyChild = asyncHandler(async (req, res) => {
+  const { child, children } = await resolveChild(req.user, req.query.studentId);
+  if (!child) throw new HttpError(404, 'No child is linked to this account');
+  res.json({ success: true, data: child, children });
+});
+
+exports.getStudent = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const student = await Student.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!student) throw new HttpError(404, 'Student not found');
+  res.json({ success: true, data: student });
+});
+
+exports.createStudent = asyncHandler(async (req, res) => {
+  const input = { ...req.body };
+  if (req.file) input.photo = (await uploadPhotoToCloudinary(req.file.buffer)).secure_url;
+  const { student, credentials, linkedExistingParent } = await createStudentWithAccounts(req.schoolId, input);
+  res.status(201).json({ success: true, data: student, credentials, linkedExistingParent });
+});
+
+exports.updateStudent = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const update = pick(req.body, UPDATABLE);
+  if (update.class !== undefined || update.section !== undefined) {
+    const parsed = parseClassKey(update.class, update.section);
+    if (update.class !== undefined) update.class = parsed.class;
+    if (parsed.section) update.section = parsed.section;
   }
-};
+  if (req.file) update.photo = (await uploadPhotoToCloudinary(req.file.buffer)).secure_url;
 
-// GET /students/sections?class=9 — Admin: us class ke actual sections
-exports.getSections = async (req, res) => {
-  try {
-    const { class: cls } = req.query;
-    if (!cls) return res.status(400).json({ success: false, message: 'class query param required' });
-    const sections = await Student.distinct('section', {
-      class: cls,
-      isActive: true,
-      school: req.user.school
-    });
-    const sorted = sections.sort();
-    res.json({ success: true, data: sorted });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+  const student = await Student.findOneAndUpdate(
+    { _id: req.params.id, school: req.schoolId },
+    update,
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!student) throw new HttpError(404, 'Student not found');
+  if (update.name && student.userId) await User.updateOne({ _id: student.userId }, { name: update.name });
+  res.json({ success: true, data: student });
+});
+
+// Soft delete: the student and their login are deactivated. The parent account stays
+// active if they still have other active children in the school.
+exports.deleteStudent = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const student = await Student.findOneAndUpdate(
+    { _id: req.params.id, school: req.schoolId },
+    { isActive: false },
+    { returnDocument: 'after' },
+  );
+  if (!student) throw new HttpError(404, 'Student not found');
+  if (student.userId) await User.updateOne({ _id: student.userId }, { isActive: false });
+  if (student.parentUserId) {
+    const siblings = await Student.countDocuments({ parentUserId: student.parentUserId, isActive: true, school: req.schoolId });
+    if (!siblings) await User.updateOne({ _id: student.parentUserId }, { isActive: false });
   }
-};
-
-// GET /students/my-profile — Student: apna profile
-exports.getMyProfile = async (req, res) => {
-  try {
-    const student = await Student.findOne({ userId: req.user._id, isActive: true });
-    if (!student) return res.status(404).json({ success: false, message: 'Profile not found' });
-    res.json({ success: true, data: student });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// GET /students/my-child — Parent: apne bachche ka profile
-exports.getMyChild = async (req, res) => {
-  try {
-    const student = await Student.findOne({ parentUserId: req.user._id, isActive: true });
-    if (!student) return res.status(404).json({ success: false, message: 'Child profile not found' });
-    res.json({ success: true, data: student });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// GET /students/:id — Admin: single student
-exports.getStudent = async (req, res) => {
-  try {
-    const student = await Student.findOne({ _id: req.params.id, school: req.user.school });
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-    res.json({ success: true, data: student });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// POST /students — Admin: student add karo
-exports.createStudent = async (req, res) => {
-  let studentUser = null;
-  let parentUser  = null;
-  try {
-    const {
-      name, email, phone, rollNumber,
-      class: cls, section, gender, dateOfBirth,
-      address, parentName, parentPhone, parentEmail,
-      feeStatus
-    } = req.body;
-
-    if (!name || !email || !phone || !rollNumber || !cls || !section) {
-      return res.status(400).json({ success: false, message: 'Required fields missing' });
-    }
-
-    let photoUrl;
-    if (req.file) {
-      const result = await uploadPhotoToCloudinary(req.file.buffer);
-      photoUrl = result.secure_url;
-    }
-
-    const existingStudent = await User.findOne({ email });
-    if (existingStudent) {
-      return res.status(400).json({ success: false, message: 'Student email already registered' });
-    }
-
-    if (parentEmail) {
-      const existingParent = await User.findOne({ email: parentEmail });
-      if (existingParent) {
-        return res.status(400).json({ success: false, message: 'Parent email already registered' });
-      }
-    }
-
-    const hashedStudentPass = await bcrypt.hash(phone, 10);
-    studentUser = await User.create({
-      name, email,
-      password: hashedStudentPass,
-      role: 'student',
-      school: req.user.school,
-    });
-
-    if (parentEmail && parentName) {
-      const hashedParentPass = await bcrypt.hash(parentPhone || phone, 10);
-      parentUser = await User.create({
-        name: parentName, email: parentEmail,
-        password: hashedParentPass,
-        role: 'parent',
-        school: req.user.school,
-      });
-    }
-
-    const student = await Student.create({
-      name, email, phone, rollNumber,
-      class: cls, section, gender, dateOfBirth,
-      address, parentName, parentPhone, parentEmail,
-      feeStatus:    feeStatus || 'Pending',
-      photo:        photoUrl,
-      school:       req.user.school,
-      userId:       studentUser._id,
-      parentUserId: parentUser ? parentUser._id : null,
-    });
-
-    await User.findByIdAndUpdate(studentUser._id, { profileId: student._id });
-    if (parentUser) {
-      await User.findByIdAndUpdate(parentUser._id, { profileId: student._id });
-    }
-
-    res.status(201).json({
-      success: true,
-      data: student,
-      credentials: {
-        student: { email, password: phone },
-        parent: parentEmail ? { email: parentEmail, password: parentPhone || phone } : null,
-      }
-    });
-  } catch (err) {
-    if (studentUser) await User.findByIdAndDelete(studentUser._id);
-    if (parentUser)  await User.findByIdAndDelete(parentUser._id);
-    res.status(400).json({ success: false, message: err.message });
-  }
-};
-
-// PUT /students/:id — Admin: student update karo
-exports.updateStudent = async (req, res) => {
-  try {
-    const updateData = { ...req.body };
-    if (req.file) {
-      const result = await uploadPhotoToCloudinary(req.file.buffer);
-      updateData.photo = result.secure_url;
-    }
-    const student = await Student.findOneAndUpdate(
-      { _id: req.params.id, school: req.user.school },
-      updateData,
-      { new: true, runValidators: true }
-    );
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-    if (req.body.name && student.userId) {
-      await User.findByIdAndUpdate(student.userId, { name: req.body.name });
-    }
-    res.json({ success: true, data: student });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
-};
-
-// DELETE /students/:id — Admin: student deactivate karo
-exports.deleteStudent = async (req, res) => {
-  try {
-    const student = await Student.findOneAndUpdate(
-      { _id: req.params.id, school: req.user.school },
-      { isActive: false },
-      { new: true }
-    );
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-    if (student.userId)
-      await User.findByIdAndUpdate(student.userId,       { isActive: false });
-    if (student.parentUserId)
-      await User.findByIdAndUpdate(student.parentUserId, { isActive: false });
-    res.json({ success: true, message: 'Student removed successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
+  res.json({ success: true, message: 'Student removed successfully' });
+});
