@@ -1,3 +1,4 @@
+const Conversation = require('../models/Conversation');
 const mongoose = require('mongoose');
 const Message = require('../models/Message');
 const Broadcast = require('../models/Broadcast');
@@ -30,15 +31,11 @@ async function roomStats(userId, roomIds) {
       { $match: { roomId: { $in: roomIds }, receiverId: me, read: false } },
       { $group: { _id: '$roomId', n: { $sum: 1 } } },
     ]),
-    Message.aggregate([
-      { $match: { roomId: { $in: roomIds } } },
-      { $sort: { createdAt: -1 } },
-      { $group: { _id: '$roomId', text: { $first: '$text' }, fileName: { $first: '$fileName' }, at: { $first: '$createdAt' } } },
-    ]),
+    Conversation.find({ roomId: { $in: roomIds } }).select('roomId lastText lastAt').lean(),
   ]);
   const stats = new Map(roomIds.map((r) => [r, { unread: 0, lastMsg: '', lastTime: null }]));
   unread.forEach((u) => { stats.get(u._id).unread = u.n; });
-  last.forEach((l) => Object.assign(stats.get(l._id), { lastMsg: l.text || (l.fileName ? `Attachment: ${l.fileName}` : ''), lastTime: l.at }));
+  last.forEach((c) => Object.assign(stats.get(c.roomId), { lastMsg: c.lastText, lastTime: c.lastAt }));
   return stats;
 }
 
@@ -121,6 +118,13 @@ const sendMessage = asyncHandler(async (req, res) => {
     senderId: req.user._id, receiverId, roomId: roomFor(req.user._id, receiverId),
     text, fileUrl: fileUrl || null, fileName: fileName || null, fileType: fileType || null, school: req.schoolId,
   });
+  await Conversation.updateOne(
+    { roomId: message.roomId },
+    {
+      $set: { school: req.schoolId, participants: [req.user._id, receiver._id], lastText: text || `Attachment: ${fileName || 'file'}`, lastAt: message.createdAt, lastSender: req.user._id },
+    },
+    { upsert: true },
+  );
   res.status(201).json({ success: true, data: message });
 });
 

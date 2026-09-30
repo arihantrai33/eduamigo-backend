@@ -323,3 +323,17 @@ describe('row-level access', () => {
     expect(other.status).toBe(404);
   });
 });
+
+describe('school settings', () => {
+  test('admin updates the school profile; others can read it but not change it', async () => {
+    const upd = await api().put('/api/schools/me').set(auth(A.admin))
+      .send({ name: 'Alpha Public School', principal: 'Dr. Neha Singh', workingDays: 'Monday - Friday', location: { lat: 28.6, lng: 77.3 } });
+    expect(upd.status).toBe(200);
+    const read = await api().get('/api/schools/me').set(auth(A.parentUser));
+    expect(read.body.data).toMatchObject({ name: 'Alpha Public School', principal: 'Dr. Neha Singh', location: { lat: 28.6, lng: 77.3 } });
+    const denied = await api().put('/api/schools/me').set(auth(A.teacherUser)).send({ name: 'x' });
+    expect(denied.status).toBe(403);
+    const other = await api().get('/api/schools/me').set(auth(B.admin));
+    expect(other.body.data.name).toBe('Beta School');
+  });
+});

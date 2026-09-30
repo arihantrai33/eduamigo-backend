@@ -33,6 +33,7 @@ const Message = require('../models/Message');
 const Transport = require('../models/Transport');
 const BulkUpload = require('../models/BulkUpload');
 const Timetable = require('../models/Timetable');
+const Conversation = require('../models/Conversation');
 require('../models/School');
 require('../models/ExamSchedule');
 
@@ -178,6 +179,25 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
   for (const t of await col(Timetable).find({}).toArray()) {
     const u = users.get(String(t.school));
     if (u && u.school) await update(Timetable, t._id, { school: u.school }, 'timetables.school_fixed');
+  }
+
+  // 10b. Chat inbox index: one Conversation per room with its latest message
+  const seenRooms = new Set();
+  const cursor = col(Message).find({}, { projection: { roomId: 1, school: 1, senderId: 1, receiverId: 1, text: 1, fileName: 1, createdAt: 1 } }).sort({ createdAt: -1 });
+  for await (const m of cursor) {
+    if (seenRooms.has(m.roomId)) continue;
+    seenRooms.add(m.roomId);
+    if (await col(Conversation).countDocuments({ roomId: m.roomId })) continue;
+    const school = m.school || schoolOfUser(m.senderId);
+    if (!school) continue;
+    count('conversations.created');
+    if (APPLY) {
+      await col(Conversation).insertOne({
+        roomId: m.roomId, school, participants: [m.senderId, m.receiverId],
+        lastText: m.text || (m.fileName ? `Attachment: ${m.fileName}` : ''), lastAt: m.createdAt, lastSender: m.senderId,
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
   }
 
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones

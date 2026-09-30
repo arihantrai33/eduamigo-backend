@@ -248,3 +248,19 @@ describe('SOS', () => {
     expect(again.status).toBe(429);
   });
 });
+
+describe('chat contact lists', () => {
+  test('admin and teacher inboxes show unread counts and the last message', async () => {
+    await api().post('/api/chat/messages').set(auth(A.parentUser)).send({ receiverId: String(A.admin._id), text: 'First' }).expect(201);
+    await new Promise((r) => setTimeout(r, 20));
+    await api().post('/api/chat/messages').set(auth(A.parentUser)).send({ receiverId: String(A.admin._id), text: 'Latest' }).expect(201);
+    const admin = await api().get('/api/chat/admin-contacts').set(auth(A.admin));
+    expect(admin.status).toBe(200);
+    const parent = admin.body.data.find((c) => String(c.userId) === String(A.parentUser._id));
+    expect(parent.unread).toBe(2);
+    expect(parent.lastMsg).toBe('Latest');
+    const teacher = await api().get('/api/chat/teacher-contacts').set(auth(A.teacherUser));
+    expect(teacher.status).toBe(200);
+    expect(teacher.body.data.map((c) => c.type).sort()).toEqual(['parent', 'student']);
+  });
+});

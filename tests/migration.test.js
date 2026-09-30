@@ -34,6 +34,10 @@ test('backfills school ids, normalizes classes, removes leaky notifications, ded
     { studentId, date: new Date('2026-09-01T00:00:00Z'), status: 'Present', class: '10', section: 'A', updatedAt: new Date(2) },
   ]);
 
+  await db.collection('messages').insertMany([
+    { roomId: 'r1', senderId: adminId, receiverId: teacherUserId, text: 'old', createdAt: new Date(1000) },
+    { roomId: 'r1', senderId: teacherUserId, receiverId: adminId, text: 'newest', createdAt: new Date(2000) },
+  ]);
   const dry = await migrate({ apply: false, quiet: true });
   expect(dry['fees.school_backfilled']).toBe(1);
   expect(await db.collection('fees').countDocuments({ school: { $exists: true } })).toBe(0);
@@ -53,6 +57,8 @@ test('backfills school ids, normalizes classes, removes leaky notifications, ded
   expect(att).toHaveLength(1);
   expect(att[0].status).toBe('Present');
 
+  const conv = await db.collection('conversations').findOne({ roomId: 'r1' });
+  expect(conv.lastText).toBe('newest');
   const second = await migrate({ apply: true, quiet: true });
   expect(second['fees.school_backfilled']).toBeUndefined();
 });
