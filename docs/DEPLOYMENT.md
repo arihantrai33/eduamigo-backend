@@ -34,23 +34,28 @@ All notes are re-embedded automatically by the job after the migration.
 ## 5. Deploy
 Deploy the backend first, then the frontend (Vercel). Check `GET /api/health` returns `{"status":"ok","db":"up"}`.
 
-## 6. Firebase Realtime Database rules
-Parents now receive a separate tracking id instead of the driver secret. The database rules should still
-stop anonymous writes. Until drivers sign in with Firebase Auth, restrict writes to the `transport` path to
-the backend service account by moving location writes to `POST /api/transport/driver/:token/update-location`
-(already available) and setting:
+## 6. Firebase (bus tracking)
+The driver app now sends location and trip events to the API, and the server writes them to Firebase
+with the service account. Browsers only read.
+
+1. In Render, add `FIREBASE_SERVICE_ACCOUNT` with the service account JSON (Firebase console >
+   Project settings > Service accounts > Generate new private key), pasted as one line.
+2. In Firebase console > Realtime Database > Rules, publish:
 
 ```json
 {
   "rules": {
     "transport": {
       "$trackingId": { ".read": true, ".write": false }
-    }
+    },
+    ".read": false,
+    ".write": false
   }
 }
 ```
 
-The driver app currently writes to Firebase directly; switch it to the API endpoint before tightening this rule.
+Parents know only the random tracking id of their child's bus. Remove any old `leaves` data from
+the database: parent leave requests now go through the API.
 
 ## Onboarding a new school
 `npm run create-school -- --name "School Name" --admin-name "Principal Name" --admin-email principal@school.in --phone 98xxxxxxxx`
