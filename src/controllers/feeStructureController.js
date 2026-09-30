@@ -4,7 +4,7 @@ const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
 const { toDayKey } = require('../utils/dates');
-const { statusFor } = require('../services/feeService');
+const { statusFor, syncStudentFeeStatus } = require('../services/feeService');
 const { notifyParents } = require('../services/notify');
 
 function structureInput(body) {
@@ -98,6 +98,7 @@ const updateAndReapplyFeeStructure = asyncHandler(async (req, res) => {
       });
     }
   }
+  await syncStudentFeeStatus(fees.map((f) => f.studentId));
   res.json({ success: true, message: `Fee structure updated. ${updated} unpaid fee record(s) updated.`, data: structure, updated });
 });
 
@@ -140,6 +141,7 @@ const applyFeeStructureToClass = asyncHandler(async (req, res) => {
     month: due.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }), year: due.getUTCFullYear(), status: 'Unpaid',
   })));
 
+  await syncStudentFeeStatus(toCreate.map((s) => s._id));
   for (const s of toCreate) {
     await notifyParents(s, {
       title: 'New fee added',

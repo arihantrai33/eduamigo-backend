@@ -112,6 +112,8 @@ describe('fees', () => {
     expect(p2.body.data.status).toBe('Paid');
     expect(p2.body.data.paidAmount).toBe(5000);
 
+    const Student = require('../src/models/Student');
+    expect((await Student.findById(A.student._id)).feeStatus).toBe('Paid');
     const my = await api().get('/api/fees/my').set(auth(A.parentUser));
     expect(my.body.summary).toEqual({ total: 5000, totalPaid: 5000, totalDue: 0 });
   });

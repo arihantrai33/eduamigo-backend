@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Fee = require('../models/Fee');
+const Student = require('../models/Student');
 const { HttpError } = require('../utils/http');
 
 const PAYMENT_MODES = ['Cash', 'Online', 'Cheque', 'UPI', 'Card', 'Bank Transfer'];
@@ -35,6 +36,7 @@ async function recordPayment({ school, feeId, amount, mode, reference, collected
   fee.receiptNo = receiptNo;
   fee.paidDate = new Date();
   await fee.save();
+  await syncStudentFeeStatus(fee.studentId);
   return { fee, payment: fee.payments[fee.payments.length - 1] };
 }
 
@@ -45,4 +47,16 @@ function totals(fees) {
   return { total: round(total), totalPaid: round(totalPaid), totalDue: round(total - totalPaid) };
 }
 
-module.exports = { recordPayment, totals, statusFor, PAYMENT_MODES };
+// Keeps the summary Student.feeStatus (used in lists and filters) in line with the fee records.
+async function syncStudentFeeStatus(studentIds) {
+  const ids = [].concat(studentIds).map(String);
+  for (const id of ids) {
+    const fees = await Fee.find({ studentId: id }).select('amount paidAmount');
+    const { total, totalPaid } = totals(fees);
+    let status = 'Paid';
+    if (total - totalPaid > 0.005) status = totalPaid > 0 ? 'Partial' : 'Pending';
+    await Student.updateOne({ _id: id }, { feeStatus: status });
+  }
+}
+
+module.exports = { recordPayment, totals, statusFor, syncStudentFeeStatus, PAYMENT_MODES };

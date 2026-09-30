@@ -2,7 +2,7 @@ const Fee = require('../models/Fee');
 const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { toDayKey, currentAcademicYear } = require('../utils/dates');
-const { recordPayment, totals } = require('../services/feeService');
+const { recordPayment, totals, syncStudentFeeStatus } = require('../services/feeService');
 const { studentForUser, childrenForParent } = require('../services/directory');
 const { notifyParents } = require('../services/notify');
 
@@ -22,6 +22,7 @@ const addFee = asyncHandler(async (req, res) => {
     school: req.schoolId, studentId, amount: Number(amount), feeType: feeType || 'Tuition',
     dueDate: due, month, year, academicYear: academicYear || currentAcademicYear(due), remarks, status: 'Unpaid',
   });
+  await syncStudentFeeStatus(student._id);
   res.status(201).json({ success: true, message: 'Fee record created successfully', data: fee });
 });
 
