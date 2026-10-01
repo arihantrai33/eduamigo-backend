@@ -39,6 +39,7 @@ require('../models/ExamSchedule');
 
 const { parseClassKey, classKey, normalizeClass, normalizeSection } = require('../utils/classes');
 const { toDayKey } = require('../utils/dates');
+const { feeStatusFor } = require('../services/feeService');
 
 let APPLY = process.argv.includes('--apply');
 let ROTATE = process.argv.includes('--rotate-driver-tokens');
@@ -198,6 +199,30 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
         createdAt: new Date(), updatedAt: new Date(),
       });
     }
+  }
+
+  // 10c. Student fee status is derived from fee records (it used to be typed in by hand)
+  const feesByStudent = new Map();
+  for (const f of await col(Fee).find({}, { projection: { studentId: 1, amount: 1, paidAmount: 1 } }).toArray()) {
+    const k = String(f.studentId);
+    if (!feesByStudent.has(k)) feesByStudent.set(k, []);
+    feesByStudent.get(k).push(f);
+  }
+  for (const s of await col(Student).find({}, { projection: { feeStatus: 1 } }).toArray()) {
+    const status = feeStatusFor(feesByStudent.get(String(s._id)) || []);
+    if (s.feeStatus !== status) await update(Student, s._id, { feeStatus: status }, 'students.fee_status_recalculated');
+  }
+
+  // 10d. Report (do not delete) login accounts with no matching profile; review them by hand
+  const linked = new Set();
+  for (const Model of [Student, Teacher, Parent]) {
+    for (const d of await col(Model).find({}, { projection: { userId: 1, parentUserId: 1 } }).toArray()) {
+      if (d.userId) linked.add(String(d.userId));
+      if (d.parentUserId) linked.add(String(d.parentUserId));
+    }
+  }
+  for (const u of await col(User).find({ role: { $in: ['student', 'teacher', 'parent'] } }, { projection: { role: 1 } }).toArray()) {
+    if (!linked.has(String(u._id))) count(`users.no_profile.${u.role} (review only)`);
   }
 
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones

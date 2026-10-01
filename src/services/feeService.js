@@ -52,11 +52,16 @@ async function syncStudentFeeStatus(studentIds) {
   const ids = [].concat(studentIds).map(String);
   for (const id of ids) {
     const fees = await Fee.find({ studentId: id }).select('amount paidAmount');
-    const { total, totalPaid } = totals(fees);
-    let status = 'Paid';
-    if (total - totalPaid > 0.005) status = totalPaid > 0 ? 'Partial' : 'Pending';
-    await Student.updateOne({ _id: id }, { feeStatus: status });
+    await Student.updateOne({ _id: id }, { feeStatus: feeStatusFor(fees) });
   }
 }
 
-module.exports = { recordPayment, totals, statusFor, syncStudentFeeStatus, PAYMENT_MODES };
+// 'Not billed' when no fee has been raised yet, otherwise Paid / Partial / Pending by balance.
+function feeStatusFor(fees) {
+  if (!fees.length) return 'Not billed';
+  const { total, totalPaid } = totals(fees);
+  if (total - totalPaid <= 0.005) return 'Paid';
+  return totalPaid > 0 ? 'Partial' : 'Pending';
+}
+
+module.exports = { recordPayment, totals, statusFor, syncStudentFeeStatus, feeStatusFor, PAYMENT_MODES };

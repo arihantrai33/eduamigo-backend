@@ -118,6 +118,21 @@ describe('fees', () => {
     expect(my.body.summary).toEqual({ total: 5000, totalPaid: 5000, totalDue: 0 });
   });
 
+  test('fee status is derived from fee records and cannot be typed in', async () => {
+    const Student = require('../src/models/Student');
+    const created = await api().post('/api/students').set(auth(A.admin))
+      .send({ name: 'New Kid', email: 'newkid@a.test', phone: '9000000077', class: '10', section: 'A', rollNumber: '77', feeStatus: 'Paid' });
+    expect(created.status).toBe(201);
+    const id = created.body.data?._id || created.body.data?.student?._id;
+    expect((await Student.findById(id)).feeStatus).toBe('Not billed');
+
+    const edit = await api().put(`/api/students/${id}`).set(auth(A.admin)).send({ feeStatus: 'Paid', name: 'New Kid Two' });
+    expect(edit.status).toBe(200);
+    const after = await Student.findById(id);
+    expect(after.name).toBe('New Kid Two');
+    expect(after.feeStatus).toBe('Not billed');
+  });
+
   test('reapply changes only fees from that structure', async () => {
     const tuition = await structure(A);
     const transport = await structure(A, { feeType: 'Transport', amount: 1000 });

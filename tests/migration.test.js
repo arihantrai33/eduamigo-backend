@@ -62,3 +62,26 @@ test('backfills school ids, normalizes classes, removes leaky notifications, ded
   const second = await migrate({ apply: true, quiet: true });
   expect(second['fees.school_backfilled']).toBeUndefined();
 });
+
+test('recalculates hand-typed fee status from fee records and reports accounts without a profile', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  const [billed, unbilled, orphanUser] = [oid(), oid(), oid()];
+  await db.collection('students').insertMany([
+    { _id: billed, name: 'Billed', class: '7', section: 'A', school, rollNumber: '1', feeStatus: 'Paid' },
+    { _id: unbilled, name: 'Unbilled', class: '7', section: 'A', school, rollNumber: '2', feeStatus: 'Paid' },
+  ]);
+  await db.collection('fees').insertOne({ studentId: billed, school, feeType: 'Tuition', amount: 1000, paidAmount: 400, dueDate: new Date() });
+  await db.collection('users').insertOne({ _id: orphanUser, name: 'Old Teacher', email: 'old@x.com', role: 'teacher', school, password: 'x' });
+
+  const dry = await migrate({ apply: false, quiet: true });
+  expect(dry['students.fee_status_recalculated']).toBe(2);
+  expect(dry['users.no_profile.teacher (review only)']).toBe(1);
+  expect((await db.collection('students').findOne({ _id: billed })).feeStatus).toBe('Paid');
+
+  await migrate({ apply: true, quiet: true });
+  expect((await db.collection('students').findOne({ _id: billed })).feeStatus).toBe('Partial');
+  expect((await db.collection('students').findOne({ _id: unbilled })).feeStatus).toBe('Not billed');
+  expect(await db.collection('users').countDocuments({ _id: orphanUser })).toBe(1);
+  expect((await migrate({ apply: false, quiet: true }))['students.fee_status_recalculated']).toBeUndefined();
+});

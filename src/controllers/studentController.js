@@ -18,7 +18,7 @@ function uploadPhotoToCloudinary(buffer) {
 }
 
 const UPDATABLE = ['name', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
-  'parentName', 'parentPhone', 'parentEmail', 'feeStatus', 'photo', 'class', 'section'];
+  'parentName', 'parentPhone', 'parentEmail', 'photo', 'class', 'section'];
 
 // GET /students — admin/teacher (teachers only see their assigned classes)
 exports.getStudents = asyncHandler(async (req, res) => {

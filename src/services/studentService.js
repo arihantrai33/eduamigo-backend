@@ -6,7 +6,7 @@ const { parseClassKey } = require('../utils/classes');
 const { temporaryPassword, hashPassword } = require('./credentials');
 
 const STUDENT_FIELDS = ['name', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
-  'parentName', 'parentPhone', 'parentEmail', 'feeStatus', 'photo'];
+  'parentName', 'parentPhone', 'parentEmail', 'photo'];
 
 // Creates a student plus login accounts for the student and (optionally) the parent.
 // If the parent already has an account in this school (a sibling is enrolled),

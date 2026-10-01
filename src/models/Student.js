@@ -13,7 +13,8 @@ const studentSchema = new mongoose.Schema({
   parentName:   { type: String, trim: true },
   parentPhone:  { type: String, trim: true },
   parentEmail:  { type: String, lowercase: true, trim: true },
-  feeStatus:    { type: String, enum: ['Paid', 'Pending', 'Partial'], default: 'Pending' },
+  // Derived from Fee records by feeService.syncStudentFeeStatus; never set by hand.
+  feeStatus:    { type: String, enum: ['Not billed', 'Paid', 'Pending', 'Partial'], default: 'Not billed' },
   photo:        { type: String },
   school:       { type: mongoose.Schema.Types.ObjectId, ref: 'School', default: null },
   bus:          { type: mongoose.Schema.Types.ObjectId, ref: 'Transport', default: null },
