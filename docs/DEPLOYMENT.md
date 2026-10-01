@@ -17,7 +17,9 @@ Required: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGINS` (your Vercel URL), Cloudinar
 See `.env.example` for the full list.
 
 ## 3. Back up and migrate the database
-1. In Atlas, take an on-demand snapshot (Backup > Snapshots).
+1. Back up: `npm run backup` (saves every collection to `backups/<timestamp>/`, works on the free M0 tier).
+   On paid tiers also take an Atlas snapshot (Backup > Snapshots).
+   To roll back: `npm run backup -- --restore backups/<timestamp> --confirm`.
 2. Dry run (no changes): `npm run migrate`
 3. Review the table, then apply: `npm run migrate -- --apply`
    - Add `--rotate-driver-tokens` to issue new, longer driver codes (drivers must enter the new code).

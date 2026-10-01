@@ -9,7 +9,8 @@
     "dev": "nodemon server.js",
     "test:watch": "jest --watch",
     "migrate": "node src/scripts/migrate.js",
-    "create-school": "node src/scripts/createSchool.js"
+    "create-school": "node src/scripts/createSchool.js",
+    "backup": "node src/scripts/backup.js"
   },
   "keywords": [],
   "author": "",
