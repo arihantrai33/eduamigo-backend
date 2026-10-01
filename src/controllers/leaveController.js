@@ -132,7 +132,7 @@ const reviewLeave = asyncHandler(async (req, res) => {
   };
   await notifyUser(req.schoolId, leave.requestedBy, msg);
   if (leave.studentId && leave.role === 'student') {
-    const student = await Student.findById(leave.studentId);
+    const student = await Student.findOne({ _id: leave.studentId, school: req.schoolId });
     if (student) await notifyParents(student, msg);
   }
   res.json({ success: true, message: `Leave ${status.toLowerCase()} successfully`, data: leave });

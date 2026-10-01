@@ -89,7 +89,7 @@ const updateAndReapplyFeeStructure = asyncHandler(async (req, res) => {
     fee.status = statusFor(fee.amount, fee.paidAmount || 0);
     await fee.save();
     updated += 1;
-    const student = await Student.findById(fee.studentId);
+    const student = await Student.findOne({ _id: fee.studentId, school: req.schoolId });
     if (student) {
       await notifyParents(student, {
         title: 'Fee updated',

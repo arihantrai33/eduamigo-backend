@@ -23,15 +23,15 @@ const ALLOWED = {
 };
 
 // Unread count + last message for many rooms in two queries (instead of 2 per contact).
-async function roomStats(userId, roomIds) {
+async function roomStats(school, userId, roomIds) {
   if (!roomIds.length) return new Map();
   const me = new mongoose.Types.ObjectId(String(userId));
   const [unread, last] = await Promise.all([
     Message.aggregate([
-      { $match: { roomId: { $in: roomIds }, receiverId: me, read: false } },
+      { $match: { school: new mongoose.Types.ObjectId(String(school)), roomId: { $in: roomIds }, receiverId: me, read: false } },
       { $group: { _id: '$roomId', n: { $sum: 1 } } },
     ]),
-    Conversation.find({ roomId: { $in: roomIds } }).select('roomId lastText lastAt').lean(),
+    Conversation.find({ school, roomId: { $in: roomIds } }).select('roomId lastText lastAt').lean(),
   ]);
   const stats = new Map(roomIds.map((r) => [r, { unread: 0, lastMsg: '', lastTime: null }]));
   unread.forEach((u) => { stats.get(u._id).unread = u.n; });
@@ -185,7 +185,7 @@ const getTeacherContacts = asyncHandler(async (req, res) => {
       });
     }
   }
-  const stats = await roomStats(req.user._id, [...new Set(contacts.map((c) => c.roomId))]);
+  const stats = await roomStats(req.schoolId, req.user._id, [...new Set(contacts.map((c) => c.roomId))]);
   res.json({ success: true, data: contacts.map((c) => ({ ...c, ...stats.get(c.roomId) })) });
 });
 
@@ -214,7 +214,7 @@ const getAdminContacts = asyncHandler(async (req, res) => {
       };
     }),
   ];
-  const stats = await roomStats(adminId, contacts.map((c) => c.roomId));
+  const stats = await roomStats(req.schoolId, adminId, contacts.map((c) => c.roomId));
   const data = contacts.map((c) => ({ ...c, ...stats.get(c.roomId) }));
   data.sort((a, b) => (b.unread - a.unread) || (new Date(b.lastTime || 0) - new Date(a.lastTime || 0)));
   res.json({ success: true, data });

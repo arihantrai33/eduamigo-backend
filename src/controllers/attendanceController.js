@@ -35,8 +35,8 @@ const markAttendance = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Attendance marked successfully', ...result });
 });
 
-async function recordsFor(studentId, query) {
-  const filter = { studentId };
+async function recordsFor(student, query) {
+  const filter = { studentId: student._id, school: student.school };
   const range = monthRange(query.month, query.year);
   if (range) filter.date = range;
   return Attendance.find(filter).sort({ date: -1 });
@@ -47,7 +47,7 @@ const getStudentAttendance = asyncHandler(async (req, res) => {
   assertId(req.params.studentId, 'studentId');
   const student = await Student.findOne({ _id: req.params.studentId, school: req.schoolId });
   if (!(await canAccessStudent(req.user, student))) throw new HttpError(404, 'Student not found');
-  const records = await recordsFor(student._id, req.query);
+  const records = await recordsFor(student, req.query);
   const summary = summarize(records);
   res.json({ success: true, summary: { ...summary, percentage: `${summary.percentage}%` }, data: records });
 });
@@ -106,7 +106,7 @@ const getAttendanceReport = asyncHandler(async (req, res) => {
 const getMyAttendanceSummary = asyncHandler(async (req, res) => {
   const student = await studentForUser(req.user);
   if (!student) throw new HttpError(404, 'Student not found');
-  const records = await recordsFor(student._id, req.query);
+  const records = await recordsFor(student, req.query);
   res.json({ success: true, data: summarize(records) });
 });
 
@@ -114,7 +114,7 @@ const getMyAttendanceSummary = asyncHandler(async (req, res) => {
 const getChildAttendanceSummary = asyncHandler(async (req, res) => {
   const { child } = await resolveChild(req.user, req.query.studentId);
   if (!child) throw new HttpError(404, 'No child is linked to this account');
-  const records = await recordsFor(child._id, req.query);
+  const records = await recordsFor(child, req.query);
   res.json({ success: true, data: summarize(records), student: { _id: child._id, name: child.name } });
 });
 
@@ -122,7 +122,7 @@ const getChildAttendanceSummary = asyncHandler(async (req, res) => {
 const getChildAttendanceRecords = asyncHandler(async (req, res) => {
   const { child } = await resolveChild(req.user, req.query.studentId);
   if (!child) throw new HttpError(404, 'No child is linked to this account');
-  res.json({ success: true, data: await recordsFor(child._id, req.query) });
+  res.json({ success: true, data: await recordsFor(child, req.query) });
 });
 
 module.exports = {

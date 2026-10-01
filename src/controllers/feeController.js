@@ -59,6 +59,7 @@ const getMyFees = asyncHandler(async (req, res) => {
     studentIds = req.query.studentId
       ? children.filter((c) => String(c._id) === String(req.query.studentId)).map((c) => c._id)
       : children.map((c) => c._id);
+    if (!studentIds.length) throw new HttpError(404, 'Child not found');
   } else {
     const student = await studentForUser(req.user);
     if (!student) throw new HttpError(404, 'Student not found');
@@ -78,7 +79,7 @@ const markFeePaid = asyncHandler(async (req, res) => {
     amount: body.amount ?? body.paidAmount, mode: body.mode || body.paymentMode || body.paymentMethod,
     reference: body.reference, collectedBy: req.user._id,
   });
-  const student = await Student.findById(fee.studentId);
+  const student = await Student.findOne({ _id: fee.studentId, school: req.schoolId });
   if (student) {
     await notifyParents(student, {
       title: 'Fee payment received',

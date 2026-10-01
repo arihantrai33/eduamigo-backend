@@ -5,6 +5,8 @@ const { parseClassKey } = require('../utils/classes');
 const { studentForUser } = require('../services/directory');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Accepts "Thursday", "thursday" or "Thu"; returns the stored day name or null.
+const dayName = (value) => DAYS.find((d) => d.toLowerCase().startsWith(String(value || '').trim().toLowerCase().slice(0, 3)) && String(value || '').trim().length >= 3) || null;
 const byDay = (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
 
 async function validatePeriods(school, periods) {
@@ -73,9 +75,18 @@ const getClassDayTimetable = asyncHandler(async (req, res) => {
 const getTeacherTimetable = asyncHandler(async (req, res) => {
   assertId(req.params.teacherId, 'teacherId');
   const timetable = (await Timetable.find({ school: req.schoolId, 'periods.teacher': req.params.teacherId })).sort(byDay);
-  const data = timetable.map((d) => ({
-    class: d.class, section: d.section, day: d.day,
-    periods: d.periods.filter((p) => p.teacher && String(p.teacher) === String(req.params.teacherId)),
+  // One entry per day with every period this teacher takes, across all classes, in time order.
+  const byDayName = new Map();
+  for (const d of timetable) {
+    const periods = d.periods
+      .filter((p) => p.teacher && String(p.teacher) === String(req.params.teacherId))
+      .map((p) => ({ ...p.toJSON(), class: d.class, section: d.section }));
+    if (!byDayName.has(d.day)) byDayName.set(d.day, { day: d.day, periods: [] });
+    byDayName.get(d.day).periods.push(...periods);
+  }
+  const data = [...byDayName.values()].map((d) => ({
+    ...d,
+    periods: d.periods.sort((a, b) => String(a.startTime || a.time || '').localeCompare(String(b.startTime || b.time || '')) || (a.no || 0) - (b.no || 0)),
   }));
   res.json({ success: true, data });
 });
@@ -84,7 +95,11 @@ const getMyTimetable = asyncHandler(async (req, res) => {
   const student = await studentForUser(req.user);
   if (!student) throw new HttpError(404, 'Student not found');
   const filter = { school: req.schoolId, class: student.class, section: student.section };
-  if (req.query.day) filter.day = String(req.query.day);
+  if (req.query.day) {
+    const day = dayName(req.query.day);
+    if (!day) return res.json({ success: true, data: [] }); // Sunday or an unknown day: no classes
+    filter.day = day;
+  }
   const timetable = (await Timetable.find(filter).populate('periods.teacher', 'name')).sort(byDay);
   if (req.query.day) return res.json({ success: true, data: timetable[0]?.periods || [] });
   res.json({ success: true, data: timetable });

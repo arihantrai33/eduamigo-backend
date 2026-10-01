@@ -52,7 +52,7 @@ const getMyChild = asyncHandler(async (req, res) => {
         address: parent?.address,
         occupation: parent?.occupation,
       },
-      children: children.map((c) => ({ _id: c._id, name: c.name, rollNumber: c.rollNumber, class: c.class, section: c.section, photo: c.photo })),
+      children: children.map((c) => ({ _id: c._id, name: c.name, rollNumber: c.rollNumber, class: c.class, section: c.section, photo: c.photo, feeStatus: c.feeStatus })),
     },
   });
 });

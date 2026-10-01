@@ -60,12 +60,17 @@ const generateMonthlySalaries = asyncHandler(async (req, res) => {
   const teachers = await Teacher.find({ school: req.schoolId, isActive: true });
   const existing = await Salary.find({ month, year, school: req.schoolId }).select('teacher');
   const have = new Set(existing.map((s) => String(s.teacher)));
-  const records = teachers.filter((t) => !have.has(String(t._id))).map((t) => ({
-    teacher: t._id, month, year, basicSalary: t.salary || 0, allowances: 0, deductions: 0,
-    netSalary: t.salary || 0, school: req.schoolId,
+  const due = teachers.filter((t) => !have.has(String(t._id)));
+  // A salary of zero is never generated silently; those teachers are reported back so the admin can set it.
+  const missing = due.filter((t) => !(t.salary > 0));
+  const records = due.filter((t) => t.salary > 0).map((t) => ({
+    teacher: t._id, month, year, basicSalary: t.salary, allowances: 0, deductions: 0,
+    netSalary: t.salary, school: req.schoolId,
   }));
   if (records.length) await Salary.insertMany(records);
-  res.json({ success: true, message: `Generated salary for ${records.length} teacher(s)`, data: records.length });
+  let message = `Generated salary for ${records.length} teacher(s)`;
+  if (missing.length) message += `. Skipped ${missing.length} without a monthly salary on their profile: ${missing.map((t) => t.name).join(', ')}`;
+  res.json({ success: true, message, data: records.length, skipped: missing.map((t) => ({ _id: t._id, name: t.name })) });
 });
 
 // --- STAFF LEAVES ---
