@@ -68,8 +68,8 @@ test('recalculates hand-typed fee status from fee records and reports accounts w
   const school = oid();
   const [billed, unbilled, orphanUser] = [oid(), oid(), oid()];
   await db.collection('students').insertMany([
-    { _id: billed, name: 'Billed', class: '7', section: 'A', school, rollNumber: '1', feeStatus: 'Paid' },
-    { _id: unbilled, name: 'Unbilled', class: '7', section: 'A', school, rollNumber: '2', feeStatus: 'Paid' },
+    { _id: billed, name: 'Billed', email: 'billed@x.com', class: '7', section: 'A', school, rollNumber: '1', feeStatus: 'Paid' },
+    { _id: unbilled, name: 'Unbilled', email: 'unbilled@x.com', class: '7', section: 'A', school, rollNumber: '2', feeStatus: 'Paid' },
   ]);
   await db.collection('fees').insertOne({ studentId: billed, school, feeType: 'Tuition', amount: 1000, paidAmount: 400, dueDate: new Date() });
   await db.collection('users').insertOne({ _id: orphanUser, name: 'Old Teacher', email: 'old@x.com', role: 'teacher', school, password: 'x' });

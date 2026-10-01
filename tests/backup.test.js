@@ -13,7 +13,7 @@ test('backup and restore round-trip keeps ids and dates exact', async () => {
   const db = mongoose.connection.db;
   const _id = new mongoose.Types.ObjectId();
   const when = new Date('2026-09-01T00:00:00Z');
-  await db.collection('students').insertOne({ _id, name: 'A', joined: when });
+  await db.collection('students').insertOne({ _id, name: 'A', email: 'backup@x.com', joined: when });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bk-'));
 
   const { summary } = await backup(db, dir);
