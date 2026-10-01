@@ -160,6 +160,8 @@ describe('note processing job', () => {
   });
 
   test('failures are retried at most 3 times and leave no partial chunks', async () => {
+    // The job logs each simulated failure; keep the test output clean.
+    jest.spyOn(console, 'error').mockImplementation(() => {});
     const note = await Note.create({ school: A.school._id, title: 'Broken', subject: 'Science', class: '10', fileUrl: 'https://x/b.pdf' });
     const failing = { extractPdfText: async () => longText, embedDocuments: async () => { throw new Error('quota'); } };
     for (let i = 0; i < 5; i += 1) await runPendingNotes({ deps: failing });
