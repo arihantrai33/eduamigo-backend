@@ -144,15 +144,21 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     }
   }
 
-  // 7. Notes: canonical class/section; re-embed everything with the new pipeline
+  // 7. Notes: canonical class/section; notes from before the AI pipeline (no processing state) are re-embedded once.
+  //    Notes the pipeline already handled are left alone, so running the migration again never wipes their search data.
+  const requeued = [];
   for (const n of await col(Note).find({}).toArray()) {
     const key = parseClassKey(n.class, n.section);
-    await update(Note, n._id, {
-      class: key.class, section: key.section,
-      processing: { status: n.type === 'Notes' || !n.type ? 'pending' : 'skipped', attempts: 0, chunks: 0, error: null, lockedUntil: null },
-    }, 'notes.requeued_for_ai');
+    const set = {};
+    if (key.class !== n.class || key.section !== (n.section ?? '')) Object.assign(set, { class: key.class, section: key.section });
+    if (!n.processing || !n.processing.status) {
+      set.processing = { status: n.type === 'Notes' || !n.type ? 'pending' : 'skipped', attempts: 0, chunks: 0, error: null, lockedUntil: null };
+      requeued.push(n._id);
+    }
+    if (!Object.keys(set).length) continue;
+    await update(Note, n._id, set, set.processing ? 'notes.requeued_for_ai' : 'notes.class_normalized');
   }
-  await remove(NoteEmbedding, {}, 'noteEmbeddings.cleared_for_reembedding');
+  if (requeued.length) await remove(NoteEmbedding, { noteId: { $in: requeued } }, 'noteEmbeddings.cleared_for_reembedding');
 
   // 8. Attendance: one record per student per day
   const seen = new Map();

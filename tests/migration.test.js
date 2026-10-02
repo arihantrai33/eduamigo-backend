@@ -109,3 +109,29 @@ test('links old marks and results to their scheduled exam and sets exam types an
   expect(await db.collection('examresults').findOne({ subject: 'Mathematics' })).toMatchObject({ exam: examId, term: 'Term 1' });
   expect(await db.collection('examresults').countDocuments()).toBe(2);
 });
+
+test('notes: old notes are queued for AI once; processed notes and their search data survive a second run', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  const oldNote = oid();
+  const doneNote = oid();
+  await db.collection('notes').insertMany([
+    { _id: oldNote, school, title: 'Old', subject: 'Science', class: 'Class 10', section: 'a', type: 'Notes' },
+    { _id: doneNote, school, title: 'Done', subject: 'Science', class: '10', section: 'A', type: 'Notes', processing: { status: 'ready', attempts: 1, chunks: 3 } },
+  ]);
+  await db.collection('noteembeddings').insertMany([
+    { noteId: oldNote, school, class: '10', section: 'A', subject: 'Science', chunkText: 'x', chunkIndex: 0, embedding: [0.1] },
+    { noteId: doneNote, school, class: '10', section: 'A', subject: 'Science', chunkText: 'y', chunkIndex: 0, embedding: [0.2] },
+  ]);
+  const first = await migrate({ apply: true, quiet: true });
+  expect(first['notes.requeued_for_ai']).toBe(1);
+  expect(first['noteEmbeddings.cleared_for_reembedding']).toBe(1);
+  const old = await db.collection('notes').findOne({ _id: oldNote });
+  expect(old).toMatchObject({ class: '10', section: 'A', processing: { status: 'pending' } });
+  expect(await db.collection('noteembeddings').countDocuments({ noteId: doneNote })).toBe(1);
+
+  const second = await migrate({ apply: true, quiet: true });
+  expect(second['notes.requeued_for_ai']).toBeUndefined();
+  expect(second['noteEmbeddings.cleared_for_reembedding']).toBeUndefined();
+  expect((await db.collection('notes').findOne({ _id: doneNote })).processing.status).toBe('ready');
+});
