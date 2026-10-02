@@ -54,6 +54,7 @@ function buildApp() {
   app.use('/api/notes',          require('./routes/noteRoutes'));
   app.use('/api/revision',       require('./routes/revisionRoutes'));
   app.use('/api/library',        require('./routes/libraryRoutes'));
+  app.use('/api/report-cards',   require('./routes/reportCardRoutes'));
 
   app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
 

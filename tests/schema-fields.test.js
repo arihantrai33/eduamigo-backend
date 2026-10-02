@@ -36,7 +36,8 @@ function scan(file) {
       if (!known(fields, k[1])) problems.push(`${path.relative(ROOT, file)}:${line(m.index)} ${m[1]} has no field "${k[1]}"`);
     }
   }
-  const selectRe = /\b([A-Z]\w+)\.\w+\([^;]*?\.select\(\s*'([^']+)'\s*\)/gs;
+  // The chain may not run into another model call (e.g. two queries inside one Promise.all).
+  const selectRe = /\b([A-Z]\w+)\.\w+\((?:(?!\b[A-Z]\w+\.(?:find|findOne|findById)\()[^;])*?\.select\(\s*'([^']+)'\s*\)/gs;
   while ((m = selectRe.exec(src))) {
     const M = models[m[1]];
     if (!M) continue;
