@@ -34,12 +34,16 @@ match this table. Update the table, the config and the test together.
 | User accounts, password resets | ✓ | | |
 | Mark attendance | ✓ | | ✓ (own classes) |
 | Attendance dashboards and reports | ✓ | | |
-| Enter and publish marks | | | ✓ (own classes) |
+| Enter and publish marks (against a scheduled exam) | | | ✓ (own classes and subjects) |
+| Reopen published marks | ✓ | | |
 | View results | ✓ | | ✓ (own classes) |
 | Exam schedule | ✓ | | |
+| Report cards (view, print, remarks) | ✓ | | ✓ (own classes) |
+| Admissions (enquiries, applications, admit) | ✓ | | |
 | Timetables | ✓ | | |
 | View fees and summaries | ✓ | ✓ | |
 | Collect fees, issue receipts | ✓ | ✓ | |
+| Online payment reconciliation | ✓ | ✓ | |
 | Fee structures, bill students | ✓ | ✓ | |
 | Salaries and staff leave | ✓ | | |
 | Review leave requests | ✓ | | ✓ (students of own classes) |
@@ -49,7 +53,7 @@ match this table. Update the table, the config and the test together.
 | Library | ✓ | | |
 | Bulk operations and promotion | ✓ | | |
 | Upload study material | ✓ | | ✓ (own classes) |
-| School settings | ✓ | | |
+| School settings, online payment keys | ✓ | | |
 | Message anyone from one inbox | ✓ | | |
 
 ## Self-service
@@ -57,10 +61,17 @@ match this table. Update the table, the config and the test together.
 | Action | Student | Parent |
 |---|:-:|:-:|
 | Own / child's profile, attendance, results, fees, timetable | ✓ | ✓ (each linked child) |
+| Report card | ✓ | ✓ (each linked child) |
+| Pay fees online, download receipts | ✓ | ✓ (each linked child) |
 | Apply for leave | ✓ | ✓ (for a child) |
 | AI revision | ✓ | |
 | Bus tracking and SOS | ✓ | ✓ |
 | Chat | Teachers of own class, admin | Teachers of child's class, admin, accountant |
+
+## Payments
+- Each school uses its own Razorpay account. Key secrets are encrypted at rest (AES-256-GCM) and never sent back to the browser.
+- A payment is applied only after its signature is verified (browser confirmation or webhook), and only once even if both arrive together.
+- The webhook URL carries the school ID; the payload is accepted only when it is signed with that school's webhook secret.
 
 ## Account safety
 - New accounts get a temporary password shown once to the admin; the user must set their own at first login.
