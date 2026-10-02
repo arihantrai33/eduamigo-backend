@@ -15,7 +15,7 @@ let fee;
 let orderSeq = 0;
 // Concurrency guarantees come from MongoDB's atomic single-document updates. The FerretDB stand-in used in
 // some sandboxes (MONGO_TEST_URI) does not provide them, so these run only on real MongoDB (the default).
-const realMongoTest = process.env.MONGO_TEST_URI ? test.skip : test;
+const realMongoTest = process.env.TEST_DB_IS_REAL_MONGO === 'true' ? test : test.skip;
 
 beforeAll(connect);
 afterAll(disconnect);
