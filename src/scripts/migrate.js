@@ -40,6 +40,8 @@ require('../models/ExamSchedule');
 const { parseClassKey, classKey, normalizeClass, normalizeSection } = require('../utils/classes');
 const { toDayKey } = require('../utils/dates');
 const { feeStatusFor } = require('../services/feeService');
+const { normalizeExamType, termForDate } = require('../config/exams');
+const ExamSchedule = require('../models/ExamSchedule');
 
 let APPLY = process.argv.includes('--apply');
 let ROTATE = process.argv.includes('--rotate-driver-tokens');
@@ -211,6 +213,31 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
   for (const s of await col(Student).find({}, { projection: { feeStatus: 1 } }).toArray()) {
     const status = feeStatusFor(feesByStudent.get(String(s._id)) || []);
     if (s.feeStatus !== status) await update(Student, s._id, { feeStatus: status }, 'students.fee_status_recalculated');
+  }
+
+  // 10e. Exams: one list of exam types, a term on every exam, and marks/results linked to their scheduled exam
+  const schedules = await col(ExamSchedule).find({}).toArray();
+  for (const e of schedules) {
+    const set = {};
+    const type = normalizeExamType(e.examType);
+    if (type !== e.examType) set.examType = type;
+    if (!e.term && e.date) set.term = termForDate(e.date);
+    if (Object.keys(set).length) await update(ExamSchedule, e._id, set, 'exams.type_or_term_set');
+  }
+  const scheduleFor = (r) => schedules.find((e) => String(e.school) === String(r.school) && e.class === r.class
+    && (!e.section || e.section === r.section)
+    && String(e.subject).toLowerCase() === String(r.subject).toLowerCase()
+    && String(e.title).toLowerCase() === String(r.examName).toLowerCase()
+    && (!e.academicYear || !r.academicYear || e.academicYear === r.academicYear));
+  for (const [Model, label] of [[Mark, 'marks'], [ExamResult, 'examResults']]) {
+    for (const r of await col(Model).find({ exam: { $exists: false } }).toArray()) {
+      const set = {};
+      if (r.examType && normalizeExamType(r.examType) !== r.examType) set.examType = normalizeExamType(r.examType);
+      const e = scheduleFor(r);
+      if (e) Object.assign(set, { exam: e._id, term: e.term || termForDate(e.date) });
+      else count(`${label}.no_matching_exam (kept, shown without a term)`);
+      if (Object.keys(set).length) await update(Model, r._id, set, `${label}.linked_to_exam`);
+    }
   }
 
   // 10d. Report (do not delete) login accounts with no matching profile; review them by hand

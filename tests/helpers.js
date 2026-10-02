@@ -74,4 +74,16 @@ async function seedSchool(name = 'Alpha School') {
   return { school, admin, teacherUser, teacher, parentUser, studentUser, student, otherStudentUser, otherStudent };
 }
 
-module.exports = { app, api, connect, disconnect, clear, auth, tokenFor, makeUser, seedSchool };
+// Schedules a held exam (yesterday by default) for a seeded school.
+async function scheduleExam(ctx, overrides = {}) {
+  const ExamSchedule = require('../src/models/ExamSchedule');
+  const yesterday = new Date(Date.now() - 86400000);
+  return ExamSchedule.create({
+    school: ctx.school._id, title: 'Mid Term', examType: 'Mid Term', subject: 'Mathematics',
+    class: '10', section: 'A', date: new Date(Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), yesterday.getUTCDate())),
+    totalMarks: 100, academicYear: '2026-27', term: 'Term 1', ...overrides,
+  });
+}
+
+module.exports = {
+  scheduleExam, app, api, connect, disconnect, clear, auth, tokenFor, makeUser, seedSchool };

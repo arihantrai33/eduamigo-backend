@@ -85,3 +85,27 @@ test('recalculates hand-typed fee status from fee records and reports accounts w
   expect(await db.collection('users').countDocuments({ _id: orphanUser })).toBe(1);
   expect((await migrate({ apply: false, quiet: true }))['students.fee_status_recalculated']).toBeUndefined();
 });
+
+test('links old marks and results to their scheduled exam and sets exam types and terms', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  const examId = oid();
+  const student = oid();
+  await db.collection('examschedules').insertOne({ _id: examId, school, title: 'Mid Term', examType: 'Final', subject: 'Mathematics', class: '10', section: '', date: new Date('2026-09-20T00:00:00Z'), academicYear: '2026-27' });
+  await db.collection('marks').insertOne({ school, student, class: '10', section: 'A', subject: 'mathematics', examName: 'Mid Term', examType: 'Final', maxMarks: 50, marksObtained: 40, academicYear: '2026-27', status: 'published' });
+  await db.collection('examresults').insertMany([
+    { school, student, class: '10', section: 'A', subject: 'Mathematics', examName: 'Mid Term', totalMarks: 50, marksObtained: 40, academicYear: '2026-27' },
+    { school, student, class: '10', section: 'A', subject: 'Science', examName: 'Old Test', totalMarks: 50, marksObtained: 30, academicYear: '2026-27' },
+  ]);
+
+  const dry = await migrate({ apply: false, quiet: true });
+  expect(dry['exams.type_or_term_set']).toBe(1);
+  expect(dry['marks.linked_to_exam']).toBe(1);
+  expect(dry['examResults.no_matching_exam (kept, shown without a term)']).toBe(1);
+
+  await migrate({ apply: true, quiet: true });
+  expect(await db.collection('examschedules').findOne({ _id: examId })).toMatchObject({ examType: 'Final Exam', term: 'Term 1' });
+  expect(await db.collection('marks').findOne({ student })).toMatchObject({ exam: examId, term: 'Term 1', examType: 'Final Exam' });
+  expect(await db.collection('examresults').findOne({ subject: 'Mathematics' })).toMatchObject({ exam: examId, term: 'Term 1' });
+  expect(await db.collection('examresults').countDocuments()).toBe(2);
+});

@@ -1,4 +1,4 @@
-const { api, connect, disconnect, clear, auth, seedSchool } = require('./helpers');
+const { api, connect, disconnect, clear, auth, seedSchool, scheduleExam } = require('./helpers');
 const Attendance = require('../src/models/Attendance');
 const Notification = require('../src/models/Notification');
 const Fee = require('../src/models/Fee');
@@ -218,32 +218,84 @@ describe('leave requests', () => {
 });
 
 describe('exams and results', () => {
-  const exam = { class: '10', section: 'A', subject: 'Mathematics', examName: 'Mid Term', academicYear: '2026-27' };
+  const save = (who, exam, marksData, extra = {}) => api().post('/api/marks/save').set(auth(who)).send({ examId: String(exam._id), marksData, ...extra });
 
-  test('marks above maximum are rejected', async () => {
+  test('marks are entered against a scheduled exam; free-typed exams are refused', async () => {
     const res = await api().post('/api/marks/save').set(auth(A.teacherUser))
-      .send({ ...exam, maxMarks: 50, marksData: [{ studentId: String(A.student._id), marksObtained: 51 }] });
+      .send({ class: '10', section: 'A', subject: 'Mathematics', examName: 'Mid Term', academicYear: '2026-27', maxMarks: 50, marksData: [{ studentId: String(A.student._id), marksObtained: 20 }] });
+    expect(res.status).toBe(400);
+  });
+
+  test('marks above the exam total are rejected', async () => {
+    const exam = await scheduleExam(A, { totalMarks: 50 });
+    const res = await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 51 }]);
     expect(res.status).toBe(400);
   });
 
   test('teacher cannot save marks for a class they do not teach', async () => {
-    const res = await api().post('/api/marks/save').set(auth(A.teacherUser))
-      .send({ ...exam, section: 'B', maxMarks: 50, marksData: [{ studentId: String(A.otherStudent._id), marksObtained: 20 }] });
+    const exam = await scheduleExam(A, { section: 'B' });
+    const res = await save(A.teacherUser, exam, [{ studentId: String(A.otherStudent._id), marksObtained: 20 }]);
     expect(res.status).toBe(403);
   });
 
-  test('published results are visible to the parent and locked for editing', async () => {
-    await api().post('/api/marks/save').set(auth(A.teacherUser))
-      .send({ ...exam, maxMarks: 100, marksData: [{ studentId: String(A.student._id), marksObtained: 91 }] }).expect(200);
-    await api().patch('/api/marks/publish').set(auth(A.teacherUser)).send(exam).expect(200);
+  test('teacher cannot enter marks for a subject they do not teach', async () => {
+    const exam = await scheduleExam(A, { subject: 'History' });
+    const res = await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 20 }]);
+    expect(res.status).toBe(403);
+    const list = await api().get('/api/marks/exams?class=10&section=A').set(auth(A.teacherUser));
+    expect(list.body.data.map((e) => e.subject)).not.toContain('History');
+  });
 
+  test('marks cannot be entered before the exam date', async () => {
+    const exam = await scheduleExam(A, { date: new Date(Date.now() + 5 * 86400000) });
+    const res = await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 20 }]);
+    expect(res.status).toBe(400);
+  });
+
+  test('exam list shows progress; the class sheet lists students with saved marks', async () => {
+    const exam = await scheduleExam(A);
+    await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 77 }]).expect(200);
+    const list = await api().get('/api/marks/exams?class=10&section=A').set(auth(A.teacherUser));
+    expect(list.body.data[0]).toMatchObject({ title: 'Mid Term', status: 'Draft', entered: 1, held: true, term: 'Term 1' });
+    const sheet = await api().get(`/api/marks?examId=${exam._id}&section=A`).set(auth(A.teacherUser));
+    expect(sheet.body.exam).toMatchObject({ subject: 'Mathematics', maxMarks: 100, examName: 'Mid Term' });
+    expect(sheet.body.data).toEqual([expect.objectContaining({ name: 'Aarav', marksObtained: 77, absent: false })]);
+  });
+
+  test('published results are visible to the parent, carry the exam and term, and are locked', async () => {
+    const exam = await scheduleExam(A);
+    await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 91 }]).expect(200);
+    await api().patch('/api/marks/publish').set(auth(A.teacherUser)).send({ examId: String(exam._id) }).expect(200);
     const parent = await api().get(`/api/exams/student/${A.student._id}/results`).set(auth(A.parentUser));
     expect(parent.status).toBe(200);
-    expect(parent.body.data[0].grade).toBe('A+');
-
-    const edit = await api().post('/api/marks/save').set(auth(A.teacherUser))
-      .send({ ...exam, maxMarks: 100, marksData: [{ studentId: String(A.student._id), marksObtained: 10 }] });
+    expect(parent.body.data[0]).toMatchObject({ grade: 'A+', term: 'Term 1', examType: 'Mid Term', exam: String(exam._id) });
+    const edit = await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 10 }]);
     expect(edit.status).toBe(409);
+  });
+
+  test('absent students are recorded as AB, not as zero marks typed in', async () => {
+    const exam = await scheduleExam(A);
+    await save(A.teacherUser, exam, [{ studentId: String(A.student._id), absent: true }]).expect(200);
+    await api().patch('/api/marks/publish').set(auth(A.teacherUser)).send({ examId: String(exam._id) }).expect(200);
+    const res = await api().get(`/api/exams/student/${A.student._id}/results`).set(auth(A.admin));
+    expect(res.body.data[0]).toMatchObject({ absent: true, grade: 'AB', marksObtained: 0 });
+  });
+
+  test('admin can reopen published marks for correction; teachers cannot', async () => {
+    const exam = await scheduleExam(A);
+    await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 40 }]).expect(200);
+    await api().patch('/api/marks/publish').set(auth(A.teacherUser)).send({ examId: String(exam._id) }).expect(200);
+    await api().patch('/api/marks/unpublish').set(auth(A.teacherUser)).send({ examId: String(exam._id), section: 'A' }).expect(403);
+    await api().patch('/api/marks/unpublish').set(auth(A.admin)).send({ examId: String(exam._id), section: 'A' }).expect(200);
+    await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 45 }]).expect(200);
+    const res = await api().get(`/api/exams/student/${A.student._id}/results`).set(auth(A.admin));
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  test('an exam of another school cannot be marked', async () => {
+    const exam = await scheduleExam(B);
+    const res = await save(A.teacherUser, exam, [{ studentId: String(A.student._id), marksObtained: 20 }]);
+    expect(res.status).toBe(404);
   });
 
   test('parents cannot read results of a child that is not theirs', async () => {
@@ -252,12 +304,32 @@ describe('exams and results', () => {
   });
 
   test('exam schedule CRUD for admin; students see only their class', async () => {
-    await api().post('/api/exams').set(auth(A.admin)).send({ title: 'Maths', subject: 'Mathematics', class: '10', section: 'A', date: '2026-11-01' }).expect(201);
-    await api().post('/api/exams').set(auth(A.admin)).send({ title: 'Science', subject: 'Science', class: '9', date: '2026-11-02' }).expect(201);
+    await api().post('/api/exams').set(auth(A.admin)).send({ title: 'Maths', subject: 'Mathematics', class: '10', section: 'A', date: '2026-11-01', totalMarks: 80 }).expect(201);
+    await api().post('/api/exams').set(auth(A.admin)).send({ title: 'Science', subject: 'Science', class: '9', date: '2026-11-02', totalMarks: 80 }).expect(201);
     const student = await api().get('/api/exams').set(auth(A.studentUser));
     expect(student.body.data.map((e) => e.title)).toEqual(['Maths']);
     const other = await api().get('/api/exams').set(auth(B.admin));
     expect(other.body.data).toHaveLength(0);
+  });
+
+  test('exam schedule: total marks required, term set from the date, duplicates refused, every listed type accepted', async () => {
+    const base = { title: 'Unit Test 2', subject: 'Mathematics', class: '10', section: 'A', date: '2026-11-01' };
+    await api().post('/api/exams').set(auth(A.admin)).send(base).expect(400);
+    const ok = await api().post('/api/exams').set(auth(A.admin)).send({ ...base, totalMarks: 50 }).expect(201);
+    expect(ok.body.data).toMatchObject({ term: 'Term 2', academicYear: '2026-27' });
+    await api().post('/api/exams').set(auth(A.admin)).send({ ...base, totalMarks: 50 }).expect(409);
+    const { body } = await api().get('/api/exams/options').set(auth(A.admin));
+    for (const [i, examType] of body.data.examTypes.entries()) {
+      await api().post('/api/exams').set(auth(A.admin)).send({ ...base, title: `Paper ${i}`, examType, totalMarks: 20 }).expect(201);
+    }
+  });
+
+  test('an exam with marks cannot be deleted or have its total changed', async () => {
+    const exam = await scheduleExam(A);
+    await api().post('/api/marks/save').set(auth(A.teacherUser)).send({ examId: String(exam._id), marksData: [{ studentId: String(A.student._id), marksObtained: 20 }] }).expect(200);
+    await api().put(`/api/exams/${exam._id}`).set(auth(A.admin)).send({ totalMarks: 80 }).expect(409);
+    await api().put(`/api/exams/${exam._id}`).set(auth(A.admin)).send({ venue: 'Hall 2' }).expect(200);
+    await api().delete(`/api/exams/${exam._id}`).set(auth(A.admin)).expect(409);
   });
 });
 

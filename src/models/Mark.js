@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
+const { EXAM_TYPES, TERMS } = require('../config/exams');
 
 const markSchema = new mongoose.Schema({
+  exam:        { type: mongoose.Schema.Types.ObjectId, ref: 'ExamSchedule', index: true },
   student:     { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true },
   teacher:     { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
   school:      { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
@@ -8,9 +10,11 @@ const markSchema = new mongoose.Schema({
   section:     { type: String },
   subject:     { type: String, required: true },
   examName:    { type: String, required: true },
-  examType:    { type: String, enum: ['Unit Test', 'Mid Term', 'Final', 'Custom'], default: 'Unit Test' },
+  examType:    { type: String, enum: EXAM_TYPES, default: 'Unit Test' },
+  term:        { type: String, enum: TERMS },
   maxMarks:    { type: Number, required: true },
   marksObtained: { type: Number, min: 0 },
+  absent:      { type: Boolean, default: false },
   weightage:   { type: Number },
   academicYear: { type: String, required: true },
   status:      { type: String, enum: ['draft', 'published'], default: 'draft' },

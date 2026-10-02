@@ -10,6 +10,7 @@ router.get('/child-results',               authorizeRoles('parent'), c.getChildR
 router.get('/results',                     requirePermission('results.read'), c.getResults);
 router.get('/student/:studentId/results',  c.getStudentResults);
 
+router.get('/options', c.getOptions);
 router.get('/',       c.listSchedule);
 router.post('/',      requirePermission('exams.manage'), c.createSchedule);
 router.put('/:id',    requirePermission('exams.manage'), c.updateSchedule);

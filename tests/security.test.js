@@ -1,4 +1,4 @@
-const { api, connect, disconnect, clear, auth, seedSchool, makeUser } = require('./helpers');
+const { api, connect, disconnect, clear, auth, seedSchool, makeUser, scheduleExam } = require('./helpers');
 const User = require('../src/models/User');
 const Student = require('../src/models/Student');
 const Transport = require('../src/models/Transport');
@@ -158,10 +158,10 @@ describe('tenant isolation', () => {
 
 describe('notification privacy', () => {
   async function publishMathMarks(ctx) {
-    const exam = { class: '10', section: 'A', subject: 'Mathematics', examName: 'Unit Test 1', academicYear: '2026-27' };
+    const exam = await scheduleExam(ctx, { title: 'Unit Test 1', totalMarks: 50 });
     await api().post('/api/marks/save').set(auth(ctx.teacherUser))
-      .send({ ...exam, maxMarks: 50, marksData: [{ studentId: String(ctx.student._id), marksObtained: 42 }] }).expect(200);
-    await api().patch('/api/marks/publish').set(auth(ctx.teacherUser)).send(exam).expect(200);
+      .send({ examId: String(exam._id), marksData: [{ studentId: String(ctx.student._id), marksObtained: 42 }] }).expect(200);
+    await api().patch('/api/marks/publish').set(auth(ctx.teacherUser)).send({ examId: String(exam._id) }).expect(200);
   }
 
   test('a child\'s result reaches only that child and their parent', async () => {

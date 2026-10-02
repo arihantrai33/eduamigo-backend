@@ -5,6 +5,8 @@ const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
 const { gradeFor } = require('../utils/grades');
 const { toDayKey, currentAcademicYear } = require('../utils/dates');
+const { EXAM_TYPES, TERMS, normalizeExamType, termForDate } = require('../config/exams');
+const Mark = require('../models/Mark');
 const { studentForUser, canAccessStudent, teacherForUser, resolveChild } = require('../services/directory');
 
 function withAverage(results) {
@@ -62,7 +64,7 @@ const getResults = asyncHandler(async (req, res) => {
 
 // ---------- Exam schedule ----------
 
-const SCHEDULE_FIELDS = ['title', 'examType', 'subject', 'class', 'section', 'date', 'startTime', 'endTime',
+const SCHEDULE_FIELDS = ['title', 'examType', 'term', 'subject', 'class', 'section', 'date', 'startTime', 'endTime',
   'totalMarks', 'venue', 'instructions', 'academicYear'];
 
 function scheduleInput(body) {
@@ -76,9 +78,33 @@ function scheduleInput(body) {
     data.date = toDayKey(data.date);
     if (!data.date) throw new HttpError(400, 'Invalid exam date');
   }
-  if (data.totalMarks === '') delete data.totalMarks;
+  if (data.totalMarks === '' || data.totalMarks === null) delete data.totalMarks;
+  if (data.totalMarks !== undefined) {
+    data.totalMarks = Number(data.totalMarks);
+    if (!(data.totalMarks > 0)) throw new HttpError(400, 'Total marks must be greater than 0');
+  }
+  if (data.examType !== undefined) data.examType = normalizeExamType(data.examType);
+  if (data.term !== undefined && data.term !== '' && !TERMS.includes(data.term)) throw new HttpError(400, 'Term must be Term 1 or Term 2');
+  if (data.term === '') delete data.term;
+  if (typeof data.title === 'string') data.title = data.title.trim();
+  if (typeof data.subject === 'string') data.subject = data.subject.trim();
   return data;
 }
+
+// The same subject paper cannot be scheduled twice under one name in a year for the same class-section.
+async function assertNotDuplicate(school, data, ignoreId) {
+  const clash = await ExamSchedule.findOne({
+    school, class: data.class, subject: data.subject, title: data.title, academicYear: data.academicYear,
+    section: data.section ? { $in: [data.section, ''] } : { $exists: true },
+    ...(ignoreId ? { _id: { $ne: ignoreId } } : {}),
+  }).select('_id');
+  if (clash) throw new HttpError(409, `${data.subject} already has an exam called "${data.title}" for this class this year`);
+}
+
+// GET /api/exams/options — exam types and terms the platform accepts
+const getOptions = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: { examTypes: EXAM_TYPES, terms: TERMS } });
+});
 
 // GET /api/exams (everyone in the school; students/parents see their class only)
 const listSchedule = asyncHandler(async (req, res) => {
@@ -101,19 +127,36 @@ const listSchedule = asyncHandler(async (req, res) => {
 const createSchedule = asyncHandler(async (req, res) => {
   const data = scheduleInput(req.body || {});
   if (!data.title || !data.subject || !data.class || !data.date) throw new HttpError(400, 'Title, subject, class and date are required');
-  const exam = await ExamSchedule.create({ ...data, academicYear: data.academicYear || currentAcademicYear(data.date), school: req.schoolId, createdBy: req.user._id });
+  if (!data.totalMarks) throw new HttpError(400, 'Total marks are required so that marks can be entered later');
+  data.academicYear = data.academicYear || currentAcademicYear(data.date);
+  data.term = data.term || termForDate(data.date);
+  await assertNotDuplicate(req.schoolId, data);
+  const exam = await ExamSchedule.create({ ...data, school: req.schoolId, createdBy: req.user._id });
   res.status(201).json({ success: true, data: exam });
 });
 
 const updateSchedule = asyncHandler(async (req, res) => {
   assertId(req.params.id);
-  const exam = await ExamSchedule.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, scheduleInput(req.body || {}), { returnDocument: 'after', runValidators: true });
-  if (!exam) throw new HttpError(404, 'Exam not found');
+  const current = await ExamSchedule.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!current) throw new HttpError(404, 'Exam not found');
+  const update = scheduleInput(req.body || {});
+  // Once marks exist, the fields they depend on are locked so results stay consistent.
+  const LOCKED = ['title', 'subject', 'class', 'section', 'totalMarks', 'academicYear'];
+  const changesLocked = LOCKED.some((f) => update[f] !== undefined && String(update[f]) !== String(current[f] ?? ''));
+  if (changesLocked && await Mark.exists({ school: req.schoolId, exam: current._id })) {
+    throw new HttpError(409, 'Marks have already been entered for this exam, so its name, subject, class and total marks can no longer change');
+  }
+  const merged = { ...current.toObject(), ...update };
+  await assertNotDuplicate(req.schoolId, merged, current._id);
+  const exam = await ExamSchedule.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, update, { returnDocument: 'after', runValidators: true });
   res.json({ success: true, data: exam });
 });
 
 const deleteSchedule = asyncHandler(async (req, res) => {
   assertId(req.params.id);
+  if (await Mark.exists({ school: req.schoolId, exam: req.params.id })) {
+    throw new HttpError(409, 'Marks have already been entered for this exam, so it cannot be deleted');
+  }
   const exam = await ExamSchedule.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
   if (!exam) throw new HttpError(404, 'Exam not found');
   res.json({ success: true, message: 'Exam deleted' });
@@ -121,5 +164,5 @@ const deleteSchedule = asyncHandler(async (req, res) => {
 
 module.exports = {
   getMyResults, getChildResults, getStudentResults, getResults,
-  listSchedule, createSchedule, updateSchedule, deleteSchedule,
+  listSchedule, createSchedule, updateSchedule, deleteSchedule, getOptions,
 };
