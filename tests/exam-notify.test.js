@@ -63,3 +63,12 @@ test('past-dated exams (entered for record keeping) are not announced', async ()
   await api().post('/api/exams').set(auth(A.admin)).send(exam({ date: inDays(-10) })).expect(201);
   expect(await notesFor(A.studentUser)).toHaveLength(0);
 });
+
+test('the same message is not sent twice within a few minutes', async () => {
+  const created = (await api().post('/api/exams').set(auth(A.admin)).send(exam()).expect(201)).body.data;
+  await api().put(`/api/exams/${created._id}`).set(auth(A.admin)).send({ endTime: '13:00' }).expect(200);
+  await api().put(`/api/exams/${created._id}`).set(auth(A.admin)).send({ endTime: '12:30' }).expect(200);
+  await api().put(`/api/exams/${created._id}`).set(auth(A.admin)).send({ endTime: '13:00' }).expect(200);
+  const titles = (await notesFor(A.parentUser)).map((n) => n.title);
+  expect(titles).toEqual(['Exam scheduled: Science', 'Exam updated: Science', 'Exam updated: Science']);
+});

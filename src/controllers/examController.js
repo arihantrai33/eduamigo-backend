@@ -117,6 +117,13 @@ async function notifyExamAudience(exam, title, message) {
     (await parentUserIdsForStudent(st)).forEach((id) => recipients.add(id));
   }
   if (!recipients.size) return 0;
+  // Repeated saves within a few minutes must not flood inboxes with the same message.
+  const recent = await Notification.find({
+    school: exam.school, recipient: { $in: [...recipients] }, title, message,
+    createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) },
+  }).select('recipient');
+  recent.forEach((n) => recipients.delete(String(n.recipient)));
+  if (!recipients.size) return 0;
   await Notification.insertMany([...recipients].map((recipient) => ({
     school: exam.school, recipient, title, message, type: 'Exam', targetRole: 'all',
   })));
