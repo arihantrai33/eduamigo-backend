@@ -7,7 +7,8 @@ const { gradeFor } = require('../utils/grades');
 const { toDayKey, currentAcademicYear } = require('../utils/dates');
 const { EXAM_TYPES, TERMS, normalizeExamType, termForDate } = require('../config/exams');
 const Mark = require('../models/Mark');
-const { studentForUser, canAccessStudent, teacherForUser, resolveChild } = require('../services/directory');
+const { studentForUser, canAccessStudent, teacherForUser, resolveChild, parentUserIdsForStudent } = require('../services/directory');
+const Notification = require('../models/Notification');
 
 function withAverage(results) {
   const avg = results.length
@@ -88,8 +89,40 @@ function scheduleInput(body) {
   if (data.term === '') delete data.term;
   if (typeof data.title === 'string') data.title = data.title.trim();
   if (typeof data.subject === 'string') data.subject = data.subject.trim();
+  for (const t of ['startTime', 'endTime']) {
+    if (data[t] === undefined || data[t] === null) continue;
+    data[t] = String(data[t]).trim();
+    if (data[t] && !/^([01]\d|2[0-3]):[0-5]\d$/.test(data[t])) throw new HttpError(400, 'Times must be in HH:MM format');
+  }
   return data;
 }
+
+// End time, when given, must come after the start time.
+function assertTimes({ startTime, endTime }) {
+  if (startTime && endTime && endTime <= startTime) throw new HttpError(400, 'End time must be after the start time');
+}
+
+const fmtExamDate = (d) => new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const examWhen = (e) => `${fmtExamDate(e.date)}${e.startTime ? `, ${e.startTime}${e.endTime ? `–${e.endTime}` : ''}` : ''}${e.venue ? `, ${e.venue}` : ''}`;
+
+// Tells the students of the exam's class (or class-section) and their parents. Past-dated exams are not announced.
+async function notifyExamAudience(exam, title, message) {
+  if (toDayKey(exam.date) < toDayKey(new Date())) return 0;
+  const filter = { school: exam.school, class: exam.class, isActive: { $ne: false } };
+  if (exam.section) filter.section = exam.section;
+  const students = await Student.find(filter).select('userId parentUserId school');
+  const recipients = new Set();
+  for (const st of students) {
+    if (st.userId) recipients.add(String(st.userId));
+    (await parentUserIdsForStudent(st)).forEach((id) => recipients.add(id));
+  }
+  if (!recipients.size) return 0;
+  await Notification.insertMany([...recipients].map((recipient) => ({
+    school: exam.school, recipient, title, message, type: 'Exam', targetRole: 'all',
+  })));
+  return recipients.size;
+}
+const safeNotify = (...args) => notifyExamAudience(...args).catch((err) => console.error('Exam notification failed:', err.message));
 
 // The same subject paper cannot be scheduled twice under one name in a year for the same class-section.
 async function assertNotDuplicate(school, data, ignoreId) {
@@ -130,8 +163,11 @@ const createSchedule = asyncHandler(async (req, res) => {
   if (!data.totalMarks) throw new HttpError(400, 'Total marks are required so that marks can be entered later');
   data.academicYear = data.academicYear || currentAcademicYear(data.date);
   data.term = data.term || termForDate(data.date);
+  assertTimes(data);
   await assertNotDuplicate(req.schoolId, data);
   const exam = await ExamSchedule.create({ ...data, school: req.schoolId, createdBy: req.user._id });
+  await safeNotify(exam, `Exam scheduled: ${exam.subject}`,
+    `${exam.title} (${exam.examType}) for Class ${exam.class}${exam.section ? `-${exam.section}` : ''} on ${examWhen(exam)}. Total marks ${exam.totalMarks}.`);
   res.status(201).json({ success: true, data: exam });
 });
 
@@ -147,8 +183,15 @@ const updateSchedule = asyncHandler(async (req, res) => {
     throw new HttpError(409, 'Marks have already been entered for this exam, so its name, subject, class and total marks can no longer change');
   }
   const merged = { ...current.toObject(), ...update };
+  assertTimes(merged);
   await assertNotDuplicate(req.schoolId, merged, current._id);
   const exam = await ExamSchedule.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, update, { returnDocument: 'after', runValidators: true });
+  const moved = ['date', 'startTime', 'endTime', 'venue', 'class', 'section']
+    .some((f) => String(exam[f] instanceof Date ? exam[f].getTime() : exam[f] ?? '') !== String(current[f] instanceof Date ? current[f].getTime() : current[f] ?? ''));
+  if (moved) {
+    await safeNotify(exam, `Exam updated: ${exam.subject}`,
+      `${exam.title} for Class ${exam.class}${exam.section ? `-${exam.section}` : ''} is now on ${examWhen(exam)}.`);
+  }
   res.json({ success: true, data: exam });
 });
 
@@ -159,6 +202,8 @@ const deleteSchedule = asyncHandler(async (req, res) => {
   }
   const exam = await ExamSchedule.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
   if (!exam) throw new HttpError(404, 'Exam not found');
+  await safeNotify(exam, `Exam cancelled: ${exam.subject}`,
+    `${exam.title} for Class ${exam.class}${exam.section ? `-${exam.section}` : ''} on ${fmtExamDate(exam.date)} has been cancelled.`);
   res.json({ success: true, message: 'Exam deleted' });
 });
 
