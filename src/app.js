@@ -59,6 +59,7 @@ function buildApp() {
   app.use('/api/library',        require('./routes/libraryRoutes'));
   app.use('/api/report-cards',   require('./routes/reportCardRoutes'));
   app.use('/api/payments',       require('./routes/paymentRoutes'));
+  app.use('/api/admissions',     require('./routes/admissionRoutes'));
 
   app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
 

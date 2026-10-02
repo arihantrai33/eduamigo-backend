@@ -15,6 +15,7 @@ const PERMISSIONS = {
   'teachers.manage':      'Add, edit and deactivate teachers, assign classes',
   'parents.read':         'View parent records',
   'parents.manage':       'Add parents and link children',
+  'admissions.manage':    'Record enquiries, process applications and admit new students',
   'users.manage':         'Create logins, reset passwords, activate or deactivate accounts',
   'attendance.mark':      'Mark student attendance',
   'attendance.reports':   'School-wide attendance dashboards and reports',
