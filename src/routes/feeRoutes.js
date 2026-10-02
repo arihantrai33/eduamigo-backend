@@ -10,6 +10,7 @@ router.get('/all',          requirePermission('fees.read'), c.getAllPendingFees)
 router.get('/pending/all',  requirePermission('fees.read'), c.getAllPendingFees);
 router.get('/my',           authorizeRoles('student', 'parent'), c.getMyFees);
 router.patch('/:feeId/pay', requirePermission('fees.collect'), c.markFeePaid);
+router.get('/:feeId/receipts/:receiptNo', c.getReceipt);
 router.get('/:studentId',   requirePermission('fees.read'), c.getStudentFees);
 
 module.exports = router;

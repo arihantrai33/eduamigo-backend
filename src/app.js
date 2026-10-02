@@ -22,6 +22,9 @@ function buildApp() {
     credentials: true,
   }));
 
+  // Payment gateway webhook: needs the exact raw body to check the signature, so it comes before express.json.
+  app.post('/api/payments/webhook/:schoolId', express.raw({ type: '*/*', limit: '256kb' }), require('./controllers/paymentController').webhook);
+
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -55,6 +58,7 @@ function buildApp() {
   app.use('/api/revision',       require('./routes/revisionRoutes'));
   app.use('/api/library',        require('./routes/libraryRoutes'));
   app.use('/api/report-cards',   require('./routes/reportCardRoutes'));
+  app.use('/api/payments',       require('./routes/paymentRoutes'));
 
   app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
 
@@ -82,7 +86,8 @@ function buildApp() {
 
     if (status >= 500) {
       console.error(`[${req.method} ${req.originalUrl}]`, err);
-      message = 'Something went wrong. Please try again.';
+      // Only errors written for users (expose: true) keep their message; anything else stays generic.
+      if (!err.expose) message = 'Something went wrong. Please try again.';
     }
     res.status(status).json({ success: false, message, ...(err.extra || {}) });
   });

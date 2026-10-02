@@ -14,6 +14,7 @@ The server now refuses to start if `JWT_SECRET` is missing or shorter than 32 ch
 
 ## 2. Configure Render environment variables
 Required: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGINS` (your Vercel URL), Cloudinary and Gemini keys.
+For online fee payments also set `DATA_ENCRYPTION_KEY` (see `docs/PAYMENTS.md`).
 See `.env.example` for the full list.
 
 ## 3. Back up and migrate the database

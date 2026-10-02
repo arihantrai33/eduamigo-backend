@@ -7,6 +7,7 @@ const paymentSchema = new mongoose.Schema({
   receiptNo:   { type: String, required: true },
   paidAt:      { type: Date, default: Date.now },
   collectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  onlineOrder: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentOrder' }, // set for gateway payments
 }, { _id: true });
 
 const feeSchema = new mongoose.Schema({
@@ -26,7 +27,7 @@ const feeSchema = new mongoose.Schema({
   academicYear:   { type: String },
   remarks:        { type: String },
   feeStructureId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeStructure' },
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true }); // two payments at once cannot both apply
 
 feeSchema.virtual('balance').get(function balance() {
   return Math.max(0, (this.amount || 0) - (this.paidAmount || 0));

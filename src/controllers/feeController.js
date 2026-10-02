@@ -3,7 +3,9 @@ const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { toDayKey, currentAcademicYear } = require('../utils/dates');
 const { recordPayment, totals, syncStudentFeeStatus } = require('../services/feeService');
-const { studentForUser, childrenForParent } = require('../services/directory');
+const { studentForUser, childrenForParent, canAccessStudent } = require('../services/directory');
+const School = require('../models/School');
+const { hasPermission } = require('../config/permissions');
 const { notifyParents } = require('../services/notify');
 
 const sortFees = { dueDate: -1 };
@@ -90,4 +92,30 @@ const markFeePaid = asyncHandler(async (req, res) => {
   res.json({ success: true, message: fee.status === 'Paid' ? 'Fee fully paid' : 'Partial payment recorded', data: fee, payment });
 });
 
-module.exports = { addFee, getFees, getStudentFees, getMyFees, markFeePaid, getAllPendingFees };
+// GET /api/fees/:feeId/receipts/:receiptNo — one payment receipt (fee staff, the student, their parents)
+const getReceipt = asyncHandler(async (req, res) => {
+  assertId(req.params.feeId, 'feeId');
+  const fee = await Fee.findOne({ _id: req.params.feeId, school: req.schoolId });
+  if (!fee) throw new HttpError(404, 'Receipt not found');
+  const student = await Student.findOne({ _id: fee.studentId, school: req.schoolId });
+  const staff = hasPermission(req.user.role, 'fees.read');
+  if (!staff && !(await canAccessStudent(req.user, student))) throw new HttpError(404, 'Receipt not found');
+  const payment = fee.payments.find((p) => p.receiptNo === req.params.receiptNo);
+  if (!payment) throw new HttpError(404, 'Receipt not found');
+  const school = await School.findById(req.schoolId).select('name address phone email');
+  // Balance right after this payment, so reprinting an old receipt shows what it showed then.
+  const paidUpTo = fee.payments.filter((p) => p.paidAt <= payment.paidAt).reduce((sum, p) => sum + p.amount, 0);
+  res.json({
+    success: true,
+    data: {
+      school,
+      student: student ? { name: student.name, class: student.class, section: student.section, rollNumber: student.rollNumber } : null,
+      fee: { _id: fee._id, feeType: fee.feeType, academicYear: fee.academicYear, month: fee.month, year: fee.year, amount: fee.amount, dueDate: fee.dueDate },
+      payment: { receiptNo: payment.receiptNo, amount: payment.amount, mode: payment.mode, reference: payment.reference, paidAt: payment.paidAt },
+      paidToDate: Math.round(paidUpTo * 100) / 100,
+      balanceAfter: Math.max(0, Math.round((fee.amount - paidUpTo) * 100) / 100),
+    },
+  });
+});
+
+module.exports = { getReceipt, addFee, getFees, getStudentFees, getMyFees, markFeePaid, getAllPendingFees };

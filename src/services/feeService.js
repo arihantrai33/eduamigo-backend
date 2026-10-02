@@ -17,9 +17,24 @@ function statusFor(amount, paid) {
 }
 
 // Records a (possibly partial) payment against a fee. Overpayment is rejected.
-async function recordPayment({ school, feeId, amount, mode, reference, collectedBy }) {
+// If another payment changes the fee at the same moment, the save is retried on fresh data.
+async function recordPayment(args, attempt = 0) {
+  try {
+    return await applyPayment(args);
+  } catch (err) {
+    if (err.name === 'VersionError' && attempt < 3) return recordPayment(args, attempt + 1);
+    throw err;
+  }
+}
+
+async function applyPayment({ school, feeId, amount, mode, reference, collectedBy, onlineOrder }) {
   const fee = await Fee.findOne({ _id: feeId, school });
   if (!fee) throw new HttpError(404, 'Fee record not found');
+  // An online order is applied at most once, even if the gateway reports it twice at the same moment.
+  if (onlineOrder) {
+    const existing = fee.payments.find((p) => p.onlineOrder && String(p.onlineOrder) === String(onlineOrder));
+    if (existing) return { fee, payment: existing, duplicate: true };
+  }
   const balance = Math.round((fee.amount - (fee.paidAmount || 0)) * 100) / 100;
   if (balance <= 0) throw new HttpError(409, 'This fee is already fully paid');
 
@@ -29,7 +44,7 @@ async function recordPayment({ school, feeId, amount, mode, reference, collected
   const paymentMode = PAYMENT_MODES.includes(mode) ? mode : 'Cash';
 
   const receiptNo = receiptNumber();
-  fee.payments.push({ amount: value, mode: paymentMode, reference, receiptNo, collectedBy, paidAt: new Date() });
+  fee.payments.push({ amount: value, mode: paymentMode, reference, receiptNo, collectedBy, onlineOrder, paidAt: new Date() });
   fee.paidAmount = Math.round(((fee.paidAmount || 0) + value) * 100) / 100;
   fee.status = statusFor(fee.amount, fee.paidAmount);
   fee.paymentMode = paymentMode;

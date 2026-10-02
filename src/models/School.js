@@ -14,6 +14,15 @@ const schoolSchema = new mongoose.Schema({
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
   },
+  // Online fee collection. Each school receives money in its own Razorpay account.
+  // Secrets are stored encrypted (services/secrets.js) and never returned by the API.
+  payments: {
+    enabled:          { type: Boolean, default: false },
+    provider:         { type: String, enum: ['razorpay'], default: 'razorpay' },
+    keyId:            { type: String, default: '' },
+    keySecretEnc:     { type: String, default: '' },
+    webhookSecretEnc: { type: String, default: '' },
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('School', schoolSchema);
