@@ -19,5 +19,7 @@ router.post('/classes', requirePermission('academics.manage'), audited('class.cr
 router.put('/classes/:id', requirePermission('academics.manage'), audited('class.updated', 'class'), c.updateClass);
 router.delete('/classes/:id', requirePermission('academics.manage'), audited('class.deleted', 'class'), c.deleteClass);
 router.put('/settings', requirePermission('academics.manage'), audited('academic.settings_changed', 'school'), c.saveSettings);
+router.get('/year-end', requirePermission('academics.manage'), c.yearEndPreview);
+router.post('/year-end', requirePermission('academics.manage'), audited('year_end.applied', 'session', 'toSession'), c.yearEndApply);
 
 module.exports = router;

@@ -65,3 +65,29 @@ Admin permission: `academics.manage`.
 
 `npm run migrate -- --apply` gives every student without an admission number one in joining order (the
 counter continues after them) and creates a current-session enrollment for every active student.
+
+## End of the academic year
+
+1. Create the next session (School Setup).
+2. `GET /api/academic/year-end?toSession=2027-28` lists every active student with a suggestion: the next class in
+   the class order (same section if it exists there, else the first section); students of the last class pass out.
+3. `POST /api/academic/year-end { toSession, decisions: [{ studentId, action, toClass?, toSection?, reason? }], makeCurrent? }`
+   - `promote` (to `toClass`/`toSection`), `detain` (same class), `leave` (with a reason), `graduate` (pass out)
+   - students without a decision get the suggestion
+   - every decision is checked first; one invalid decision changes nothing
+   - last year's enrollment is closed as promoted, detained, left or graduated; a new one is opened
+   - roll numbers are given again, alphabetically, in every class-section that received students
+   - students already in the new session are skipped, so a second run promotes nobody twice
+   - `makeCurrent: true` also makes the new session current
+4. Leaving or passing out deactivates the student's login, and the parent's when no other child is in the school.
+
+Removing a student (`DELETE /api/students/:id { reason }`) is the same as `leave`.
+
+## Transfer certificate
+
+`GET /api/students/:id/transfer-certificate` (admins) for a student who has left or passed out: school, student
+(admission number, date of birth, parent, admitted on, last class, left on, reason) and class history per session.
+The number (`TC/<year>/0001`, per school) is given the first time and never changes.
+
+Roll numbers are unique among students who are still in the school, so a number freed by a student who left can
+be given to a new admission. (The migration replaces the old index that also counted students who had left.)

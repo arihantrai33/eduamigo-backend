@@ -10,6 +10,7 @@ const { temporaryPassword, hashPassword } = require('../services/credentials');
 const School = require('../models/School');
 const { audit } = require('../services/audit');
 const academic = require('../services/academic');
+const { deactivateStudent, transferCertificate } = require('../services/yearEnd');
 const StudentEnrollment = require('../models/StudentEnrollment');
 const { pageParams, paged } = require('../utils/paginate');
 
@@ -143,18 +144,9 @@ exports.updateStudent = asyncHandler(async (req, res) => {
 // active if they still have other active children in the school.
 exports.deleteStudent = asyncHandler(async (req, res) => {
   assertId(req.params.id);
-  const student = await Student.findOneAndUpdate(
-    { _id: req.params.id, school: req.schoolId },
-    { isActive: false },
-    { returnDocument: 'after' },
-  );
+  const student = await Student.findOne({ _id: req.params.id, school: req.schoolId, isActive: true });
   if (!student) throw new HttpError(404, 'Student not found');
-  await academic.closeEnrollment(student, 'left', String(req.body?.reason || '').slice(0, 300));
-  if (student.userId) await User.updateOne({ _id: student.userId }, { isActive: false });
-  if (student.parentUserId) {
-    const siblings = await Student.countDocuments({ parentUserId: student.parentUserId, isActive: true, school: req.schoolId });
-    if (!siblings) await User.updateOne({ _id: student.parentUserId }, { isActive: false });
-  }
+  await deactivateStudent(student, 'left', req.body?.reason);
   res.json({ success: true, message: 'Student removed successfully' });
 });
 
@@ -190,5 +182,11 @@ exports.resetStudentPassword = asyncHandler(async (req, res) => {
     message: `New password for ${student.name}. They must change it after signing in.`,
     credentials: { schoolCode: school?.code || null, loginId: student.admissionNo || user.email, password },
   });
+});
+
+// GET /students/:id/transfer-certificate — for a student who has left or passed out (staff)
+exports.getTransferCertificate = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  res.json({ success: true, data: await transferCertificate(req.schoolId, req.params.id) });
 });
 

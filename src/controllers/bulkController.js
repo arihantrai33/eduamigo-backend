@@ -43,7 +43,7 @@ const bulkPromote = asyncHandler(async (req, res) => {
 
   const moving = await Student.find({ school: req.schoolId, class: from.class, section: from.section, isActive: true }).select('rollNumber');
   const clashes = await Student.countDocuments({
-    school: req.schoolId, class: to.class, section: to.section, rollNumber: { $in: moving.map((s) => s.rollNumber) },
+    school: req.schoolId, class: to.class, section: to.section, isActive: true, rollNumber: { $in: moving.map((s) => s.rollNumber) },
   });
   if (clashes) throw new HttpError(409, `${clashes} roll number(s) already exist in ${to.class}-${to.section}. Resolve them before promoting.`);
 

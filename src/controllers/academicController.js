@@ -190,3 +190,20 @@ exports.saveSettings = asyncHandler(async (req, res) => {
 exports.setupStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await academic.setupStatus(req.schoolId, req.entitlements?.features || []) });
 });
+
+// ---------------- End of year ----------------
+const yearEnd = require('../services/yearEnd');
+
+// GET /api/academic/year-end?toSession=2027-28 — every active student with a suggested decision
+exports.yearEndPreview = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await yearEnd.preview(req.schoolId, req.query.toSession) });
+});
+
+// POST /api/academic/year-end { toSession, decisions: [{ studentId, action, toClass?, toSection?, reason? }], makeCurrent? }
+// Students without a decision get the suggestion.
+exports.yearEndApply = asyncHandler(async (req, res) => {
+  const { toSession, decisions, makeCurrent } = req.body || {};
+  const summary = await yearEnd.apply(req.schoolId, { toSession, decisions, makeCurrent: !!makeCurrent });
+  res.json({ success: true, data: summary, message: `${summary.promote} promoted, ${summary.detain} detained, ${summary.graduate} passed out, ${summary.leave} left` });
+});
+

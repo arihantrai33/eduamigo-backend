@@ -345,7 +345,7 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
 
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones
   const obsolete = [
-    [Student, 'rollNumber_1_class_1_section_1'], [Teacher, 'email_1'], [Teacher, 'employeeId_1'],
+    [Student, 'rollNumber_1_class_1_section_1'], [Student, 'school_1_class_1_section_1_rollNumber_1'], [Teacher, 'email_1'], [Teacher, 'employeeId_1'],
     [Parent, 'email_1'], [FeeStructure, 'academicYear_1_class_1_section_1_feeType_1'],
     // Email became optional for students and parents: unique only when present.
     [User, 'email_1'], [Student, 'email_1'], [Parent, 'school_1_email_1'],

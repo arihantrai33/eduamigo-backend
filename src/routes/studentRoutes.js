@@ -15,6 +15,7 @@ const {
   getSections,
   getStudentHistory,
   resetStudentPassword,
+  getTransferCertificate,
 } = require('../controllers/studentController');
 
 // Dynamic classes & sections — Fee Structure ke liye
@@ -34,6 +35,9 @@ router.route('/')
 
 // Admin, the student's teachers or parent: new temporary password for the student
 router.post('/:id/reset-password', protect, resetStudentPassword);
+
+// Staff: transfer certificate of a student who has left or passed out
+router.get('/:id/transfer-certificate', protect, requirePermission('students.manage'), audited('student.tc_viewed', 'student'), getTransferCertificate);
 
 // Staff: the student's class in every session
 router.get('/:id/history', protect, requirePermission('students.read'), getStudentHistory);

@@ -25,10 +25,22 @@ const studentSchema = new mongoose.Schema({
   userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   parentUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   isActive:     { type: Boolean, default: true },
+  // Set when the student leaves the school or passes out (services/yearEnd.js). The transfer certificate
+  // number is given the first time the certificate is opened.
+  exit: {
+    status:     { type: String, enum: ['left', 'graduated', null], default: null },
+    date:       { type: Date, default: null },
+    reason:     { type: String, trim: true, maxlength: 300, default: '' },
+    lastClass:  { type: String, default: '' },
+    tcNumber:   { type: String, default: '' },
+    tcIssuedAt: { type: Date, default: null },
+  },
 }, { timestamps: true });
 
 // Roll numbers are unique per class-section within one school (not across schools).
-studentSchema.index({ school: 1, class: 1, section: 1, rollNumber: 1 }, { unique: true });
+// Among students who are still in the school: a student who left keeps their old roll number on record,
+// and the next admission to that class-section can be given it.
+studentSchema.index({ school: 1, class: 1, section: 1, rollNumber: 1 }, { unique: true, partialFilterExpression: { isActive: true }, name: 'roll_unique_active' });
 studentSchema.index({ school: 1, isActive: 1, class: 1, section: 1 });
 studentSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } }, name: 'email_unique_when_set' });
 studentSchema.index({ school: 1, admissionNo: 1 }, { unique: true, partialFilterExpression: { admissionNo: { $type: 'string' } } });
