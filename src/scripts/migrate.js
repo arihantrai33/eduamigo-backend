@@ -176,9 +176,18 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     if (a.status === undefined) count('attendance.missing_status');
   }
 
-  // 9. Transport: tracking ids (and optionally new driver codes)
+  // 9. Transport: school for buses that have none (from their assigned students, or the only school),
+  //    tracking ids, and optionally new driver codes
+  const allSchoolIds = (await col(mongoose.model('School')).find({}, { projection: { _id: 1 } }).toArray()).map((s) => s._id);
   for (const b of await col(Transport).find({}).toArray()) {
     const set = {};
+    if (!b.school) {
+      const owners = [...new Set((b.assignedStudents || []).map((id) => studentSchool.get(String(id))).filter(Boolean).map(String))];
+      if (owners.length === 1) set.school = new mongoose.Types.ObjectId(owners[0]);
+      else if (!owners.length && allSchoolIds.length === 1) set.school = allSchoolIds[0];
+      else count('buses.no_school (review by hand)');
+      if (set.school) count('buses.school_set');
+    }
     if (!b.trackingId) { set.trackingId = crypto.randomBytes(12).toString('hex'); set.firebaseKey = `transport/${set.trackingId}`; }
     if (ROTATE) set.driverToken = `${String(b.busNumber).replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8)}-${crypto.randomBytes(10).toString('hex').toUpperCase()}`;
     if (Object.keys(set).length) await update(Transport, b._id, set, ROTATE ? 'buses.tracking_and_driver_code' : 'buses.tracking_id_added');

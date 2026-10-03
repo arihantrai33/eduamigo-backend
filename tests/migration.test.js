@@ -135,3 +135,27 @@ test('notes: old notes are queued for AI once; processed notes and their search 
   expect(second['noteEmbeddings.cleared_for_reembedding']).toBeUndefined();
   expect((await db.collection('notes').findOne({ _id: doneNote })).processing.status).toBe('ready');
 });
+
+test('buses without a school get one from their students (driver codes then work); ambiguous ones are only reported', async () => {
+  const db = mongoose.connection.db;
+  const schoolA = oid();
+  const schoolB = oid();
+  await db.collection('schools').insertMany([{ _id: schoolA, name: 'Alpha' }, { _id: schoolB, name: 'Beta' }]);
+  const a1 = oid();
+  const b1 = oid();
+  await db.collection('students').insertMany([
+    { _id: a1, name: 'A', class: '5', section: 'A', school: schoolA, rollNumber: '1', phone: '1', isActive: true },
+    { _id: b1, name: 'B', class: '5', section: 'A', school: schoolB, rollNumber: '1', phone: '1', isActive: true },
+  ]);
+  const bus = { busNumber: 'BUS42', driverName: 'D', driverPhone: '1', routeName: 'R', stops: [] };
+  await db.collection('transports').insertMany([
+    { ...bus, driverToken: 'BUS42-AAA', assignedStudents: [a1] },
+    { ...bus, busNumber: 'BUS43', driverToken: 'BUS43-BBB', assignedStudents: [a1, b1] },
+  ]);
+
+  const report = await migrate({ apply: true, quiet: true });
+  expect(report['buses.school_set']).toBe(1);
+  expect(report['buses.no_school (review by hand)']).toBe(1);
+  expect(String((await db.collection('transports').findOne({ busNumber: 'BUS42' })).school)).toBe(String(schoolA));
+  expect((await db.collection('transports').findOne({ busNumber: 'BUS43' })).school).toBeUndefined();
+});
