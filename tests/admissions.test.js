@@ -31,7 +31,7 @@ test('enquiry to admission: numbers, history, student and logins created', async
   await move(id, 'Test Scheduled').expect(400); // test date required
   await move(id, 'Test Scheduled', { testDate: '2026-11-10' }).expect(200);
   await move(id, 'Approved', { note: 'Cleared the entrance test' }).expect(200);
-  await api().post(`/api/admissions/${id}/admit`).set(auth(A.admin)).send({ section: 'A' }).expect(400); // login email required
+  await api().post(`/api/admissions/${id}/admit`).set(auth(A.admin)).send({ section: 'A', studentEmail: 'not-an-email' }).expect(400);
 
   const defaults = await api().get(`/api/admissions/${id}/admit-defaults?section=A`).set(auth(A.admin)).expect(200);
   expect(defaults.body.data.rollNumber).toBe('2'); // seeded Aarav has roll 1 in 10-A

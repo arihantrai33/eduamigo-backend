@@ -327,10 +327,19 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     }
   }
 
+  // 10g. Sign-in: mobile numbers in comparable form for parent and staff sign-in.
+  const { normalizePhone } = require('../utils/phone');
+  for (const u of await col(User).find({ phone: { $nin: [null, ''] }, $or: [{ loginPhone: { $exists: false } }, { loginPhone: null }] }, { projection: { phone: 1 } }).toArray()) {
+    const loginPhone = normalizePhone(u.phone);
+    if (loginPhone) await update(User, u._id, { loginPhone }, 'users.login_phone_set');
+  }
+
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones
   const obsolete = [
     [Student, 'rollNumber_1_class_1_section_1'], [Teacher, 'email_1'], [Teacher, 'employeeId_1'],
     [Parent, 'email_1'], [FeeStructure, 'academicYear_1_class_1_section_1_feeType_1'],
+    // Email became optional for students and parents: unique only when present.
+    [User, 'email_1'], [Student, 'email_1'], [Parent, 'school_1_email_1'],
   ];
   for (const [Model, name] of obsolete) {
     const exists = (await col(Model).indexes()).some((i) => i.name === name);

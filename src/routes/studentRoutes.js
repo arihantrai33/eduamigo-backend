@@ -13,6 +13,7 @@ const {
   getClasses,
   getSections,
   getStudentHistory,
+  resetStudentPassword,
 } = require('../controllers/studentController');
 
 // Dynamic classes & sections — Fee Structure ke liye
@@ -29,6 +30,9 @@ router.get('/my-child',   protect, authorizeRoles('parent'), getMyChild);
 router.route('/')
   .get(protect,  requirePermission('students.read'), getStudents)
   .post(protect, requirePermission('students.manage'), uploadImage.single('photo'), createStudent);
+
+// Admin, the student's teachers or parent: new temporary password for the student
+router.post('/:id/reset-password', protect, resetStudentPassword);
 
 // Staff: the student's class in every session
 router.get('/:id/history', protect, requirePermission('students.read'), getStudentHistory);

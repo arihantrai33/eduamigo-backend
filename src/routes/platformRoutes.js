@@ -7,6 +7,7 @@ const User = require('../models/User');
 const { jwtSecret } = require('../config/env');
 const { loginLimiter } = require('../middleware/rateLimit');
 const c = require('../controllers/platformController');
+const { isRevoked } = require('../services/tokens');
 
 const protectPlatform = async (req, res, next) => {
   const header = req.headers.authorization || '';
@@ -21,9 +22,7 @@ const protectPlatform = async (req, res, next) => {
   try {
     const user = await User.findById(decoded.id).select('-password');
     if (!user || !user.isActive || user.role !== 'superadmin') return res.status(401).json({ success: false, message: 'Authentication required' });
-    if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
-      return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
-    }
+    if (isRevoked(decoded, user)) return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
     req.platformUser = user;
     next();
   } catch (err) {

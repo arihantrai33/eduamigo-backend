@@ -4,13 +4,20 @@ const User = require('../models/User');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { temporaryPassword, hashPassword } = require('../services/credentials');
 const { childrenForParent } = require('../services/directory');
+const { normalizePhone, isMobile } = require('../utils/phone');
+const School = require('../models/School');
 
 // POST /api/parents (admin) — create a parent account and link children of this school
 const createParent = asyncHandler(async (req, res) => {
   const { name, phone, gender, address, occupation } = req.body || {};
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  if (!name || !email || !phone) throw new HttpError(400, 'Name, email and phone are required');
-  if (await User.exists({ email })) throw new HttpError(409, 'Email already registered');
+  const email = String(req.body?.email || '').trim().toLowerCase() || undefined;
+  if (!name || !phone) throw new HttpError(400, 'Name and mobile number are required');
+  if (!isMobile(phone)) throw new HttpError(400, 'Enter a valid 10-digit mobile number (parents sign in with it)');
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'Email is not valid');
+  if (email && await User.exists({ email })) throw new HttpError(409, 'Email already registered');
+  if (await User.exists({ school: req.schoolId, role: 'parent', loginPhone: normalizePhone(phone) })) {
+    throw new HttpError(409, 'A parent with this mobile number already exists. Link the child to that parent instead.');
+  }
 
   const childIds = Array.isArray(req.body.children) ? req.body.children : [];
   childIds.forEach((id) => assertId(id, 'child id'));
@@ -29,7 +36,11 @@ const createParent = asyncHandler(async (req, res) => {
     });
     await User.updateOne({ _id: user._id }, { profileId: parent._id });
     await Student.updateMany({ _id: { $in: children.map((c) => c._id) }, parentUserId: null }, { parentUserId: user._id });
-    res.status(201).json({ success: true, message: 'Parent created successfully', data: parent, credentials: { email, password } });
+    const schoolCode = (await School.findById(req.schoolId).select('code').lean())?.code || null;
+    res.status(201).json({
+      success: true, message: 'Parent created successfully', data: parent,
+      credentials: { schoolCode, loginId: normalizePhone(phone), email: email || null, phone: normalizePhone(phone), password },
+    });
   } catch (err) {
     await user.deleteOne().catch(() => {});
     throw err;

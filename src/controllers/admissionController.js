@@ -117,7 +117,7 @@ exports.admitDefaults = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { sections, section, rollNumber } });
 });
 
-// POST /api/admissions/:id/admit { section, rollNumber?, studentEmail, studentPhone? }
+// POST /api/admissions/:id/admit { section, rollNumber?, admissionNo?, studentEmail?, studentPhone? }
 // Creates the student and their login (and the parent's, unless a sibling already has one).
 exports.admit = asyncHandler(async (req, res) => {
   const a = await findOwn(req);
@@ -125,8 +125,9 @@ exports.admit = asyncHandler(async (req, res) => {
   if (a.status !== 'Approved') throw new HttpError(400, 'Approve the application before admitting the student');
   const section = normalizeSection(req.body?.section);
   if (!section) throw new HttpError(400, 'Choose a section');
-  const studentEmail = String(req.body?.studentEmail || '').trim().toLowerCase();
-  if (!/^\S+@\S+\.\S+$/.test(studentEmail)) throw new HttpError(400, 'Enter a login email for the student');
+  // Optional: students sign in with their admission number.
+  const studentEmail = String(req.body?.studentEmail || '').trim().toLowerCase() || undefined;
+  if (studentEmail && !/^\S+@\S+\.\S+$/.test(studentEmail)) throw new HttpError(400, 'Student email is not valid');
   const rollNumber = String(req.body?.rollNumber || '').trim() || undefined; // assigned automatically when empty
 
   // Claim the application so two clicks cannot create two students.

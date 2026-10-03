@@ -5,7 +5,10 @@ const streamifier = require('streamifier');
 const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
 const { parseClassKey, normalizeClass, normalizeSection } = require('../utils/classes');
 const { createStudentWithAccounts } = require('../services/studentService');
-const { studentForUser, resolveChild, teacherForUser } = require('../services/directory');
+const { studentForUser, resolveChild, teacherForUser, canAccessStudent } = require('../services/directory');
+const { temporaryPassword, hashPassword } = require('../services/credentials');
+const School = require('../models/School');
+const { audit } = require('../services/audit');
 const academic = require('../services/academic');
 const StudentEnrollment = require('../models/StudentEnrollment');
 
@@ -162,3 +165,29 @@ exports.getStudentHistory = asyncHandler(async (req, res) => {
   const history = await StudentEnrollment.find({ student: student._id, school: req.schoolId }).sort({ session: -1, startedAt: -1 });
   res.json({ success: true, data: { student, history } });
 });
+
+// POST /students/:id/reset-password — a new temporary password for the student's login.
+// Students usually have no email, so their parent, a teacher of their class or the admin resets it.
+exports.resetStudentPassword = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const student = await Student.findOne({ _id: req.params.id, school: req.schoolId, isActive: true });
+  if (!student || !['admin', 'teacher', 'parent'].includes(req.user.role) || !(await canAccessStudent(req.user, student))) {
+    throw new HttpError(404, 'Student not found');
+  }
+  const user = student.userId ? await User.findOne({ _id: student.userId, school: req.schoolId }) : null;
+  if (!user) throw new HttpError(404, 'This student has no login account');
+  const password = temporaryPassword();
+  user.password = await hashPassword(password);
+  user.mustChangePassword = true;
+  user.passwordChangedAt = new Date();
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await user.save();
+  await audit(req, 'student.password_reset', { targetType: 'student', targetId: student._id });
+  const school = await School.findById(req.schoolId).select('code').lean();
+  res.json({
+    success: true,
+    message: `New password for ${student.name}. They must change it after signing in.`,
+    credentials: { schoolCode: school?.code || null, loginId: student.admissionNo || user.email, password },
+  });
+});
+

@@ -5,7 +5,8 @@ const studentSchema = new mongoose.Schema({
   // School-issued admission (registration) number, unique within the school. Assigned automatically
   // when not given (services/academic.js). Used for sign-in and on certificates.
   admissionNo:  { type: String, trim: true, maxlength: 30 },
-  email:        { type: String, required: true, unique: true, lowercase: true, trim: true },
+  // Optional: young students often have no email. Unique across the platform when present.
+  email:        { type: String, set: (v) => (v ? String(v).trim().toLowerCase() : undefined) },
   phone:        { type: String, required: true, trim: true },
   rollNumber:   { type: String, required: true, trim: true },
   class:        { type: String, required: true, trim: true },
@@ -29,6 +30,7 @@ const studentSchema = new mongoose.Schema({
 // Roll numbers are unique per class-section within one school (not across schools).
 studentSchema.index({ school: 1, class: 1, section: 1, rollNumber: 1 }, { unique: true });
 studentSchema.index({ school: 1, isActive: 1, class: 1, section: 1 });
+studentSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } }, name: 'email_unique_when_set' });
 studentSchema.index({ school: 1, admissionNo: 1 }, { unique: true, partialFilterExpression: { admissionNo: { $type: 'string' } } });
 
 module.exports = mongoose.model('Student', studentSchema);

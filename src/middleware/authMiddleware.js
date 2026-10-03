@@ -5,10 +5,11 @@ const { hasPermission } = require('../config/permissions');
 const { FEATURES } = require('../config/features');
 const { entitlementsFor, hasFeature } = require('../services/subscription');
 const { audit } = require('../services/audit');
+const { isRevoked } = require('../services/tokens');
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // Still allowed while a school is read-only, so people can sign in and keep their account secure.
-const READ_ONLY_ALLOWED = ['/api/users/password', '/api/users/fcm-token'];
+const READ_ONLY_ALLOWED = ['/api/users/password', '/api/users/fcm-token', '/api/users/logout-all'];
 
 const deny = (res, status, message, code) => res.status(status).json({ success: false, message, ...(code ? { code } : {}) });
 
@@ -35,10 +36,8 @@ const protect = async (req, res, next) => {
       .populate('school', '_id name code city isActive branding subscription customDomain');
     if (!user || !user.isActive) return deny(res, 401, 'Account is inactive or no longer exists');
     if (!user.school) return deny(res, 403, 'Account is not linked to a school');
-    // Tokens issued before a password change are no longer valid.
-    if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
-      return deny(res, 401, 'Session expired. Please log in again.');
-    }
+    // Tokens issued before a password change or "sign out everywhere" are no longer valid.
+    if (isRevoked(decoded, user)) return deny(res, 401, 'Session expired. Please log in again.');
 
     const entitlements = await entitlementsFor(user.school);
     if (entitlements.blocked) return deny(res, 403, 'School account is suspended. Please contact EduAmigo support.', 'SCHOOL_SUSPENDED');

@@ -1,6 +1,5 @@
 // EduAmigo platform owner console: schools, plans, add-ons, subscriptions, usage and support access.
 // Only users with role "superadmin" and a platform token reach these handlers (see routes/platformRoutes.js).
-const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const School = require('../models/School');
 const User = require('../models/User');
@@ -9,7 +8,7 @@ const Plan = require('../models/Plan');
 const AddOn = require('../models/AddOn');
 const AuditLog = require('../models/AuditLog');
 const UsageCounter = require('../models/UsageCounter');
-const { jwtSecret } = require('../config/env');
+const { signUserToken } = require('../services/tokens');
 const { FEATURES, FEATURE_KEYS, SUBSCRIPTION_STATUSES } = require('../config/features');
 const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
 const sub = require('../services/subscription');
@@ -20,7 +19,7 @@ const { audit } = require('../services/audit');
 const PLATFORM_TOKEN_TTL = '12h';
 const SUPPORT_TOKEN_TTL = '1h';
 
-const platformToken = (user) => jwt.sign({ id: user._id, role: 'superadmin', scope: 'platform' }, jwtSecret(), { expiresIn: PLATFORM_TOKEN_TTL });
+const platformToken = (user) => signUserToken(user, { scope: 'platform', expiresIn: PLATFORM_TOKEN_TTL });
 
 // ---------------- Auth ----------------
 
@@ -307,7 +306,7 @@ exports.supportSession = asyncHandler(async (req, res) => {
   const admin = await User.findOne({ school: school._id, role: 'admin', isActive: true }).sort({ createdAt: 1 });
   if (!admin) throw new HttpError(404, 'This school has no active admin account');
 
-  const token = jwt.sign({ id: admin._id, role: 'admin', imp: String(req.platformUser._id) }, jwtSecret(), { expiresIn: SUPPORT_TOKEN_TTL });
+  const token = signUserToken(admin, { imp: String(req.platformUser._id), expiresIn: SUPPORT_TOKEN_TTL });
   await audit(req, 'support.session_started', {
     school: school._id, targetType: 'user', targetId: admin._id, details: { reason, admin: admin.email },
   });

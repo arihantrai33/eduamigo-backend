@@ -3,6 +3,8 @@ const Parent = require('../models/Parent');
 const User = require('../models/User');
 const { HttpError } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
+const { normalizePhone, isMobile } = require('../utils/phone');
+const School = require('../models/School');
 const { temporaryPassword, hashPassword } = require('./credentials');
 const { assertStudentCapacity } = require('./subscription');
 const academic = require('./academic');
@@ -12,21 +14,27 @@ const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', '
   'parentName', 'parentPhone', 'parentEmail', 'photo'];
 
 // Creates a student plus login accounts for the student and (optionally) the parent.
-// If the parent already has an account in this school (a sibling is enrolled),
-// the new student is linked to the existing parent instead of failing.
+//   Student signs in with the school code + admission number; email is optional.
+//   Parent signs in with the school code + mobile number (or email). A parent account is made when a
+//   parent email or a valid parent mobile is given. If that parent already has an account in this
+//   school (a sibling is enrolled), the new student is linked to it instead of creating another.
 async function createStudentWithAccounts(school, input) {
   const data = {};
   for (const key of STUDENT_FIELDS) if (input[key] !== undefined && input[key] !== '') data[key] = input[key];
   const { class: cls, section } = parseClassKey(input.class, input.section);
   data.class = cls;
   data.section = section;
-  data.email = String(data.email || '').trim().toLowerCase();
+  data.email = String(data.email || '').trim().toLowerCase() || undefined;
   if (data.parentEmail) data.parentEmail = String(data.parentEmail).trim().toLowerCase();
+  if (!data.phone && data.parentPhone) data.phone = data.parentPhone;
 
-  if (!data.name || !data.email || !data.phone || !data.class || !data.section) {
-    throw new HttpError(400, 'Name, email, phone, class and section are required');
+  if (!data.name || !data.phone || !data.class || !data.section) {
+    throw new HttpError(400, 'Name, phone (or parent mobile), class and section are required');
   }
-  if (await User.exists({ email: data.email })) throw new HttpError(409, 'Student email already registered');
+  for (const [key, label] of [['email', 'Student email'], ['parentEmail', 'Parent email']]) {
+    if (data[key] && !/^\S+@\S+\.\S+$/.test(data[key])) throw new HttpError(400, `${label} is not valid`);
+  }
+  if (data.email && await User.exists({ email: data.email })) throw new HttpError(409, 'Student email already registered');
   await assertStudentCapacity(school);
   await academic.assertClassSection(school, data.class, data.section);
   if (data.admissionNo) {
@@ -39,12 +47,16 @@ async function createStudentWithAccounts(school, input) {
 
   let parentUser = null;
   let parentCreated = false;
+  const parentMobile = isMobile(data.parentPhone) ? normalizePhone(data.parentPhone) : null;
   if (data.parentEmail) {
     parentUser = await User.findOne({ email: data.parentEmail });
     if (parentUser && (parentUser.role !== 'parent' || String(parentUser.school) !== String(school))) {
       throw new HttpError(409, 'Parent email is already used by another account');
     }
+  } else if (parentMobile) {
+    parentUser = await User.findOne({ school, role: 'parent', loginPhone: parentMobile });
   }
+  const schoolCode = (await School.findById(school).select('code').lean())?.code || null;
 
   const created = [];
   const credentials = {};
@@ -55,9 +67,9 @@ async function createStudentWithAccounts(school, input) {
       password: await hashPassword(studentPassword), mustChangePassword: true,
     });
     created.push(studentUser);
-    credentials.student = { email: data.email, password: studentPassword };
+    credentials.student = { schoolCode, email: data.email || null, password: studentPassword };
 
-    if (data.parentEmail && !parentUser) {
+    if ((data.parentEmail || parentMobile) && !parentUser) {
       const parentPassword = temporaryPassword();
       parentUser = await User.create({
         name: data.parentName || `Parent of ${data.name}`, email: data.parentEmail, phone: data.parentPhone || null,
@@ -65,7 +77,9 @@ async function createStudentWithAccounts(school, input) {
       });
       created.push(parentUser);
       parentCreated = true;
-      credentials.parent = { email: data.parentEmail, password: parentPassword };
+      credentials.parent = {
+        schoolCode, loginId: parentMobile || data.parentEmail, email: data.parentEmail || null, phone: parentMobile, password: parentPassword,
+      };
     }
 
     if (!data.admissionNo) data.admissionNo = await academic.nextAdmissionNo(school);
@@ -74,6 +88,7 @@ async function createStudentWithAccounts(school, input) {
     });
     created.push(student);
     credentials.student.admissionNo = student.admissionNo;
+    credentials.student.loginId = student.admissionNo;
     await academic.recordPlacement(student);
     await User.updateOne({ _id: studentUser._id }, { profileId: student._id });
 

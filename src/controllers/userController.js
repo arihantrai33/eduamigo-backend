@@ -1,12 +1,12 @@
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { jwtSecret } = require('../config/env');
 const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
 const { temporaryPassword, hashPassword, validatePasswordStrength } = require('../services/credentials');
 
 const { ASSIGNABLE_ROLES, permissionsFor } = require('../config/permissions');
 const { PERMISSION_FEATURE } = require('../config/features');
 const { entitlementsFor } = require('../services/subscription');
+const { signUserToken } = require('../services/tokens');
+const accounts = require('../services/accounts');
 
 // Permissions of features the school has not bought are left out, so the apps hide those menus.
 const permissionsWithin = (role, entitlements) => permissionsFor(role)
@@ -33,17 +33,28 @@ const publicUser = (user, entitlements) => ({
   subscription: entitlements.state,
 });
 
-// POST /api/users/login
-const loginUser = asyncHandler(async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
-  if (!email || !password) throw new HttpError(400, 'Email and password are required');
+// Sign-in ID from the request: { email } (old apps) or { schoolCode, identifier }.
+function credentialsFrom(body = {}) {
+  return {
+    email: body.email ? String(body.email) : undefined,
+    identifier: body.identifier !== undefined ? String(body.identifier) : undefined,
+    schoolCode: body.schoolCode ? String(body.schoolCode) : undefined,
+  };
+}
 
-  const user = await User.findOne({ email, role: { $ne: 'superadmin' } })
-    .populate('school', 'name code isActive branding subscription');
-  // Same message for unknown email and wrong password (prevents account discovery).
-  const valid = user && (await user.comparePassword(password));
-  if (!valid) throw new HttpError(401, 'Invalid email or password');
+// POST /api/users/login
+//   { schoolCode, identifier, password }  identifier = admission no (students), mobile (parents) or email (staff)
+//   { email, password }                   still supported
+const loginUser = asyncHandler(async (req, res) => {
+  const credentials = credentialsFrom(req.body);
+  const password = String(req.body?.password || '');
+  const id = String(credentials.identifier ?? credentials.email ?? '').trim();
+  if (!id || !password) throw new HttpError(400, 'Login ID and password are required');
+  if (!id.includes('@') && !credentials.schoolCode) throw new HttpError(400, 'Please choose your school first');
+
+  const user = await accounts.authenticate(credentials, password);
+  // Same message for unknown accounts and wrong passwords (prevents account discovery).
+  if (!user) throw new HttpError(401, id.includes('@') ? 'Invalid email or password' : 'Invalid login ID or password');
   if (!user.isActive) throw new HttpError(403, 'This account has been deactivated. Please contact your school.');
   if (!user.school) throw new HttpError(403, 'This school account is not active');
   const entitlements = await entitlementsFor(user.school);
@@ -52,8 +63,7 @@ const loginUser = asyncHandler(async (req, res) => {
   user.lastLoginAt = new Date();
   await user.save();
 
-  const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
-  res.json({ success: true, token, user: publicUser(user, entitlements) });
+  res.json({ success: true, token: signUserToken(user), user: publicUser(user, entitlements) });
 });
 
 // POST /api/users/register  (admin only — creates an account inside the admin's own school)
@@ -110,8 +120,7 @@ const changePassword = asyncHandler(async (req, res) => {
   user.passwordChangedAt = new Date();
   await user.save();
 
-  const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
-  res.json({ success: true, message: 'Password updated', token });
+  res.json({ success: true, message: 'Password updated', token: signUserToken(user) });
 });
 
 // POST /api/users/:id/reset-password  (admin: issue a new temporary password)
@@ -123,8 +132,45 @@ const resetPassword = asyncHandler(async (req, res) => {
   user.password = await hashPassword(password);
   user.mustChangePassword = true;
   user.passwordChangedAt = new Date();
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
-  res.json({ success: true, credentials: { email: user.email, password } });
+  res.json({ success: true, credentials: { email: user.email || null, loginId: await loginIdOf(user), password } });
+});
+
+// The ID a person types to sign in: email for staff, admission number for students, mobile for parents.
+async function loginIdOf(user) {
+  if (user.role === 'student') {
+    const student = await require('../models/Student').findOne({ userId: user._id }).select('admissionNo');
+    if (student?.admissionNo) return student.admissionNo;
+  }
+  if (user.role === 'parent' && !user.email && user.loginPhone) return user.loginPhone;
+  return user.email || user.loginPhone || null;
+}
+
+// POST /api/users/logout-all — signs the user out on every device, including this one
+const logoutAll = asyncHandler(async (req, res) => {
+  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+  res.json({ success: true, message: 'Signed out of all devices' });
+});
+
+const RESET_SENT = 'If this account has an email address, a reset code has been sent to it. Students and accounts without email: please ask your parent, class teacher or school office to reset the password.';
+
+// POST /api/users/forgot-password { email } or { schoolCode, identifier }
+const forgotPassword = asyncHandler(async (req, res) => {
+  const credentials = credentialsFrom(req.body);
+  if (!String(credentials.identifier ?? credentials.email ?? '').trim()) throw new HttpError(400, 'Enter your login ID');
+  await accounts.requestPasswordReset(credentials);
+  res.json({ success: true, message: RESET_SENT });
+});
+
+// POST /api/users/reset-password { email | schoolCode + identifier, code, newPassword }
+const resetPasswordWithCode = asyncHandler(async (req, res) => {
+  const { code, newPassword } = req.body || {};
+  const problem = validatePasswordStrength(newPassword);
+  if (problem) throw new HttpError(400, problem);
+  const ok = await accounts.resetPasswordWithCode(credentialsFrom(req.body), code, newPassword);
+  if (!ok) throw new HttpError(400, 'The code is wrong or has expired. Please request a new one.');
+  res.json({ success: true, message: 'Password changed. Please sign in with your new password.' });
 });
 
 // PATCH /api/users/fcm-token
@@ -160,6 +206,6 @@ const toggleUserStatus = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  loginUser, registerUser, getProfile, changePassword, resetPassword,
+  loginUser, registerUser, getProfile, changePassword, resetPassword, logoutAll, forgotPassword, resetPasswordWithCode, loginIdOf,
   updateFcmToken, getAllUsers, toggleUserStatus,
 };

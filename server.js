@@ -5,6 +5,9 @@ const buildApp = require('./src/app');
 
 async function start() {
   assertEnv();
+  if (!require('./src/services/email').isConfigured()) {
+    console.warn('Email is not configured (EMAIL_PROVIDER): password reset codes will not be sent.');
+  }
   await mongoose.connect(process.env.MONGO_URI);
   console.log('MongoDB connected');
 
