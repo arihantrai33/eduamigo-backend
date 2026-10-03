@@ -121,16 +121,75 @@ async function seed() {
   return rows;
 }
 
+// --from-backup <folder>: a copy of real data (from `npm run backup`) instead of the demo schools.
+// The copy is migrated like a production database, and its school gets the Allied International School
+// look so the new branding can be tried on real records. Nothing is written back to the source database.
+async function loadBackup(dir) {
+  const path = require('path');
+  const { restore } = require('./backup');
+  const folder = path.resolve(dir);
+  const counts = await restore(mongoose.connection.db, folder, { confirm: true });
+  const { migrate } = require('./migrate');
+  await migrate({ apply: true, quiet: true });
+
+  const School = require('../models/School');
+  const User = require('../models/User');
+  const Student = require('../models/Student');
+  const schools = await School.find({}).sort({ createdAt: 1 });
+  for (const [i, school] of schools.entries()) {
+    await School.updateOne({ _id: school._id }, {
+      name: 'Allied International School', city: 'Gaya', code: i === 0 ? 'ALLIED' : `ALLIED${i + 1}`,
+      branding: {
+        appName: 'Allied International School', primaryColor: '#E8590C', accentColor: '#F2B705', heroStyle: 'light',
+        logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
+      },
+      'subscription.plan': 'premium', 'subscription.status': 'active', 'subscription.currentPeriodEnd': null,
+    });
+  }
+  const owner = await User.findOne({ role: 'superadmin' });
+  if (!owner) {
+    const { hashPassword } = require('../services/credentials');
+    await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: await hashPassword(PASSWORD) });
+  }
+
+  const rows = [];
+  for (const [i, school] of schools.entries()) {
+    const code = i === 0 ? 'ALLIED' : `ALLIED${i + 1}`;
+    const staff = await User.find({ school: school._id, role: { $in: ['admin', 'accountant', 'teacher'] } }).select('role email').sort({ role: 1 });
+    for (const u of staff) rows.push({ school: code, role: u.role, loginId: u.email, password: 'your existing password' });
+    const students = await Student.find({ school: school._id, isActive: true }).select('name admissionNo').sort({ admissionNo: 1 }).limit(5);
+    for (const s of students) rows.push({ school: code, role: `student (${s.name})`, loginId: s.admissionNo, password: 'your existing password' });
+  }
+  console.log(`\nLoaded ${folder}: ${counts.users || 0} users, ${counts.students || 0} students, ${counts.schools || 0} school(s).`);
+  return rows;
+}
+
 async function main() {
   const port = Number(process.env.PORT) || 8000;
+  const i = process.argv.indexOf('--from-backup');
+  const backupDir = i > -1 ? process.argv[i + 1] : null;
+  if (i > -1 && !backupDir) throw new Error('Usage: npm run demo -- --from-backup backups/<folder>');
   console.log('Starting a temporary database (first run downloads MongoDB, about a minute)...');
   const mongo = await MongoMemoryServer.create();
   await mongoose.connect(mongo.getUri());
-  await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
-  const rows = await seed();
+  let rows;
+  if (backupDir) {
+    rows = await loadBackup(backupDir);   // migrate builds the indexes after the data is in
+  } else {
+    await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
+    rows = await seed();
+  }
 
   require('../app')().listen(port, () => {
     console.log(`\nEduAmigo demo API on http://localhost:${port}  (data is temporary)`);
+    if (backupDir) {
+      console.log('Real data copy: everyone signs in with their existing password (staff by email, students by admission number).\n');
+      console.table(rows);
+      console.log(`School code: ALLIED   ->  http://localhost:5173/s/ALLIED
+Platform owner: owner@eduamigo.demo / ${PASSWORD}
+Press Ctrl+C to stop (the copy is deleted; the source database was never changed).`);
+      return;
+    }
     console.log(`Every password: ${PASSWORD}\n`);
     console.table(rows);
     console.log(`

@@ -26,3 +26,15 @@ Logins: staff `admin@gvps.demo`, `teacher@gvps.demo` (Admin / Teacher tab); stud
 
 Forgot password codes are printed in the backend terminal instead of being emailed.
 The first run downloads a MongoDB binary (about a minute).
+
+## Trying the new version on a copy of real data
+
+```
+npm run backup                                          # read-only copy of MONGO_URI into backups/<time>/
+npm run demo -- --from-backup backups/<time>            # loads the copy into the temporary database
+```
+
+The copy is migrated (admission numbers, school code, plan) and the school gets the Allied International School
+look (code `ALLIED`) so the new branding shows on real records. Everyone signs in with their existing password:
+staff by email, students by admission number (printed at start). The source database is never written to, and the
+copy disappears when the demo stops. `backups/` holds real personal data: it is git-ignored; delete it when done.
