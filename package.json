@@ -11,7 +11,8 @@
     "migrate": "node src/scripts/migrate.js",
     "create-school": "node src/scripts/createSchool.js",
     "backup": "node src/scripts/backup.js",
-    "create-platform-admin": "node src/scripts/createPlatformAdmin.js"
+    "create-platform-admin": "node src/scripts/createPlatformAdmin.js",
+    "demo": "node src/scripts/demo.js"
   },
   "keywords": [],
   "author": "",
