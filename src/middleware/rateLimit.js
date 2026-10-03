@@ -24,4 +24,15 @@ const revisionLimiter = rateLimit({
   message: { success: false, message: 'You have reached the hourly limit for AI revision. Please try again later.' },
 });
 
-module.exports = { loginLimiter, revisionLimiter };
+// Public school lookup (no login): stops anyone from scraping the school list.
+const publicLookupLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: disabled,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
+});
+
+module.exports = { loginLimiter, revisionLimiter, publicLookupLimiter };

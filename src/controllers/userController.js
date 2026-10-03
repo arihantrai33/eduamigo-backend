@@ -5,17 +5,32 @@ const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/htt
 const { temporaryPassword, hashPassword, validatePasswordStrength } = require('../services/credentials');
 
 const { ASSIGNABLE_ROLES, permissionsFor } = require('../config/permissions');
+const { PERMISSION_FEATURE } = require('../config/features');
+const { entitlementsFor } = require('../services/subscription');
 
-const publicUser = (user) => ({
+// Permissions of features the school has not bought are left out, so the apps hide those menus.
+const permissionsWithin = (role, entitlements) => permissionsFor(role)
+  .filter((p) => !PERMISSION_FEATURE[p] || entitlements.features.includes(PERMISSION_FEATURE[p]));
+
+const publicUser = (user, entitlements) => ({
   _id: user._id,
   name: user.name,
   email: user.email,
   role: user.role,
   school: user.school?.name || null,
   schoolId: user.school?._id || user.school || null,
+  schoolCode: user.school?.code || null,
+  branding: {
+    appName: user.school?.branding?.appName || user.school?.name || '',
+    logoUrl: user.school?.branding?.logoUrl || '',
+    primaryColor: user.school?.branding?.primaryColor || '',
+  },
   profileId: user.profileId,
   mustChangePassword: !!user.mustChangePassword,
-  permissions: permissionsFor(user.role),
+  permissions: permissionsWithin(user.role, entitlements),
+  features: entitlements.features,
+  plan: entitlements.plan,
+  subscription: entitlements.state,
 });
 
 // POST /api/users/login
@@ -24,18 +39,21 @@ const loginUser = asyncHandler(async (req, res) => {
   const password = String(req.body?.password || '');
   if (!email || !password) throw new HttpError(400, 'Email and password are required');
 
-  const user = await User.findOne({ email }).populate('school', 'name isActive');
+  const user = await User.findOne({ email, role: { $ne: 'superadmin' } })
+    .populate('school', 'name code isActive branding subscription');
   // Same message for unknown email and wrong password (prevents account discovery).
   const valid = user && (await user.comparePassword(password));
   if (!valid) throw new HttpError(401, 'Invalid email or password');
   if (!user.isActive) throw new HttpError(403, 'This account has been deactivated. Please contact your school.');
-  if (!user.school || user.school.isActive === false) throw new HttpError(403, 'This school account is not active');
+  if (!user.school) throw new HttpError(403, 'This school account is not active');
+  const entitlements = await entitlementsFor(user.school);
+  if (entitlements.blocked) throw new HttpError(403, 'This school account is not active', { code: 'SCHOOL_SUSPENDED' });
 
   user.lastLoginAt = new Date();
   await user.save();
 
   const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
-  res.json({ success: true, token, user: publicUser(user) });
+  res.json({ success: true, token, user: publicUser(user, entitlements) });
 });
 
 // POST /api/users/register  (admin only — creates an account inside the admin's own school)
@@ -74,7 +92,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
 // GET /api/users/profile
 const getProfile = asyncHandler(async (req, res) => {
-  res.json({ success: true, data: publicUser(req.user) });
+  res.json({ success: true, data: publicUser(req.user, req.entitlements) });
 });
 
 // PATCH /api/users/password

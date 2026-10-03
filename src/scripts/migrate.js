@@ -258,6 +258,29 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     if (!linked.has(String(u._id))) count(`users.no_profile.${u.role} (review only)`);
   }
 
+  // 10e. SaaS: every school gets a public code and a subscription. Schools that existed before plans
+  //      keep every feature (premium, active, no end date) so nothing they use is switched off.
+  const SchoolModel = mongoose.model('School');
+  const taken = new Set((await col(SchoolModel).find({ code: { $type: 'string' } }, { projection: { code: 1 } }).toArray()).map((s) => s.code));
+  for (const s of await col(SchoolModel).find({}).toArray()) {
+    const set = {};
+    if (!s.code) {
+      let code = SchoolModel.codeFromName(s.name);
+      for (let i = 2; taken.has(code); i += 1) code = `${SchoolModel.codeFromName(s.name).slice(0, 8)}${i}`;
+      taken.add(code);
+      set.code = code;
+    }
+    if (!s.subscription?.status) {
+      set.subscription = {
+        plan: 'premium', addOns: [], enabledFeatures: [], disabledFeatures: [],
+        limits: { maxStudents: null, aiQuestionsPerMonth: null },
+        status: 'active', trialEndsAt: null, currentPeriodEnd: null, graceDays: 7,
+        notes: 'Existing school before plans were introduced',
+      };
+    }
+    if (Object.keys(set).length) await update(SchoolModel, s._id, set, 'schools.code_or_subscription_set');
+  }
+
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones
   const obsolete = [
     [Student, 'rollNumber_1_class_1_section_1'], [Teacher, 'email_1'], [Teacher, 'employeeId_1'],

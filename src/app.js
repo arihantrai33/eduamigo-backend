@@ -3,6 +3,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const mongoose = require('mongoose');
 const { corsOrigins } = require('./config/env');
+const { protect, requireFeature } = require('./middleware/authMiddleware');
+const { isSchoolDomainOrigin } = require('./services/schoolDirectory');
+
+// Mount-level plan check: the whole module belongs to one feature.
+const gated = (feature) => [protect, requireFeature(feature)];
 
 function buildApp() {
   const app = express();
@@ -14,10 +19,10 @@ function buildApp() {
   const allowed = corsOrigins();
   app.use(cors({
     origin(origin, cb) {
-      // Allow server-to-server calls (no Origin) and configured frontends.
+      // Allow server-to-server calls (no Origin), configured frontends and schools' own domains.
       // If CORS_ORIGINS is not set (local development), allow everything.
       if (!origin || !allowed.length || allowed.includes(origin)) return cb(null, true);
-      return cb(null, false);
+      isSchoolDomainOrigin(origin).then((ok) => cb(null, ok), () => cb(null, false));
     },
     credentials: true,
   }));
@@ -35,31 +40,36 @@ function buildApp() {
   });
   app.get('/', (req, res) => res.json({ message: 'EduAmigo API' }));
 
+  app.use('/api/public',         require('./routes/publicRoutes'));
+  app.use('/api/platform',       require('./routes/platformRoutes'));
+
   app.use('/api/users',          require('./routes/userRoutes'));
   app.use('/api/schools',        require('./routes/schoolRoutes'));
   app.use('/api/students',       require('./routes/studentRoutes'));
   app.use('/api/teachers',       require('./routes/teacherRoutes'));
   app.use('/api/parents',        require('./routes/parentRoutes'));
-  app.use('/api/fees',           require('./routes/feeRoutes'));
-  app.use('/api/fee-structures', require('./routes/feeStructureRoutes'));
   app.use('/api/attendance',     require('./routes/attendanceRoutes'));
-  app.use('/api/exams',          require('./routes/examRoutes'));
-  app.use('/api/marks',          require('./routes/markRoutes'));
   app.use('/api/timetable',      require('./routes/timetableRoutes'));
   app.use('/api/leaves',         require('./routes/leaveRoutes'));
   app.use('/api/notifications',  require('./routes/notificationRoutes'));
   app.use('/api/announcements',  require('./routes/announcementRoutes'));
   app.use('/api/events',         require('./routes/eventRoutes'));
   app.use('/api/bulk',           require('./routes/bulkRoutes'));
-  app.use('/api/hr',             require('./routes/hrRoutes'));
-  app.use('/api/transport',      require('./routes/transportRoutes'));
-  app.use('/api/chat',           require('./routes/chatRoutes'));
   app.use('/api/notes',          require('./routes/noteRoutes'));
-  app.use('/api/revision',       require('./routes/revisionRoutes'));
-  app.use('/api/library',        require('./routes/libraryRoutes'));
-  app.use('/api/report-cards',   require('./routes/reportCardRoutes'));
-  app.use('/api/payments',       require('./routes/paymentRoutes'));
-  app.use('/api/admissions',     require('./routes/admissionRoutes'));
+  app.use('/api/payments',       require('./routes/paymentRoutes'));   // per-route feature checks
+  app.use('/api/transport',      require('./routes/transportRoutes')); // per-route (driver app has no login)
+
+  // Paid modules (see config/features.js)
+  app.use('/api/fees',           ...gated('fees'),        require('./routes/feeRoutes'));
+  app.use('/api/fee-structures', ...gated('fees'),        require('./routes/feeStructureRoutes'));
+  app.use('/api/exams',          ...gated('exams'),       require('./routes/examRoutes'));
+  app.use('/api/marks',          ...gated('exams'),       require('./routes/markRoutes'));
+  app.use('/api/report-cards',   ...gated('exams'),       require('./routes/reportCardRoutes'));
+  app.use('/api/admissions',     ...gated('admissions'),  require('./routes/admissionRoutes'));
+  app.use('/api/hr',             ...gated('hr'),          require('./routes/hrRoutes'));
+  app.use('/api/library',        ...gated('library'),     require('./routes/libraryRoutes'));
+  app.use('/api/chat',           ...gated('chat'),        require('./routes/chatRoutes'));
+  app.use('/api/revision',       ...gated('ai_revision'), require('./routes/revisionRoutes'));
 
   app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
 

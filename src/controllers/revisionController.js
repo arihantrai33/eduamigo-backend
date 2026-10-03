@@ -3,6 +3,7 @@ const ai = require('../services/ai');
 const retrieval = require('../services/retrieval');
 const { HttpError, asyncHandler } = require('../utils/http');
 const { studentForUser } = require('../services/directory');
+const { usageThisMonth, recordUsage } = require('../services/subscription');
 
 const MIN_SCORE = Number(process.env.REVISION_MIN_SCORE || 0.75);
 const MAX_QUESTION = 1000;
@@ -92,6 +93,13 @@ const askRevisionQuestion = asyncHandler(async (req, res) => {
   // Class and section always come from the student's own profile, never from the request.
   const student = await studentForUser(req.user);
   if (!student) throw new HttpError(404, 'Student profile not found');
+
+  // Monthly AI question allowance for the whole school (plan limit; null = unlimited).
+  const allowance = req.entitlements?.limits?.aiQuestionsPerMonth;
+  if (allowance != null && (await usageThisMonth(req.schoolId, 'ai_questions')) >= allowance) {
+    throw new HttpError(429, 'Your school has used this month\'s AI revision questions. The limit resets on the 1st.', { code: 'PLAN_LIMIT' });
+  }
+  await recordUsage(req.schoolId, 'ai_questions');
 
   const history = sanitizeHistory(req.body?.history);
   const vector = await ai.embedQuery(retrievalQuery(question, history));

@@ -5,6 +5,7 @@ const cron = require('node-cron');
 const Fee = require('../models/Fee');
 const Student = require('../models/Student');
 const { notifyParents } = require('../services/notify');
+const { schoolIdsWithFeature } = require('../services/subscription');
 const { SCHOOL_TZ, toDayKey, formatDay } = require('../utils/dates');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -16,9 +17,13 @@ const REMINDERS = [
 async function sendFeeReminders(now = new Date()) {
   const today = toDayKey(now).getTime();
   let sent = 0;
+  // Only schools that have the Fees module and an active subscription.
+  const schools = await schoolIdsWithFeature('fees');
+  if (!schools.length) return 0;
   for (const { days, title } of REMINDERS) {
     const due = new Date(today + days * DAY);
     const fees = await Fee.find({
+      school: { $in: schools },
       status: { $in: ['Unpaid', 'Partial'] },
       dueDate: { $gte: due, $lt: new Date(due.getTime() + DAY) },
     });

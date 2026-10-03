@@ -10,7 +10,8 @@
     "test:watch": "jest --watch",
     "migrate": "node src/scripts/migrate.js",
     "create-school": "node src/scripts/createSchool.js",
-    "backup": "node src/scripts/backup.js"
+    "backup": "node src/scripts/backup.js",
+    "create-platform-admin": "node src/scripts/createPlatformAdmin.js"
   },
   "keywords": [],
   "author": "",

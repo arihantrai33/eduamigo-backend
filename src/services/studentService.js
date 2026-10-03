@@ -4,6 +4,7 @@ const User = require('../models/User');
 const { HttpError } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
 const { temporaryPassword, hashPassword } = require('./credentials');
+const { assertStudentCapacity } = require('./subscription');
 
 const STUDENT_FIELDS = ['name', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'photo'];
@@ -24,6 +25,7 @@ async function createStudentWithAccounts(school, input) {
     throw new HttpError(400, 'Name, email, phone, roll number, class and section are required');
   }
   if (await User.exists({ email: data.email })) throw new HttpError(409, 'Student email already registered');
+  await assertStudentCapacity(school);
 
   let parentUser = null;
   let parentCreated = false;

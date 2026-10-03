@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const Note = require('../models/Note');
 const NoteEmbedding = require('../models/NoteEmbedding');
 const ai = require('../services/ai');
+const { schoolIdsWithFeature } = require('../services/subscription');
 
 const MAX_ATTEMPTS = 3;
 const LOCK_MINUTES = 15;
@@ -46,10 +47,13 @@ async function extractPdfText(url) {
 }
 
 // Atomically claims one note so two server instances (or overlapping runs) never process the same note.
-async function claimNextNote() {
+// Only notes of schools with the AI Revision feature are processed (embedding costs money). Notes of
+// other schools stay pending and are picked up automatically if the school adds the feature later.
+async function claimNextNote(schools) {
   const now = new Date();
   return Note.findOneAndUpdate(
     {
+      school: { $in: schools },
       type: 'Notes',
       fileUrl: { $ne: null },
       $or: [
@@ -115,8 +119,9 @@ async function runPendingNotes({ maxNotes = 20, deps } = {}) {
   running = true;
   const results = [];
   try {
-    for (let i = 0; i < maxNotes; i += 1) {
-      const note = await claimNextNote();
+    const schools = await schoolIdsWithFeature('ai_revision');
+    for (let i = 0; schools.length && i < maxNotes; i += 1) {
+      const note = await claimNextNote(schools);
       if (!note) break;
       results.push(await processNote(note, deps));
     }

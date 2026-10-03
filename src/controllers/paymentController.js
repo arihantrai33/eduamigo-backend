@@ -66,6 +66,9 @@ exports.saveSettings = asyncHandler(async (req, res) => {
 
 // GET /api/payments/config — whether this school takes online payments
 exports.getConfig = asyncHandler(async (req, res) => {
+  if (!req.entitlements?.features.includes('online_payments')) {
+    return res.json({ success: true, data: { enabled: false, provider: 'razorpay', keyId: null } });
+  }
   const g = await gatewayFor(req.schoolId);
   res.json({ success: true, data: { enabled: g.enabled, provider: 'razorpay', keyId: g.enabled ? g.keyId : null } });
 });

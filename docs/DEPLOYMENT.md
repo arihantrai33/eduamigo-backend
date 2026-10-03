@@ -60,7 +60,16 @@ with the service account. Browsers only read.
 Parents know only the random tracking id of their child's bus. Remove any old `leaves` data from
 the database: parent leave requests now go through the API.
 
-## Onboarding a new school
-`npm run create-school -- --name "School Name" --admin-name "Principal Name" --admin-email principal@school.in --phone 98xxxxxxxx`
+## 7. Platform owner account (once)
+`npm run create-platform-admin -- --name "Your Name" --email you@eduamigo.in`
 
-The command prints a temporary password. The admin must set their own password at first login.
+Sign in at `POST /api/platform/login`. See `docs/SAAS.md` for plans, add-ons and the platform API.
+After the migration, every school that existed before has a school code and the premium plan with no end date;
+change plans from the platform API when you are ready.
+
+## Onboarding a new school
+From the platform API (`POST /api/platform/schools`), or:
+
+`npm run create-school -- --name "School Name" --admin-name "Principal Name" --admin-email principal@school.in --city Jaipur --plan standard --trial-days 30`
+
+The command prints the school code and a temporary password. The admin must set their own password at first login.
