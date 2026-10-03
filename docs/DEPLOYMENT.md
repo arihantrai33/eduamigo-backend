@@ -73,3 +73,43 @@ From the platform API (`POST /api/platform/schools`), or:
 `npm run create-school -- --name "School Name" --admin-name "Principal Name" --admin-email principal@school.in --city Jaipur --plan standard --trial-days 30`
 
 The command prints the school code and a temporary password. The admin must set their own password at first login.
+
+## Go-live checklist (SaaS release)
+
+Do these in order. Nothing here is needed for local testing (`npm run demo`).
+
+**Before the day**
+1. Atlas on a paid tier (M10 or higher, Mumbai region) for automatic backups. M0 has none.
+2. A staging copy: a second Render service and Vercel project pointing at a separate Atlas database. Restore a
+   backup there (`npm run backup -- --restore <folder> --confirm` with that database's `MONGO_URI`), run the
+   migration, and click through every role.
+3. Email for password reset codes: create a Brevo (or Resend) account, verify the sending domain, and set
+   `EMAIL_PROVIDER`, `EMAIL_FROM` and the API key on Render. Without it, codes are not sent (a warning is logged).
+4. CI is green on GitHub (backend tests, frontend and console builds).
+
+**On the day**
+1. Tell users: the app asks for the school code first; students sign in with their admission number, parents
+   with their mobile number, staff with email as before. Passwords do not change.
+2. Back up: `npm run backup` and, on paid tiers, an Atlas snapshot.
+3. Migration dry run: `npm run migrate`. Read the table (school codes, admission numbers, buses given a school,
+   anything marked "review by hand"). Then `npm run migrate -- --apply`.
+4. Merge `hardening/saas-foundation` into `main`; deploy the backend first, then the school app.
+5. `GET /api/health` returns `{"status":"ok","db":"up"}`.
+6. Owner account: `npm run create-platform-admin -- --name "..." --email ...`.
+7. Deploy the console (`eduamigo-console`, a static site on its own private address). Add its address to
+   `CORS_ORIGINS`.
+8. In the console: set plan and add-on prices, then for each school check the plan, trial or paid-until date,
+   and branding. Existing schools are migrated to Premium with no end date, so nothing is switched off.
+9. Share each school's link `https://<school app>/s/<CODE>` (or a QR code of it) with its staff and parents.
+
+**Environment variables added in this release**
+
+| Variable | Needed | Purpose |
+|---|---|---|
+| `EMAIL_PROVIDER`, `EMAIL_FROM`, `BREVO_API_KEY` or `RESEND_API_KEY` | For password reset | Sends reset codes |
+| `GST_RATE` | Optional (default 18) | Tax on EduAmigo invoices |
+| `DATA_ENCRYPTION_KEY` | For online payments | Encrypts each school's Razorpay keys |
+
+**Rollback**: redeploy the previous backend and frontend, then restore the backup taken in step 2
+(`npm run backup -- --restore backups/<time> --confirm`). The migration only adds fields and indexes, so the
+old version keeps working on migrated data except for logins created after go-live without an email.
