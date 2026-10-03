@@ -34,6 +34,8 @@ const schoolSchema = new mongoose.Schema({
     appName:      { type: String, trim: true, maxlength: 60, default: '' },
     logoUrl:      { type: String, trim: true, default: '' },
     primaryColor: { type: String, trim: true, default: '', validate: { validator: (v) => !v || HEX_COLOR.test(v), message: 'Colour must look like #1A73E8' } },
+    // Optional second colour for highlights (badges, rings); the apps derive one when empty.
+    accentColor:  { type: String, trim: true, default: '', validate: { validator: (v) => !v || HEX_COLOR.test(v), message: 'Colour must look like #1A73E8' } },
     tagline:      { type: String, trim: true, maxlength: 120, default: '' },
   },
   // The school's own web address for the portal, e.g. "erp.greenvalley.edu.in" (add-on).

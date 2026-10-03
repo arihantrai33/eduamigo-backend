@@ -14,6 +14,7 @@ function publicProfile(school) {
     appName: school.branding?.appName || school.name,
     logoUrl: school.branding?.logoUrl || '',
     primaryColor: school.branding?.primaryColor || '',
+    accentColor: school.branding?.accentColor || '',
     tagline: school.branding?.tagline || '',
   };
 }

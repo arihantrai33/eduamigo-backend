@@ -25,6 +25,7 @@ const publicSchool = (school, entitlements, academicYear) => ({
     appName: school.branding?.appName || school.name,
     logoUrl: school.branding?.logoUrl || '',
     primaryColor: school.branding?.primaryColor || '',
+    accentColor: school.branding?.accentColor || '',
     tagline: school.branding?.tagline || '',
   },
   customDomain: school.customDomain || null,
@@ -81,7 +82,7 @@ router.put('/me/branding', protect, requirePermission('settings.manage'), upload
   const school = await School.findById(req.schoolId);
   if (!school) throw new HttpError(404, 'School not found');
   const body = req.body || {};
-  for (const key of ['appName', 'primaryColor', 'tagline']) {
+  for (const key of ['appName', 'primaryColor', 'accentColor', 'tagline']) {
     if (body[key] !== undefined) school.branding[key] = String(body[key] || '').trim();
   }
   if (body.removeLogo === 'true' || body.removeLogo === true) school.branding.logoUrl = '';

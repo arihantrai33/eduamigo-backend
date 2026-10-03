@@ -36,10 +36,11 @@ async function seed() {
   await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
   rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
 
-  async function demoSchool({ name, code, city, plan, color, appName, tagline, subscription, classes, teacher, students }) {
+  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, subscription, classes, teacher, students }) {
     const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: `${code} Principal`, adminEmail: `admin@${code.toLowerCase()}.demo` });
     await ready(admin._id);
-    await School.updateOne({ _id: school._id }, { branding: { appName: appName || name, primaryColor: color, tagline: tagline || `${city} · Demo school` }, ...(subscription ? Object.fromEntries(Object.entries(subscription).map(([k, v]) => [`subscription.${k}`, v])) : {}) });
+    const branding = { appName: appName || name, primaryColor: color, accentColor: accent || '', logoUrl: logoUrl || '', tagline: tagline || '' };
+    await School.updateOne({ _id: school._id }, { branding, ...(subscription ? Object.fromEntries(Object.entries(subscription).map(([k, v]) => [`subscription.${k}`, v])) : {}) });
     rows.push({ school: code, role: `Admin (${plan})`, loginId: admin.email, where: 'Admin tab' });
 
     await createSession(school._id, { name: '2026-27' });
@@ -93,10 +94,15 @@ async function seed() {
   });
 
   // Allied International School: two campuses, each its own school (own code, students and data),
-  // same name and theme. Placeholder navy theme until the school's real logo and colours are added.
-  const allied = { appName: 'Allied International School', plan: 'premium', color: '#1E3A8A', subscription: { status: 'active', currentPeriodEnd: null } };
+  // same name and theme. Logo, green and gold, and the motto are from the school's public website
+  // (alliedinternationalschool.com) for this local demo only.
+  const allied = {
+    appName: 'Allied International School', plan: 'premium', color: '#1B7A3A', accent: '#F2B705',
+    logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
+    subscription: { status: 'active', currentPeriodEnd: null },
+  };
   await demoSchool({
-    ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', city: 'Gaya', tagline: 'Gaya Campus',
+    ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', city: 'Gaya',
     classes: ['6', '7', '8'], teacher: 'Sunita Prasad',
     students: [
       { name: 'Aditya Kumar', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Male' },
@@ -105,7 +111,7 @@ async function seed() {
     ],
   });
   await demoSchool({
-    ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', city: 'Chakand, Gaya', tagline: 'Chakand Campus',
+    ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', city: 'Chakand, Gaya',
     classes: ['1', '2', '3'], teacher: 'Ravi Ranjan',
     students: [
       { name: 'Khushi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },
@@ -132,7 +138,7 @@ Schools to try:
   GVPS  Premium, trial    -> every module, branded teal
   SCS   Basic, paid       -> fees, exams, transport, chat hidden
   LFS   Standard, expired -> read-only: viewing works, saving is blocked, banner for staff
-  AISGAYA, AISCHAKAND     -> Allied International School, two campuses (search "allied"), navy theme
+  AISGAYA, AISCHAKAND     -> Allied International School, two campuses (search "allied"), green and gold with logo
 
 Frontend: cd ../eduamigo-frontend && npm run dev   then open http://localhost:5173
 School link test: http://localhost:5173/s/GVPS

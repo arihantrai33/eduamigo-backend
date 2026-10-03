@@ -24,6 +24,7 @@ const publicUser = (user, entitlements) => ({
     appName: user.school?.branding?.appName || user.school?.name || '',
     logoUrl: user.school?.branding?.logoUrl || '',
     primaryColor: user.school?.branding?.primaryColor || '',
+    accentColor: user.school?.branding?.accentColor || '',
   },
   profileId: user.profileId,
   mustChangePassword: !!user.mustChangePassword,
