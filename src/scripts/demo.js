@@ -94,10 +94,10 @@ async function seed() {
   });
 
   // Allied International School: two campuses, each its own school (own code, students and data),
-  // same name and theme. Logo, green and gold, and the motto are from the school's public website
-  // (alliedinternationalschool.com) for this local demo only.
+  // same name and theme. Logo and motto are from the school's public website
+  // (alliedinternationalschool.com) for this local demo only; saffron and gold theme.
   const allied = {
-    appName: 'Allied International School', plan: 'premium', color: '#1B7A3A', accent: '#F2B705',
+    appName: 'Allied International School', plan: 'premium', color: '#D9480F', accent: '#F2B705',
     logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
     subscription: { status: 'active', currentPeriodEnd: null },
   };
@@ -138,7 +138,7 @@ Schools to try:
   GVPS  Premium, trial    -> every module, branded teal
   SCS   Basic, paid       -> fees, exams, transport, chat hidden
   LFS   Standard, expired -> read-only: viewing works, saving is blocked, banner for staff
-  AISGAYA, AISCHAKAND     -> Allied International School, two campuses (search "allied"), green and gold with logo
+  AISGAYA, AISCHAKAND     -> Allied International School, two campuses (search "allied"), saffron and gold with logo
 
 Frontend: cd ../eduamigo-frontend && npm run dev   then open http://localhost:5173
 School link test: http://localhost:5173/s/GVPS
