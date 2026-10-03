@@ -69,9 +69,14 @@ describe('academic sessions', () => {
 
 describe('classes, sections and subjects', () => {
   test('admin builds the class list; it orders classes naturally and shows class teachers and counts', async () => {
-    await api().post('/api/academic/classes').set(auth(A.admin)).send({ name: 'Class 10', sections: ['a', 'B', 'B'], subjects: ['Maths', 'Science', 'Maths'] });
-    await api().post('/api/academic/classes').set(auth(A.admin)).send({ name: '2', sections: ['A'] });
-    await api().post('/api/academic/classes').set(auth(A.admin)).send({ name: 'LKG', sections: ['A'] });
+    for (const body of [
+      { name: 'Class 10', sections: ['a', 'B', 'B'], subjects: ['Maths', 'Science', 'Maths'] },
+      { name: '2', sections: ['A'] },
+      { name: 'LKG', sections: ['A'] },
+    ]) {
+      const created = await api().post('/api/academic/classes').set(auth(A.admin)).send(body);
+      expect({ status: created.status, body: created.body }).toMatchObject({ status: 201 });
+    }
     const dup = await api().post('/api/academic/classes').set(auth(A.admin)).send({ name: '10' });
     expect(dup.status).toBe(409);
 

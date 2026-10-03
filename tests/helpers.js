@@ -10,7 +10,23 @@ const Parent = require('../src/models/Parent');
 const { hashPassword } = require('../src/services/credentials');
 
 const app = buildApp();
-const api = () => request(app);
+// One HTTP server per test file, shared by every request, and a fresh connection for every request.
+// Reused keep-alive sockets (the Node 19+ default) let a request read leftovers of an earlier one, for example
+// an upload the server rejected before reading it: the test then saw the previous request's response.
+// The server is started by connect() and only used once it is listening (supertest would otherwise start
+// and close a second listener on the same server object).
+let server = null;
+const METHODS = ['get', 'post', 'put', 'patch', 'delete'];
+async function startServer() {
+  if (server) return;
+  server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+}
+const api = () => {
+  if (!server || !server.listening) throw new Error('Call connect() (beforeAll) before making requests');
+  const client = request(server);
+  return Object.fromEntries(METHODS.map((m) => [m, (...args) => client[m](...args).set('Connection', 'close')]));
+};
 
 async function connect() {
   const base = process.env.MONGO_TEST_URI;
@@ -18,11 +34,17 @@ async function connect() {
   const url = new URL(base);
   url.pathname = `/${dbName}`;
   await mongoose.connect(url.toString());
+  await startServer();
   // Build unique indexes up front so duplicate checks behave like production.
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
 }
 
 async function disconnect() {
+  if (server) {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    server = null;
+  }
   await mongoose.connection.dropDatabase();
   await mongoose.disconnect();
 }

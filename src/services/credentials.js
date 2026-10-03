@@ -10,7 +10,13 @@ function temporaryPassword() {
   return `${w()}-${crypto.randomInt(1000, 10000)}-${w()}`;
 }
 
-const hashPassword = (plain) => bcrypt.hash(plain, 10);
+// Cost 10 in production. BCRYPT_ROUNDS can lower it for the test suite only (hashing is most of its
+// setup time); values outside 4-14 are ignored.
+const ROUNDS = (() => {
+  const n = Number(process.env.BCRYPT_ROUNDS);
+  return Number.isInteger(n) && n >= 4 && n <= 14 ? n : 10;
+})();
+const hashPassword = (plain) => bcrypt.hash(plain, ROUNDS);
 
 function validatePasswordStrength(password) {
   if (typeof password !== 'string' || password.length < 8) return 'Password must be at least 8 characters long';

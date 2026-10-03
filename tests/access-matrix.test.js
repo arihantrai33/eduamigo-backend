@@ -90,8 +90,10 @@ describe.each(ROUTES)('%s %s requires %s', (method, url, permission) => {
   test.each(ROLES)('%s', async (role) => {
     const res = await api()[method](url).set(auth(users[role])).send({});
     const allowed = ROLE_PERMISSIONS[role].includes(permission);
-    if (allowed) expect(res.status).not.toBe(403);
-    else expect(res.status).toBe(403);
+    // Status plus body, so a failure shows what the server actually said.
+    const got = { status: res.status, message: res.body?.message };
+    if (allowed) expect(got.status === 403 ? got : 'not 403').toBe('not 403');
+    else expect(got).toMatchObject({ status: 403 });
   });
 });
 
