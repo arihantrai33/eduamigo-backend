@@ -96,6 +96,14 @@ router.put('/me/branding', protect, requirePermission('settings.manage'), upload
   res.json({ success: true, data: publicSchool(school, req.entitlements, await currentSessionName(req.schoolId)) });
 }));
 
+// GET /api/schools/me/invoices — EduAmigo bills for this school (issued and paid; drafts stay private)
+router.get('/me/invoices', protect, requirePermission('settings.manage'), asyncHandler(async (req, res) => {
+  const Invoice = require('../models/Invoice');
+  const invoices = await Invoice.find({ school: req.schoolId, status: { $in: ['issued', 'paid'] } })
+    .select('-createdBy -notes').sort({ periodFrom: -1 }).lean();
+  res.json({ success: true, data: invoices });
+}));
+
 router.get('/subjects', protect, async (req, res) => {
   try {
     const school = await School.findById(req.user.school._id || req.user.school);

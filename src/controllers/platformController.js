@@ -152,6 +152,7 @@ async function schoolSummary(school, usage) {
       status: school.subscription?.status, trialEndsAt: school.subscription?.trialEndsAt || null,
       currentPeriodEnd: school.subscription?.currentPeriodEnd || null, graceDays: school.subscription?.graceDays,
       limitOverrides: school.subscription?.limits || {}, notes: school.subscription?.notes || '',
+      discountPercent: school.subscription?.discountPercent || 0,
     },
     features: e.features, limits: e.limits, state: e.state,
     usage: usage || null,
@@ -286,6 +287,11 @@ exports.updateSubscription = asyncHandler(async (req, res) => {
     s[key] = d;
   }
   if (body.graceDays !== undefined) s.graceDays = Number(body.graceDays);
+  if (body.discountPercent !== undefined) {
+    const d = Number(body.discountPercent);
+    if (!(d >= 0 && d <= 100)) throw new HttpError(400, 'Discount must be between 0 and 100');
+    s.discountPercent = d;
+  }
   if (body.notes !== undefined) s.notes = String(body.notes).slice(0, 1000);
   if (s.status === 'trial' && !s.trialEndsAt) throw new HttpError(400, 'A trial needs an end date');
 
@@ -327,3 +333,55 @@ exports.auditLog = asyncHandler(async (req, res) => {
   ]);
   res.json({ success: true, data: rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
+
+// ---------------- Billing ----------------
+
+const Invoice = require('../models/Invoice');
+const billing = require('../services/billing');
+const { pageParams, paged } = require('../utils/paginate');
+
+// GET /api/platform/schools/:id/invoice-preview?from=2026-04-01&to=2027-03-31
+exports.previewInvoice = asyncHandler(async (req, res) => {
+  const school = await loadSchool(req.params.id);
+  res.json({ success: true, data: await billing.computeInvoice(school, { from: req.query.from, to: req.query.to }) });
+});
+
+// POST /api/platform/schools/:id/invoices { from, to, dueDate?, notes?, issue? }
+exports.createInvoice = asyncHandler(async (req, res) => {
+  const school = await loadSchool(req.params.id);
+  const { invoice, warnings } = await billing.createInvoice(school, { ...(req.body || {}), createdBy: req.platformUser._id });
+  await audit(req, 'platform.invoice_created', { school: school._id, targetType: 'invoice', targetId: invoice._id, details: { number: invoice.number, total: invoice.total, status: invoice.status } });
+  res.status(201).json({ success: true, data: invoice, warnings });
+});
+
+// GET /api/platform/invoices?status=&school=&page=&limit=
+exports.listInvoices = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.status) filter.status = String(req.query.status);
+  if (req.query.school) { assertId(req.query.school, 'school'); filter.school = req.query.school; }
+  const paging = pageParams({ page: req.query.page || 1, limit: req.query.limit || 50 });
+  const result = await paged(Invoice, filter, paging, (q) => q.sort({ createdAt: -1 }).populate('school', 'name code').lean());
+  const totals = await Invoice.aggregate([{ $match: { ...filter, ...(filter.school ? { school: new mongoose.Types.ObjectId(String(filter.school)) } : {}) } },
+    { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$total' } } }]);
+  res.json({ success: true, ...result, totals: Object.fromEntries(totals.map((t) => [t._id, { count: t.count, total: Math.round(t.total * 100) / 100 }])) });
+});
+
+// GET /api/platform/invoices/:id
+exports.getInvoice = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const invoice = await Invoice.findById(req.params.id).populate('school', 'name code address city email phone');
+  if (!invoice) throw new HttpError(404, 'Invoice not found');
+  res.json({ success: true, data: invoice });
+});
+
+// PATCH /api/platform/invoices/:id { action: "issue" | "mark_paid" | "void", paymentRef? }
+exports.updateInvoice = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const invoice = await Invoice.findById(req.params.id);
+  if (!invoice) throw new HttpError(404, 'Invoice not found');
+  const action = String(req.body?.action || '');
+  await billing.changeStatus(invoice, action, { paymentRef: req.body?.paymentRef });
+  await audit(req, `platform.invoice_${action}`, { school: invoice.school, targetType: 'invoice', targetId: invoice._id, details: { number: invoice.number, paymentRef: invoice.paymentRef } });
+  res.json({ success: true, data: invoice });
+});
+

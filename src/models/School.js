@@ -56,6 +56,7 @@ const schoolSchema = new mongoose.Schema({
     trialEndsAt:      { type: Date, default: () => new Date(Date.now() + DEFAULT_TRIAL_DAYS * 86400000) },
     currentPeriodEnd: { type: Date, default: null },             // paid until; null = no end date
     graceDays:        { type: Number, min: 0, max: 60, default: DEFAULT_GRACE_DAYS },
+    discountPercent:  { type: Number, min: 0, max: 100, default: 0 },    // custom deal, applied on invoices
     notes:            { type: String, maxlength: 1000, default: '' },
   },
   // Online fee collection. Each school receives money in its own Razorpay account.

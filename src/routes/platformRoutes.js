@@ -45,6 +45,11 @@ router.get('/schools/:id', c.getSchool);
 router.patch('/schools/:id', c.updateSchool);
 router.patch('/schools/:id/subscription', c.updateSubscription);
 router.post('/schools/:id/support-session', c.supportSession);
+router.get('/schools/:id/invoice-preview', c.previewInvoice);
+router.post('/schools/:id/invoices', c.createInvoice);
+router.get('/invoices', c.listInvoices);
+router.get('/invoices/:id', c.getInvoice);
+router.patch('/invoices/:id', c.updateInvoice);
 
 router.get('/audit', c.auditLog);
 

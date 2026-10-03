@@ -125,3 +125,29 @@ the record, and a trimmed copy of the request. Passwords, tokens, secrets and ke
 Failed requests are not recorded. Admins read their school's log at `GET /api/audit` (permission `audit.read`,
 filters `action` prefix, `actor`, `from`, `to`, paged). The platform owner reads every school's log at
 `GET /api/platform/audit`.
+
+## Billing schools (invoices)
+
+Prices: plan `pricePerStudentYear` (`PUT /api/platform/plans/:code`) and add-on `pricePerStudentYear` or
+`flatPricePerYear` (`PUT /api/platform/addons/:feature`). A custom deal per school: `discountPercent` on
+`PATCH /api/platform/schools/:id/subscription`. GST rate: `GST_RATE` (default 18).
+
+An invoice covers a period and is a snapshot made when it is created:
+
+- plan line = active students x plan price x share of the year (92 days = 0.25)
+- each bought add-on not already in the plan = active students x its price (or its flat price) x share
+- discount line, then GST on the discounted subtotal
+- features given free as a custom deal (`enabledFeatures`) are not billed; anything without a price is left
+  out and reported in `warnings`; an invoice with nothing to bill is refused
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/platform/schools/:id/invoice-preview?from=&to=` | Lines, totals and warnings, nothing saved |
+| POST | `/api/platform/schools/:id/invoices` | `{ from, to, dueDate?, notes?, issue? }` -> `INV-<year>-0001` |
+| GET | `/api/platform/invoices?status=&school=` | List with totals per status |
+| PATCH | `/api/platform/invoices/:id` | `{ action: "issue" \| "mark_paid" \| "void", paymentRef? }` |
+| GET | `/api/schools/me/invoices` | The school's issued and paid bills (admins) |
+
+Status flow: draft -> issued -> paid, or draft/issued -> void. Marking an invoice paid makes the school's
+subscription active and moves its paid-until date to the end of the invoice period (if later). Every billing
+action is in the platform audit log.
