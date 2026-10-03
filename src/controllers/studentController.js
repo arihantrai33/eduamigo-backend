@@ -13,6 +13,7 @@ const academic = require('../services/academic');
 const { deactivateStudent, transferCertificate } = require('../services/yearEnd');
 const StudentEnrollment = require('../models/StudentEnrollment');
 const { pageParams, paged } = require('../utils/paginate');
+const { hasPermission } = require('../config/permissions');
 
 function uploadPhotoToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
@@ -30,7 +31,10 @@ const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'date
 // GET /students — admin/teacher (teachers only see their assigned classes). Optional ?page=&limit=
 exports.getStudents = asyncHandler(async (req, res) => {
   const { class: cls, section, search } = req.query;
-  const query = { isActive: true, school: req.schoolId };
+  // ?former=true: students who have left or passed out (for transfer certificates); admins only.
+  const former = req.query.former === 'true';
+  if (former && !hasPermission(req.user.role, 'students.manage')) throw new HttpError(403, 'You do not have permission to see former students');
+  const query = { isActive: !former, school: req.schoolId };
   if (cls || section) {
     const key = parseClassKey(cls, section);
     if (key.class) query.class = key.class;

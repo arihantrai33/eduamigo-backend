@@ -111,3 +111,11 @@ test('a roll number freed by a student who left can be given to a new admission'
   const clash = await api().post('/api/students').set(auth(A.admin)).send({ name: 'Ira', phone: '9000000097', class: '9', section: 'A', rollNumber: '1' });
   expect(clash.status).toBe(409); // Zoya still has roll 1
 });
+
+test('former students are listed for admins only', async () => {
+  await api().delete(`/api/students/${zoya._id}`).set(auth(A.admin)).send({ reason: 'Moved' }).expect(200);
+  const former = await api().get('/api/students?former=true').set(auth(A.admin));
+  expect(former.body.data.map((s) => s.name)).toEqual(['Zoya']);
+  expect((await api().get('/api/students').set(auth(A.admin))).body.data.map((s) => s.name)).not.toContain('Zoya');
+  expect((await api().get('/api/students?former=true').set(auth(A.teacherUser))).status).toBe(403);
+});
