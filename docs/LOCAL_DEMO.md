@@ -18,8 +18,9 @@ Every password is `Demo@1234`. The demo prints the full list of logins.
 | GVPS | Premium, trial | Every module; teal branding; parent 9876543210 has two children |
 | SCS | Basic, paid | Fees, exams, bus and chat are hidden; opening them by URL shows "Not available" |
 | LFS | Standard, trial expired | Read-only: everything opens, saving fails; staff see the red banner |
+| AISGAYA, AISCHAKAND | Premium, paid | Allied International School, two campuses (search "allied"); navy placeholder theme; each campus sees only its own data |
 
-Logins: staff `admin@gvps.demo`, `teacher@gvps.demo` (Staff / Teacher tab); students by admission number
+Logins: staff `admin@gvps.demo`, `teacher@gvps.demo` (Admin / Teacher tab); students by admission number
 `1`, `2`, `3` (Student tab); parents by mobile (Parent tab). Platform owner: `owner@eduamigo.demo` at
 `POST /api/platform/login` (no screen yet).
 
