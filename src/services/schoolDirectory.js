@@ -16,6 +16,7 @@ function publicProfile(school) {
     primaryColor: school.branding?.primaryColor || '',
     accentColor: school.branding?.accentColor || '',
     tagline: school.branding?.tagline || '',
+    heroStyle: school.branding?.heroStyle || 'bold',
   };
 }
 

@@ -36,10 +36,10 @@ async function seed() {
   await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
   rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
 
-  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, subscription, classes, teacher, students }) {
+  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, students }) {
     const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: `${code} Principal`, adminEmail: `admin@${code.toLowerCase()}.demo` });
     await ready(admin._id);
-    const branding = { appName: appName || name, primaryColor: color, accentColor: accent || '', logoUrl: logoUrl || '', tagline: tagline || '' };
+    const branding = { appName: appName || name, primaryColor: color, accentColor: accent || '', logoUrl: logoUrl || '', tagline: tagline || '', heroStyle: heroStyle || 'bold' };
     await School.updateOne({ _id: school._id }, { branding, ...(subscription ? Object.fromEntries(Object.entries(subscription).map(([k, v]) => [`subscription.${k}`, v])) : {}) });
     rows.push({ school: code, role: `Admin (${plan})`, loginId: admin.email, where: 'Admin tab' });
 
@@ -97,7 +97,7 @@ async function seed() {
   // same name and theme. Logo and motto are from the school's public website
   // (alliedinternationalschool.com) for this local demo only; saffron and gold theme.
   const allied = {
-    appName: 'Allied International School', plan: 'premium', color: '#D9480F', accent: '#F2B705',
+    appName: 'Allied International School', plan: 'premium', color: '#E8590C', accent: '#F2B705', heroStyle: 'light',
     logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
     subscription: { status: 'active', currentPeriodEnd: null },
   };

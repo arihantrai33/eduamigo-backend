@@ -25,6 +25,7 @@ const publicUser = (user, entitlements) => ({
     logoUrl: user.school?.branding?.logoUrl || '',
     primaryColor: user.school?.branding?.primaryColor || '',
     accentColor: user.school?.branding?.accentColor || '',
+    heroStyle: user.school?.branding?.heroStyle || 'bold',
   },
   profileId: user.profileId,
   mustChangePassword: !!user.mustChangePassword,

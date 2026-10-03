@@ -238,7 +238,7 @@ exports.updateSchool = asyncHandler(async (req, res) => {
   }
   if (body.customDomain !== undefined) school.customDomain = body.customDomain ? String(body.customDomain).trim().toLowerCase() : undefined;
   if (body.branding && typeof body.branding === 'object') {
-    for (const key of ['appName', 'logoUrl', 'primaryColor', 'accentColor', 'tagline']) {
+    for (const key of ['appName', 'logoUrl', 'primaryColor', 'accentColor', 'tagline', 'heroStyle']) {
       if (body.branding[key] !== undefined) school.branding[key] = String(body.branding[key] || '').trim();
     }
   }

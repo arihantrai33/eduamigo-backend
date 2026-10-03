@@ -46,7 +46,7 @@ describe('school codes and public lookup', () => {
     await School.updateOne({ _id: A.school._id }, { city: 'Jaipur', customDomain: 'erp.alpha.edu.in', branding: { appName: 'Alpha App', primaryColor: '#123456' } });
     const byCode = await api().get('/api/public/schools/alp');
     expect(byCode.status).toBe(200);
-    expect(byCode.body.data).toEqual({ code: 'ALP', name: 'Alpha School', city: 'Jaipur', appName: 'Alpha App', logoUrl: '', primaryColor: '#123456', accentColor: '', tagline: '' });
+    expect(byCode.body.data).toEqual({ code: 'ALP', name: 'Alpha School', city: 'Jaipur', appName: 'Alpha App', logoUrl: '', primaryColor: '#123456', accentColor: '', tagline: '', heroStyle: 'bold' });
 
     const search = await api().get('/api/public/schools?search=alph');
     expect(search.body.data.map((s) => s.code)).toEqual(['ALP']);
@@ -313,12 +313,14 @@ describe('platform owner API', () => {
 
 describe('school branding (school admin)', () => {
   test('admin updates app name, colour and tagline; teachers cannot', async () => {
-    const res = await api().put('/api/schools/me/branding').set(auth(A.admin)).send({ appName: 'Alpha Connect', primaryColor: '#0A7E8C', accentColor: '#F2B705', tagline: 'Learn and grow' });
+    const res = await api().put('/api/schools/me/branding').set(auth(A.admin)).send({ appName: 'Alpha Connect', primaryColor: '#0A7E8C', accentColor: '#F2B705', tagline: 'Learn and grow', heroStyle: 'light' });
     expect(res.status).toBe(200);
-    expect(res.body.data.branding).toEqual({ appName: 'Alpha Connect', logoUrl: '', primaryColor: '#0A7E8C', accentColor: '#F2B705', tagline: 'Learn and grow' });
+    expect(res.body.data.branding).toEqual({ appName: 'Alpha Connect', logoUrl: '', primaryColor: '#0A7E8C', accentColor: '#F2B705', tagline: 'Learn and grow', heroStyle: 'light' });
     expect((await api().put('/api/schools/me/branding').set(auth(A.admin)).send({ accentColor: 'gold' })).status).toBe(400);
+    expect((await api().put('/api/schools/me/branding').set(auth(A.admin)).send({ heroStyle: 'neon' })).status).toBe(400);
     const login = await api().post('/api/users/login').send({ email: A.admin.email, password: 'Password123' });
     expect(login.body.user.branding.accentColor).toBe('#F2B705');
+    expect(login.body.user.branding.heroStyle).toBe('light');
     expect(res.body.data.code).toBe('ALP');
     expect(res.body.data.plan.code).toBe('premium');
     expect((await api().put('/api/schools/me/branding').set(auth(A.teacherUser)).send({ appName: 'X' })).status).toBe(403);

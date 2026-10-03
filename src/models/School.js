@@ -37,6 +37,8 @@ const schoolSchema = new mongoose.Schema({
     // Optional second colour for highlights (badges, rings); the apps derive one when empty.
     accentColor:  { type: String, trim: true, default: '', validate: { validator: (v) => !v || HEX_COLOR.test(v), message: 'Colour must look like #1A73E8' } },
     tagline:      { type: String, trim: true, maxlength: 120, default: '' },
+    // Sign-in header look: "bold" = full brand-colour header, "light" = soft tinted header.
+    heroStyle:    { type: String, enum: ['bold', 'light'], default: 'bold' },
   },
   // The school's own web address for the portal, e.g. "erp.greenvalley.edu.in" (add-on).
   customDomain:   { type: String, lowercase: true, trim: true, validate: { validator: (v) => !v || DOMAIN.test(v), message: 'Invalid domain' } },
