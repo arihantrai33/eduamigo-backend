@@ -105,7 +105,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
 // GET /api/users/profile
 const getProfile = asyncHandler(async (req, res) => {
-  res.json({ success: true, data: publicUser(req.user, req.entitlements) });
+  // supportSession: signed in by EduAmigo support (platform owner), so the app can show it clearly.
+  res.json({ success: true, data: { ...publicUser(req.user, req.entitlements), supportSession: !!req.impersonatedBy } });
 });
 
 // PATCH /api/users/password

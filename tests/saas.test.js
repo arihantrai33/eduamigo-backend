@@ -154,7 +154,9 @@ describe('plans and features', () => {
   });
 
   test('fee reminders are only sent for schools that have the fees module', async () => {
-    const due = new Date(Date.now() + 2 * DAY);
+    // Fees are stored as school-calendar days (see utils/dates.toDayKey); build the due date the same way so the
+    // test does not depend on the time of day (UTC and IST dates differ between midnight and 5:30 IST).
+    const due = new Date(require('../src/utils/dates').toDayKey(new Date()).getTime() + 2 * DAY);
     await Fee.create({ school: A.school._id, studentId: A.student._id, feeType: 'Tuition', amount: 1000, dueDate: due, status: 'Unpaid' });
     await setSub(A.school, { plan: 'basic' });
     expect(await sendFeeReminders()).toBe(0);
@@ -285,6 +287,8 @@ describe('platform owner API', () => {
     expect(jwt.decode(res.body.token).imp).toBe(String(user._id));
 
     expect((await api().get('/api/students').set(support)).status).toBe(200);
+    expect((await api().get('/api/users/profile').set(support)).body.data.supportSession).toBe(true);
+    expect((await api().get('/api/users/profile').set(auth(A.admin))).body.data.supportSession).toBe(false);
     await api().post('/api/announcements').set(support).send({ title: 'Test', message: 'From support' });
     await new Promise((r) => setTimeout(r, 50));
     const writes = await AuditLog.find({ action: 'support.write', school: A.school._id });
