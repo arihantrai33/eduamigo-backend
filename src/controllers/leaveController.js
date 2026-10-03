@@ -5,6 +5,7 @@ const { teacherCoversClass } = require('../utils/classes');
 const Student = require('../models/Student');
 const { studentForUser, resolveChild, teacherForUser } = require('../services/directory');
 const { notifyParents, notifyUser } = require('../services/notify');
+const { pageParams, paged } = require('../utils/paginate');
 
 const LEAVE_QUOTA_DAYS = Number(process.env.LEAVE_QUOTA_DAYS || 12);
 const TYPES = ['Sick', 'Personal', 'Family', 'Other'];
@@ -85,13 +86,14 @@ async function reviewScope(req) {
   return { filter };
 }
 
-// GET /api/leaves (admin)
+// GET /api/leaves (admin). Optional ?page=&limit= (without paging: the latest 1000)
 const getAllLeaves = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
   if (req.query.status) filter.status = String(req.query.status);
   if (req.query.role) filter.role = String(req.query.role);
-  const leaves = await LeaveRequest.find(filter).sort({ createdAt: -1 }).limit(1000);
-  res.json({ success: true, count: leaves.length, data: leaves });
+  const paging = pageParams(req.query);
+  const result = await paged(LeaveRequest, filter, paging, (q) => (paging ? q.sort({ createdAt: -1 }) : q.sort({ createdAt: -1 }).limit(1000)));
+  res.json({ success: true, ...result });
 });
 
 // GET /api/leaves/pending (admin, teacher)

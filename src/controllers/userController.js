@@ -7,6 +7,7 @@ const { PERMISSION_FEATURE } = require('../config/features');
 const { entitlementsFor } = require('../services/subscription');
 const { signUserToken } = require('../services/tokens');
 const accounts = require('../services/accounts');
+const { pageParams, paged } = require('../utils/paginate');
 
 // Permissions of features the school has not bought are left out, so the apps hide those menus.
 const permissionsWithin = (role, entitlements) => permissionsFor(role)
@@ -183,7 +184,7 @@ const updateFcmToken = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Device registered for notifications' });
 });
 
-// GET /api/users  (admin: users of own school)
+// GET /api/users  (admin: users of own school). Optional ?page=&limit=
 const getAllUsers = asyncHandler(async (req, res) => {
   const { role, search } = req.query;
   const filter = { school: req.schoolId };
@@ -192,8 +193,9 @@ const getAllUsers = asyncHandler(async (req, res) => {
     { name: { $regex: escapeRegex(search), $options: 'i' } },
     { email: { $regex: escapeRegex(search), $options: 'i' } },
   ];
-  const users = await User.find(filter).select('-password -fcmToken').populate('school', 'name').sort({ createdAt: -1 });
-  res.json({ success: true, count: users.length, data: users });
+  const result = await paged(User, filter, pageParams(req.query),
+    (q) => q.select('-password -fcmToken').populate('school', 'name').sort({ createdAt: -1 }));
+  res.json({ success: true, ...result });
 });
 
 // PATCH /api/users/:id/toggle

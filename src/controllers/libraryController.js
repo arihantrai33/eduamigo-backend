@@ -1,5 +1,6 @@
 const Library = require('../models/Library');
 const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
+const { pageParams, paged } = require('../utils/paginate');
 
 const FIELDS = ['title', 'author', 'isbn', 'category', 'totalCopies', 'publisher', 'year'];
 
@@ -7,8 +8,8 @@ const getBooks = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
   if (req.query.search) filter.title = { $regex: escapeRegex(req.query.search), $options: 'i' };
   if (req.query.category && req.query.category !== 'all') filter.category = String(req.query.category);
-  const books = await Library.find(filter).sort({ createdAt: -1 });
-  res.json({ success: true, count: books.length, data: books });
+  const result = await paged(Library, filter, pageParams(req.query), (q) => q.sort({ createdAt: -1 }));
+  res.json({ success: true, ...result });
 });
 
 const addBook = asyncHandler(async (req, res) => {

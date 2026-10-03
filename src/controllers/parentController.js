@@ -6,6 +6,7 @@ const { temporaryPassword, hashPassword } = require('../services/credentials');
 const { childrenForParent } = require('../services/directory');
 const { normalizePhone, isMobile } = require('../utils/phone');
 const School = require('../models/School');
+const { pageParams, paged } = require('../utils/paginate');
 
 // POST /api/parents (admin) — create a parent account and link children of this school
 const createParent = asyncHandler(async (req, res) => {
@@ -101,12 +102,11 @@ const getParentDashboard = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { student: { _id: student._id, name: student.name, rollNumber: student.rollNumber, class: student.class, section: student.section } } });
 });
 
-// GET /api/parents (admin)
+// GET /api/parents (admin). Optional ?page=&limit=
 const getAllParents = asyncHandler(async (req, res) => {
-  const parents = await Parent.find({ school: req.schoolId })
-    .populate('children', 'name rollNumber class section photo')
-    .sort({ createdAt: -1 });
-  res.json({ success: true, count: parents.length, data: parents });
+  const result = await paged(Parent, { school: req.schoolId }, pageParams(req.query),
+    (q) => q.populate('children', 'name rollNumber class section photo').sort({ createdAt: -1 }));
+  res.json({ success: true, ...result });
 });
 
 module.exports = { createParent, getAllParents, getMyChild, getParentById, getParentByStudent, getParentDashboard };

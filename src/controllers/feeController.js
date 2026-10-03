@@ -8,6 +8,7 @@ const { studentForUser, childrenForParent, canAccessStudent } = require('../serv
 const School = require('../models/School');
 const { hasPermission } = require('../config/permissions');
 const { notifyParents } = require('../services/notify');
+const { pageParams, paged } = require('../utils/paginate');
 
 const sortFees = { dueDate: -1 };
 
@@ -29,14 +30,23 @@ const addFee = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Fee record created successfully', data: fee });
 });
 
-// GET /api/fees (admin) — all fees in the school, filterable
+// GET /api/fees (admin) — all fees in the school, filterable. Optional ?page=&limit=
 const getFees = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
   if (req.query.status) filter.status = { $in: String(req.query.status).split(',') };
   if (req.query.academicYear) filter.academicYear = String(req.query.academicYear);
   if (req.query.studentId) { assertId(req.query.studentId, 'studentId'); filter.studentId = req.query.studentId; }
-  const fees = await Fee.find(filter).populate('studentId', 'name rollNumber class section').sort(sortFees);
-  res.json({ success: true, count: fees.length, summary: totals(fees), data: fees });
+  const paging = pageParams(req.query);
+  if (!paging) {
+    const fees = await Fee.find(filter).populate('studentId', 'name rollNumber class section').sort(sortFees);
+    return res.json({ success: true, count: fees.length, summary: totals(fees), data: fees });
+  }
+  // Paged: the summary still covers every matching fee, not just this page.
+  const [result, all] = await Promise.all([
+    paged(Fee, filter, paging, (q) => q.populate('studentId', 'name rollNumber class section').sort(sortFees)),
+    Fee.find(filter).select('amount paidAmount').lean(),
+  ]);
+  res.json({ success: true, ...result, summary: totals(all) });
 });
 
 // GET /api/fees/pending/all (admin)

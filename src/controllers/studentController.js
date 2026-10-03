@@ -11,6 +11,7 @@ const School = require('../models/School');
 const { audit } = require('../services/audit');
 const academic = require('../services/academic');
 const StudentEnrollment = require('../models/StudentEnrollment');
+const { pageParams, paged } = require('../utils/paginate');
 
 function uploadPhotoToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
@@ -25,7 +26,7 @@ function uploadPhotoToCloudinary(buffer) {
 const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'photo', 'class', 'section'];
 
-// GET /students — admin/teacher (teachers only see their assigned classes)
+// GET /students — admin/teacher (teachers only see their assigned classes). Optional ?page=&limit=
 exports.getStudents = asyncHandler(async (req, res) => {
   const { class: cls, section, search } = req.query;
   const query = { isActive: true, school: req.schoolId };
@@ -48,8 +49,8 @@ exports.getStudents = asyncHandler(async (req, res) => {
     query.$or = keys.map((k) => (k.section ? { class: k.class, section: k.section } : { class: k.class }));
   }
 
-  const students = await Student.find(query).sort({ class: 1, section: 1, rollNumber: 1 });
-  res.json({ success: true, count: students.length, data: students });
+  const result = await paged(Student, query, pageParams(req.query), (q) => q.sort({ class: 1, section: 1, rollNumber: 1 }));
+  res.json({ success: true, ...result });
 });
 
 // Class and section lists come from the school's class master once it is set up,
