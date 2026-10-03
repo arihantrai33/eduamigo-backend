@@ -98,6 +98,35 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     }
   }
 
+  // 2b. Students, teachers and parents without a school: take it from their login account, or the only
+  //     school when there is just one. Without either, they are reported for review (never guessed).
+  const schoolIds = (await col(mongoose.model('School')).find({}, { projection: { _id: 1 } }).toArray()).map((s) => s._id);
+  for (const [Model, label, map] of [[Student, 'students', studentSchool], [Teacher, 'teachers', teacherSchool], [Parent, 'parents', null]]) {
+    for (const doc of await col(Model).find(missingSchool, { projection: { userId: 1, parentUserId: 1 } }).toArray()) {
+      const school = schoolOfUser(doc.userId) || schoolOfUser(doc.parentUserId) || (schoolIds.length === 1 ? schoolIds[0] : null);
+      if (!school) { count(`${label}.no_school (review by hand)`); continue; }
+      await update(Model, doc._id, { school }, `${label}.school_set`);
+      if (map) map.set(String(doc._id), school);
+    }
+  }
+
+  // 2c. Login accounts without a school take it from the student, teacher or parent profile they belong to.
+  //     Accounts with no profile are only reported: giving an unknown account (possibly an admin) a school
+  //     would give it access, so that is left to a person.
+  const profileSchool = new Map();
+  for (const [Model, fields] of [[Student, ['userId', 'parentUserId']], [Teacher, ['userId']], [Parent, ['userId']]]) {
+    for (const d of await col(Model).find({}, { projection: { school: 1, userId: 1, parentUserId: 1 } }).toArray()) {
+      const school = d.school || (Model === Student ? studentSchool.get(String(d._id)) : Model === Teacher ? teacherSchool.get(String(d._id)) : null);
+      for (const f of fields) if (d[f] && school && !profileSchool.has(String(d[f]))) profileSchool.set(String(d[f]), school);
+    }
+  }
+  for (const u of await col(User).find({ ...missingSchool, role: { $ne: 'superadmin' } }, { projection: { role: 1 } }).toArray()) {
+    const school = profileSchool.get(String(u._id));
+    if (!school) { count(`users.no_school_no_profile.${u.role} (review by hand)`); continue; }
+    await update(User, u._id, { school }, 'users.school_set_from_profile');
+    users.set(String(u._id), { ...(users.get(String(u._id)) || {}), school });
+  }
+
   // 3. Backfill school on records linked to a student
   for (const [Model, field, label] of [[Fee, 'studentId', 'fees'], [Attendance, 'studentId', 'attendance'], [ExamResult, 'student', 'examResults'], [Mark, 'student', 'marks']]) {
     for (const doc of await col(Model).find(missingSchool, { projection: { [field]: 1 } }).toArray()) {

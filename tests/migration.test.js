@@ -159,3 +159,49 @@ test('buses without a school get one from their students (driver codes then work
   expect(String((await db.collection('transports').findOne({ busNumber: 'BUS42' })).school)).toBe(String(schoolA));
   expect((await db.collection('transports').findOne({ busNumber: 'BUS43' })).school).toBeUndefined();
 });
+
+test('students, teachers and parents without a school get it from their login (or the only school), then an admission number', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  const other = oid();
+  await db.collection('schools').insertMany([{ _id: school, name: 'Alpha' }, { _id: other, name: 'Beta' }]);
+  const studentUser = oid();
+  const teacherUser = oid();
+  await db.collection('users').insertMany([
+    { _id: studentUser, name: 'S', email: 's1@x.com', role: 'student', school, password: 'x' },
+    { _id: teacherUser, name: 'T', email: 't1@x.com', role: 'teacher', school, password: 'x' },
+  ]);
+  await db.collection('students').insertMany([
+    { name: 'Linked', class: '8', section: 'A', rollNumber: '1', phone: '1', userId: studentUser, isActive: true },
+    { name: 'Orphan', class: '8', section: 'A', rollNumber: '2', phone: '1', isActive: true }, // two schools: cannot tell
+  ]);
+  await db.collection('teachers').insertOne({ name: 'T', email: 't1@x.com', employeeId: 'E9', phone: '1', userId: teacherUser });
+
+  const report = await migrate({ apply: true, quiet: true });
+  expect(report['students.school_set']).toBe(1);
+  expect(report['students.no_school (review by hand)']).toBe(1);
+  expect(report['teachers.school_set']).toBe(1);
+  const linked = await db.collection('students').findOne({ name: 'Linked' });
+  expect(String(linked.school)).toBe(String(school));
+  expect(linked.admissionNo).toBe('1');
+  expect((await db.collection('students').findOne({ name: 'Orphan' })).school).toBeUndefined();
+});
+
+test('login accounts without a school take it from their profile; unlinked accounts are only reported', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  await db.collection('schools').insertOne({ _id: school, name: 'Alpha' });
+  const parentUser = oid();
+  const strayAdmin = oid();
+  await db.collection('users').insertMany([
+    { _id: parentUser, name: 'P', email: 'p9@x.com', role: 'parent', password: 'x' },
+    { _id: strayAdmin, name: 'A', email: 'a9@x.com', role: 'admin', password: 'x' },
+  ]);
+  await db.collection('parents').insertOne({ name: 'P', email: 'p9@x.com', phone: '1', userId: parentUser, school, children: [] });
+
+  const report = await migrate({ apply: true, quiet: true });
+  expect(report['users.school_set_from_profile']).toBe(1);
+  expect(report['users.no_school_no_profile.admin (review by hand)']).toBe(1);
+  expect(String((await db.collection('users').findOne({ _id: parentUser })).school)).toBe(String(school));
+  expect((await db.collection('users').findOne({ _id: strayAdmin })).school).toBeUndefined();
+});
