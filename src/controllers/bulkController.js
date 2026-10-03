@@ -5,6 +5,8 @@ const { parseClassKey } = require('../utils/classes');
 const { saveClassAttendance } = require('../services/attendanceService');
 const { createStudentWithAccounts } = require('../services/studentService');
 const { createTeacherWithAccount } = require('../services/teacherService');
+const academic = require('../services/academic');
+const AcademicSession = require('../models/AcademicSession');
 
 const MAX_ROWS = 1000;
 
@@ -23,12 +25,21 @@ const bulkAttendance = asyncHandler(async (req, res) => {
   res.json({ success: true, message: `Attendance marked for ${result.count} student(s)`, ...result });
 });
 
-// POST /api/bulk/promote  { fromClass, fromSection, toClass, toSection }
+// POST /api/bulk/promote  { fromClass, fromSection, toClass, toSection, toSession? }
+// toSession (e.g. "2027-28") defaults to the current session. Moving into another session closes last
+// year's enrollment as "promoted" and opens a new one, so the student's history is kept.
 const bulkPromote = asyncHandler(async (req, res) => {
   const from = parseClassKey(req.body?.fromClass, req.body?.fromSection);
   const to = parseClassKey(req.body?.toClass, req.body?.toSection);
   if (!from.class || !from.section || !to.class || !to.section) throw new HttpError(400, 'Source and target class and section are required');
   if (from.class === to.class && from.section === to.section) throw new HttpError(400, 'Source and target must be different');
+  await academic.assertClassSection(req.schoolId, to.class, to.section);
+  let toSession;
+  if (req.body?.toSession) {
+    toSession = String(req.body.toSession);
+    const known = await AcademicSession.exists({ school: req.schoolId, name: toSession });
+    if (!known) throw new HttpError(400, `Session ${toSession} does not exist. Create it first.`);
+  }
 
   const moving = await Student.find({ school: req.schoolId, class: from.class, section: from.section, isActive: true }).select('rollNumber');
   const clashes = await Student.countDocuments({
@@ -37,9 +48,11 @@ const bulkPromote = asyncHandler(async (req, res) => {
   if (clashes) throw new HttpError(409, `${clashes} roll number(s) already exist in ${to.class}-${to.section}. Resolve them before promoting.`);
 
   const result = await Student.updateMany(
-    { school: req.schoolId, class: from.class, section: from.section, isActive: true },
+    { _id: { $in: moving.map((m) => m._id) }, school: req.schoolId, class: from.class, section: from.section, isActive: true },
     { $set: { class: to.class, section: to.section } },
   );
+  const moved = await Student.find({ _id: { $in: moving.map((m) => m._id) }, school: req.schoolId, class: to.class, section: to.section });
+  await academic.movePlacement(moved, { toSession });
   res.json({ success: true, message: `${result.modifiedCount} student(s) promoted from ${from.class}-${from.section} to ${to.class}-${to.section}`, count: result.modifiedCount });
 });
 

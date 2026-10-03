@@ -281,6 +281,52 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     if (Object.keys(set).length) await update(SchoolModel, s._id, set, 'schools.code_or_subscription_set');
   }
 
+  // 10f. Academic foundation: admission numbers for students who have none (oldest first, per school),
+  //      and an enrollment record for the current session for every active student.
+  const Counter = require('../models/Counter');
+  const StudentEnrollment = require('../models/StudentEnrollment');
+  const AcademicSession = require('../models/AcademicSession');
+  const { currentAcademicYear } = require('../utils/dates');
+  const allStudents = await col(Student).find({}, { projection: { school: 1, admissionNo: 1, class: 1, section: 1, rollNumber: 1, isActive: 1, createdAt: 1 } })
+    .sort({ createdAt: 1, _id: 1 }).toArray();
+  const usedAdmission = new Set(allStudents.filter((s) => s.admissionNo).map((s) => `${s.school}|${s.admissionNo}`));
+  const nextNo = new Map();
+  for (const s of allStudents) {
+    if (s.admissionNo || !s.school) continue;
+    const school = await col(SchoolModel).findOne({ _id: s.school }, { projection: { academic: 1 } });
+    const prefix = school?.academic?.admissionNoPrefix || '';
+    let n = nextNo.get(String(s.school));
+    if (n === undefined) n = ((await col(Counter).findOne({ school: s.school, key: 'admissionNo' }))?.seq || 0) + 1;
+    while (usedAdmission.has(`${s.school}|${prefix}${n}`)) n += 1;
+    usedAdmission.add(`${s.school}|${prefix}${n}`);
+    nextNo.set(String(s.school), n + 1);
+    await update(Student, s._id, { admissionNo: `${prefix}${n}` }, 'students.admission_no_assigned');
+  }
+  if (APPLY) {
+    for (const [school, n] of nextNo) {
+      await col(Counter).updateOne({ school: new mongoose.Types.ObjectId(school), key: 'admissionNo' }, { $max: { seq: n - 1 } }, { upsert: true });
+    }
+  }
+  const enrolled = new Set((await col(StudentEnrollment).find({}, { projection: { student: 1 } }).toArray()).map((e) => String(e.student)));
+  const sessionOf = new Map();
+  for (const s of allStudents) {
+    if (!s.isActive || !s.school || enrolled.has(String(s._id)) || !s.class || !s.section) continue;
+    const key = String(s.school);
+    if (!sessionOf.has(key)) {
+      const current = await col(AcademicSession).findOne({ school: s.school, status: 'current' });
+      const school = await col(SchoolModel).findOne({ _id: s.school }, { projection: { academic: 1 } });
+      sessionOf.set(key, current?.name || currentAcademicYear(new Date(), school?.academic?.sessionStartMonth || 4));
+    }
+    count('enrollments.created_for_current_session');
+    if (APPLY) {
+      await col(StudentEnrollment).updateOne(
+        { student: s._id, session: sessionOf.get(key) },
+        { $setOnInsert: { school: s.school, class: s.class, section: s.section, rollNumber: s.rollNumber || '', status: 'studying', startedAt: new Date(), endedAt: null, note: '', createdAt: new Date(), updatedAt: new Date() } },
+        { upsert: true },
+      );
+    }
+  }
+
   // 11. Indexes: drop old global-unique indexes, then build the new per-school ones
   const obsolete = [
     [Student, 'rollNumber_1_class_1_section_1'], [Teacher, 'email_1'], [Teacher, 'employeeId_1'],

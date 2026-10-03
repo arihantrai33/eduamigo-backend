@@ -29,6 +29,9 @@ match this table. Update the table, the config and the test together.
 | Add / edit / deactivate students | ✓ | | |
 | View teachers | ✓ | | ✓ (no salary or personal details) |
 | Manage teachers, assign classes | ✓ | | |
+| Sessions, classes, sections, subjects, class teachers | ✓ | | |
+| View sessions and the class list | ✓ | ✓ | ✓ |
+| Student class history | ✓ | ✓ | ✓ |
 | View parents | ✓ | ✓ | |
 | Manage parents | ✓ | | |
 | User accounts, password resets | ✓ | | |

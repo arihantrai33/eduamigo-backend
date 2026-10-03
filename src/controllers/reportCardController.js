@@ -2,14 +2,14 @@ const Student = require('../models/Student');
 const ReportCardRemark = require('../models/ReportCardRemark');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
-const { currentAcademicYear } = require('../utils/dates');
+const { currentSessionName } = require('../services/academic');
 const { canAccessStudent, teacherForUser, studentForUser } = require('../services/directory');
 const { buildReportCards, PERIODS } = require('../services/reportCardService');
 
-function period(query) {
+async function period(query, schoolId) {
   const term = String(query.term || 'Term 1');
   if (!PERIODS.includes(term)) throw new HttpError(400, 'Term must be Term 1, Term 2 or Full Year');
-  const academicYear = String(query.academicYear || currentAcademicYear());
+  const academicYear = String(query.academicYear || await currentSessionName(schoolId));
   if (!/^\d{4}-\d{2}$/.test(academicYear)) throw new HttpError(400, 'Academic year must look like 2026-27');
   return { term, academicYear };
 }
@@ -29,7 +29,7 @@ exports.getClassReportCards = asyncHandler(async (req, res) => {
   const key = parseClassKey(req.query.class, req.query.section);
   if (!key.class || !key.section) throw new HttpError(400, 'Class and section are required');
   await assertTeacherOrAdmin(req, key.class, key.section);
-  const { term, academicYear } = period(req.query);
+  const { term, academicYear } = await period(req.query, req.schoolId);
   const students = await sectionStudents(req.schoolId, key.class, key.section);
   res.json({ success: true, data: await buildReportCards({ schoolId: req.schoolId, students, term, academicYear }) });
 });
@@ -45,7 +45,7 @@ exports.getStudentReportCard = asyncHandler(async (req, res) => {
     student = await Student.findOne({ _id: req.params.studentId, school: req.schoolId });
   }
   if (!(await canAccessStudent(req.user, student))) throw new HttpError(404, 'Student not found');
-  const { term, academicYear } = period(req.query);
+  const { term, academicYear } = await period(req.query, req.schoolId);
   // Built for the whole section so the rank is correct; only this student's card is returned.
   const students = await sectionStudents(req.schoolId, student.class, student.section);
   const report = await buildReportCards({ schoolId: req.schoolId, students, term, academicYear });
@@ -59,7 +59,7 @@ exports.saveRemarks = asyncHandler(async (req, res) => {
   const student = await Student.findOne({ _id: req.params.studentId, school: req.schoolId });
   if (!student) throw new HttpError(404, 'Student not found');
   await assertTeacherOrAdmin(req, student.class, student.section);
-  const { term, academicYear } = period(req.body || {});
+  const { term, academicYear } = await period(req.body || {}, req.schoolId);
   const remarks = String(req.body?.remarks || '').trim();
   if (remarks.length > 600) throw new HttpError(400, 'Remarks can be at most 600 characters');
   const doc = await ReportCardRemark.findOneAndUpdate(

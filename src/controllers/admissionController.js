@@ -3,7 +3,7 @@ const Counter = require('../models/Counter');
 const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
 const { normalizeClass, normalizeSection } = require('../utils/classes');
-const { currentAcademicYear } = require('../utils/dates');
+const academic = require('../services/academic');
 const { createStudentWithAccounts } = require('../services/studentService');
 
 const { STATUSES, SOURCES } = Admission;
@@ -46,7 +46,7 @@ async function findOwn(req) {
 
 // GET /api/admissions?status=&class=&search=&academicYear=
 exports.list = asyncHandler(async (req, res) => {
-  const academicYear = String(req.query.academicYear || currentAcademicYear());
+  const academicYear = String(req.query.academicYear || await academic.currentSessionName(req.schoolId));
   const filter = { school: req.schoolId, academicYear };
   if (req.query.status) filter.status = String(req.query.status);
   if (req.query.class) filter.classApplied = normalizeClass(req.query.class);
@@ -73,7 +73,7 @@ exports.create = asyncHandler(async (req, res) => {
   if (!data.studentName || !data.classApplied || !data.parentName || !data.parentPhone) {
     throw new HttpError(400, 'Student name, class, parent name and parent mobile are required');
   }
-  data.academicYear = data.academicYear || currentAcademicYear();
+  data.academicYear = data.academicYear || await academic.currentSessionName(req.schoolId);
   const seq = await Counter.next(req.schoolId, `admission:${data.academicYear}`);
   const applicationNo = `ADM-${data.academicYear.slice(0, 4)}-${String(seq).padStart(4, '0')}`;
   const doc = await Admission.create({
@@ -108,11 +108,13 @@ exports.setStatus = asyncHandler(async (req, res) => {
 // GET /api/admissions/:id/admit-defaults?section=A — suggested roll number for the class-section
 exports.admitDefaults = asyncHandler(async (req, res) => {
   const a = await findOwn(req);
-  const sections = (await Student.distinct('section', { school: req.schoolId, class: a.classApplied, isActive: true })).sort();
+  const master = (await academic.listClasses(req.schoolId)).find((c) => c.name === a.classApplied);
+  const sections = master
+    ? master.sections.map((s) => s.name).sort()
+    : (await Student.distinct('section', { school: req.schoolId, class: a.classApplied, isActive: true })).sort();
   const section = normalizeSection(req.query.section || sections[0] || 'A');
-  const rolls = await Student.find({ school: req.schoolId, class: a.classApplied, section }).select('rollNumber');
-  const next = rolls.reduce((m, s) => Math.max(m, Number(s.rollNumber) || 0), 0) + 1;
-  res.json({ success: true, data: { sections, section, rollNumber: String(next) } });
+  const rollNumber = await academic.nextRollNumber(req.schoolId, a.classApplied, section);
+  res.json({ success: true, data: { sections, section, rollNumber } });
 });
 
 // POST /api/admissions/:id/admit { section, rollNumber?, studentEmail, studentPhone? }
@@ -125,11 +127,7 @@ exports.admit = asyncHandler(async (req, res) => {
   if (!section) throw new HttpError(400, 'Choose a section');
   const studentEmail = String(req.body?.studentEmail || '').trim().toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(studentEmail)) throw new HttpError(400, 'Enter a login email for the student');
-  let rollNumber = String(req.body?.rollNumber || '').trim();
-  if (!rollNumber) {
-    const rolls = await Student.find({ school: req.schoolId, class: a.classApplied, section }).select('rollNumber');
-    rollNumber = String(rolls.reduce((m, s) => Math.max(m, Number(s.rollNumber) || 0), 0) + 1);
-  }
+  const rollNumber = String(req.body?.rollNumber || '').trim() || undefined; // assigned automatically when empty
 
   // Claim the application so two clicks cannot create two students.
   const claimed = await Admission.findOneAndUpdate({ _id: a._id, school: req.schoolId, status: 'Approved' }, { status: 'Admitted' }, { returnDocument: 'after' });
@@ -137,7 +135,7 @@ exports.admit = asyncHandler(async (req, res) => {
   try {
     const { student, credentials, linkedExistingParent } = await createStudentWithAccounts(req.schoolId, {
       name: a.studentName, email: studentEmail, phone: String(req.body?.studentPhone || a.parentPhone).replace(/[\s-]/g, ''),
-      rollNumber, gender: a.gender || undefined, dateOfBirth: a.dateOfBirth, address: a.address,
+      rollNumber, admissionNo: req.body?.admissionNo || undefined, gender: a.gender || undefined, dateOfBirth: a.dateOfBirth, address: a.address,
       parentName: a.parentName, parentPhone: a.parentPhone, parentEmail: a.parentEmail,
       class: a.classApplied, section,
     });

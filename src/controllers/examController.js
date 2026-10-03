@@ -4,7 +4,8 @@ const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
 const { gradeFor } = require('../utils/grades');
-const { toDayKey, currentAcademicYear } = require('../utils/dates');
+const { toDayKey } = require('../utils/dates');
+const { sessionNameForDate } = require('../services/academic');
 const { EXAM_TYPES, TERMS, normalizeExamType, termForDate } = require('../config/exams');
 const Mark = require('../models/Mark');
 const { studentForUser, canAccessStudent, teacherForUser, resolveChild, parentUserIdsForStudent } = require('../services/directory');
@@ -168,7 +169,7 @@ const createSchedule = asyncHandler(async (req, res) => {
   const data = scheduleInput(req.body || {});
   if (!data.title || !data.subject || !data.class || !data.date) throw new HttpError(400, 'Title, subject, class and date are required');
   if (!data.totalMarks) throw new HttpError(400, 'Total marks are required so that marks can be entered later');
-  data.academicYear = data.academicYear || currentAcademicYear(data.date);
+  data.academicYear = data.academicYear || await sessionNameForDate(req.schoolId, data.date);
   data.term = data.term || termForDate(data.date);
   assertTimes(data);
   await assertNotDuplicate(req.schoolId, data);

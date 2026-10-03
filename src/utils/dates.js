@@ -27,11 +27,11 @@ function daysBetweenInclusive(from, to) {
   return Math.round((b - a) / 86400000) + 1;
 }
 
-// Indian academic year runs April to March, e.g. "2026-27".
-function currentAcademicYear(now = new Date()) {
+// "2026-27" for a date. Sessions start in April unless the school's start month says otherwise.
+function currentAcademicYear(now = new Date(), startMonth = 4) {
   const today = toDayKey(now);
   const y = today.getUTCFullYear();
-  const start = today.getUTCMonth() >= 3 ? y : y - 1;
+  const start = today.getUTCMonth() >= startMonth - 1 ? y : y - 1;
   return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 

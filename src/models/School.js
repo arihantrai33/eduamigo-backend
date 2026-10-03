@@ -24,6 +24,11 @@ const schoolSchema = new mongoose.Schema({
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
   },
+  // Academic settings.
+  academic: {
+    sessionStartMonth: { type: Number, min: 1, max: 12, default: 4 },   // 4 = April
+    admissionNoPrefix: { type: String, trim: true, maxlength: 12, default: '' },
+  },
   // How the school appears in the apps, on receipts and on report cards.
   branding: {
     appName:      { type: String, trim: true, maxlength: 60, default: '' },

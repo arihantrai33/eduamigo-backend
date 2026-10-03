@@ -45,6 +45,7 @@ function buildApp() {
 
   app.use('/api/users',          require('./routes/userRoutes'));
   app.use('/api/schools',        require('./routes/schoolRoutes'));
+  app.use('/api/academic',       require('./routes/academicRoutes'));
   app.use('/api/students',       require('./routes/studentRoutes'));
   app.use('/api/teachers',       require('./routes/teacherRoutes'));
   app.use('/api/parents',        require('./routes/parentRoutes'));

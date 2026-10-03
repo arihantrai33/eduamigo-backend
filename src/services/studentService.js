@@ -5,8 +5,10 @@ const { HttpError } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
 const { temporaryPassword, hashPassword } = require('./credentials');
 const { assertStudentCapacity } = require('./subscription');
+const academic = require('./academic');
+const StudentEnrollment = require('../models/StudentEnrollment');
 
-const STUDENT_FIELDS = ['name', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
+const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'photo'];
 
 // Creates a student plus login accounts for the student and (optionally) the parent.
@@ -21,11 +23,19 @@ async function createStudentWithAccounts(school, input) {
   data.email = String(data.email || '').trim().toLowerCase();
   if (data.parentEmail) data.parentEmail = String(data.parentEmail).trim().toLowerCase();
 
-  if (!data.name || !data.email || !data.phone || !data.rollNumber || !data.class || !data.section) {
-    throw new HttpError(400, 'Name, email, phone, roll number, class and section are required');
+  if (!data.name || !data.email || !data.phone || !data.class || !data.section) {
+    throw new HttpError(400, 'Name, email, phone, class and section are required');
   }
   if (await User.exists({ email: data.email })) throw new HttpError(409, 'Student email already registered');
   await assertStudentCapacity(school);
+  await academic.assertClassSection(school, data.class, data.section);
+  if (data.admissionNo) {
+    data.admissionNo = String(data.admissionNo).trim();
+    if (await Student.exists({ school, admissionNo: data.admissionNo })) {
+      throw new HttpError(409, `Admission number ${data.admissionNo} is already used by another student`);
+    }
+  }
+  data.rollNumber = data.rollNumber ? String(data.rollNumber).trim() : await academic.nextRollNumber(school, data.class, data.section);
 
   let parentUser = null;
   let parentCreated = false;
@@ -58,10 +68,13 @@ async function createStudentWithAccounts(school, input) {
       credentials.parent = { email: data.parentEmail, password: parentPassword };
     }
 
+    if (!data.admissionNo) data.admissionNo = await academic.nextAdmissionNo(school);
     const student = await Student.create({
       ...data, school, userId: studentUser._id, parentUserId: parentUser?._id || null,
     });
     created.push(student);
+    credentials.student.admissionNo = student.admissionNo;
+    await academic.recordPlacement(student);
     await User.updateOne({ _id: studentUser._id }, { profileId: student._id });
 
     if (parentUser) {
@@ -82,6 +95,8 @@ async function createStudentWithAccounts(school, input) {
   } catch (err) {
     // Roll back anything created in this attempt so no orphan accounts remain.
     await Promise.all(created.map((doc) => doc.deleteOne().catch(() => {})));
+    const student = created.find((doc) => doc instanceof Student);
+    if (student) await StudentEnrollment.deleteMany({ student: student._id }).catch(() => {});
     throw err;
   }
 }

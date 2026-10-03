@@ -5,11 +5,11 @@ const streamifier = require('streamifier');
 const { protect, requirePermission } = require('../middleware/authMiddleware');
 const uploadImage = require('../middleware/uploadImageMiddleware');
 const cloudinary = require('../config/cloudinary');
-const { currentAcademicYear } = require('../utils/dates');
+const { currentSessionName } = require('../services/academic');
 const { HttpError, asyncHandler } = require('../utils/http');
 const { CORE_MODULES } = require('../config/features');
 
-const publicSchool = (school, entitlements) => ({
+const publicSchool = (school, entitlements, academicYear) => ({
   _id: school._id,
   name: school.name,
   code: school.code,
@@ -20,7 +20,7 @@ const publicSchool = (school, entitlements) => ({
   principal: school.principal,
   workingDays: school.workingDays,
   location: school.location?.lat != null ? school.location : null,
-  academicYear: currentAcademicYear(),
+  academicYear,
   branding: {
     appName: school.branding?.appName || school.name,
     logoUrl: school.branding?.logoUrl || '',
@@ -51,7 +51,7 @@ router.get('/me', protect, async (req, res, next) => {
   try {
     const school = await School.findById(req.schoolId);
     if (!school) return res.status(404).json({ success: false, message: 'School not found' });
-    res.json({ success: true, data: publicSchool(school, req.entitlements) });
+    res.json({ success: true, data: publicSchool(school, req.entitlements, await currentSessionName(req.schoolId)) });
   } catch (err) { next(err); }
 });
 
@@ -71,7 +71,7 @@ router.put('/me', protect, requirePermission('settings.manage'), async (req, res
       update.location = { lat, lng };
     }
     const school = await School.findByIdAndUpdate(req.schoolId, update, { returnDocument: 'after', runValidators: true });
-    res.json({ success: true, data: publicSchool(school, req.entitlements) });
+    res.json({ success: true, data: publicSchool(school, req.entitlements, await currentSessionName(req.schoolId)) });
   } catch (err) { next(err); }
 });
 
@@ -90,7 +90,7 @@ router.put('/me/branding', protect, requirePermission('settings.manage'), upload
     school.branding.logoUrl = uploaded.secure_url;
   }
   await school.save();
-  res.json({ success: true, data: publicSchool(school, req.entitlements) });
+  res.json({ success: true, data: publicSchool(school, req.entitlements, await currentSessionName(req.schoolId)) });
 }));
 
 router.get('/subjects', protect, async (req, res) => {

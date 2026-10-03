@@ -12,6 +12,7 @@ const {
   getMyChild,
   getClasses,
   getSections,
+  getStudentHistory,
 } = require('../controllers/studentController');
 
 // Dynamic classes & sections — Fee Structure ke liye
@@ -28,6 +29,9 @@ router.get('/my-child',   protect, authorizeRoles('parent'), getMyChild);
 router.route('/')
   .get(protect,  requirePermission('students.read'), getStudents)
   .post(protect, requirePermission('students.manage'), uploadImage.single('photo'), createStudent);
+
+// Staff: the student's class in every session
+router.get('/:id/history', protect, requirePermission('students.read'), getStudentHistory);
 
 // Admin: single student CRUD
 router.route('/:id')

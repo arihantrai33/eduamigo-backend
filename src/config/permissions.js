@@ -35,6 +35,7 @@ const PERMISSIONS = {
   'bulk.manage':          'Bulk uploads, bulk attendance and class promotion',
   'notes.upload':         'Upload study material',
   'settings.manage':      'School settings such as subjects',
+  'academics.manage':     'Academic sessions, classes, sections, subjects and class teachers',
   'chat.directory':       'Message anyone in the school from one inbox',
 };
 

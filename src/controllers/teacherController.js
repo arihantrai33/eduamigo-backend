@@ -4,6 +4,7 @@ const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/htt
 const { classKey, parseClassKey, normalizeClass } = require('../utils/classes');
 const { createTeacherWithAccount, normalizeTeacherInput } = require('../services/teacherService');
 const { teacherForUser } = require('../services/directory');
+const { assertClassSection } = require('../services/academic');
 
 // GET /api/teachers/me
 exports.getMe = asyncHandler(async (req, res) => {
@@ -74,6 +75,7 @@ exports.assignClass = asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const parsed = parseClassKey(req.body?.className, req.body?.section);
   if (!parsed.class) throw new HttpError(400, 'className is required');
+  await assertClassSection(req.schoolId, parsed.class, parsed.section);
   const key = classKey(parsed.class, parsed.section);
   const teacher = await Teacher.findOne({ _id: req.params.id, school: req.schoolId });
   if (!teacher) throw new HttpError(404, 'Teacher not found');
