@@ -112,3 +112,16 @@ Suggested app flow: splash -> saved school? -> branded sign-in; otherwise "find 
   `PUT /api/schools/me/branding` (multipart, optional `logo` file); EduAmigo can also set them from the platform API.
 - `customDomain`: set by EduAmigo. Browsers on that domain are allowed by CORS automatically (https only).
   Point the domain's DNS to the frontend host and add it there as well.
+
+## Activity log (audit trail)
+
+Every successful change to sensitive records is recorded by the `audited(action, targetType, target)` route
+middleware (`src/middleware/auditTrail.js`): marks saved, published and reopened; fees created and collected;
+fee structures; students created, updated, removed and promoted; logins created, reset and deactivated; exams;
+salaries; attendance; sessions and classes; school profile, branding and payment settings; online payments verified.
+
+Each entry has the school, who did it (user and role, or "EduAmigo support" during a support session), the action,
+the record, and a trimmed copy of the request. Passwords, tokens, secrets and keys are replaced with `[hidden]`.
+Failed requests are not recorded. Admins read their school's log at `GET /api/audit` (permission `audit.read`,
+filters `action` prefix, `actor`, `from`, `to`, paged). The platform owner reads every school's log at
+`GET /api/platform/audit`.

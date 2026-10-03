@@ -37,6 +37,7 @@ const PERMISSIONS = {
   'settings.manage':      'School settings such as subjects',
   'academics.manage':     'Academic sessions, classes, sections, subjects and class teachers',
   'chat.directory':       'Message anyone in the school from one inbox',
+  'audit.read':           'See the school activity log (who changed marks, fees, students, settings)',
 };
 
 const ALL = Object.keys(PERMISSIONS);

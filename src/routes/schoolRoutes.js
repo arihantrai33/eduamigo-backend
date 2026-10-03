@@ -8,6 +8,7 @@ const cloudinary = require('../config/cloudinary');
 const { currentSessionName } = require('../services/academic');
 const { HttpError, asyncHandler } = require('../utils/http');
 const { CORE_MODULES } = require('../config/features');
+const { audited } = require('../middleware/auditTrail');
 
 const publicSchool = (school, entitlements, academicYear) => ({
   _id: school._id,
@@ -58,7 +59,7 @@ router.get('/me', protect, async (req, res, next) => {
 });
 
 // PUT /api/schools/me — update school profile (settings permission)
-router.put('/me', protect, requirePermission('settings.manage'), async (req, res, next) => {
+router.put('/me', protect, requirePermission('settings.manage'), audited('school.profile_updated', 'school'), async (req, res, next) => {
   try {
     const body = req.body || {};
     const update = {};
@@ -79,7 +80,7 @@ router.put('/me', protect, requirePermission('settings.manage'), async (req, res
 
 // PUT /api/schools/me/branding — app name, colour, tagline and logo (multipart field "logo", optional)
 // Code and custom domain are set by EduAmigo (platform API) because they change how people find the school.
-router.put('/me/branding', protect, requirePermission('settings.manage'), uploadImage.single('logo'), asyncHandler(async (req, res) => {
+router.put('/me/branding', protect, requirePermission('settings.manage'), uploadImage.single('logo'), audited('school.branding_updated', 'school'), asyncHandler(async (req, res) => {
   const school = await School.findById(req.schoolId);
   if (!school) throw new HttpError(404, 'School not found');
   const body = req.body || {};

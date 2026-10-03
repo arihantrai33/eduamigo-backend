@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
 const c = require('../controllers/attendanceController');
+const { audited } = require('../middleware/auditTrail');
 
 router.use(protect);
-router.post('/mark',          requirePermission('attendance.mark'), c.markAttendance);
-router.post('/bulk',          requirePermission('attendance.mark'), c.markBulkAttendance);
+router.post('/mark',          requirePermission('attendance.mark'), audited('attendance.marked', 'student', 'studentId'), c.markAttendance);
+router.post('/bulk',          requirePermission('attendance.mark'), audited('attendance.class_marked', 'class', 'className'), c.markBulkAttendance);
 router.get('/today',          requirePermission('attendance.reports'), c.getTodaySummary);
 router.get('/report',         requirePermission('attendance.reports'), c.getAttendanceReport);
 router.get('/my-summary',     authorizeRoles('student'), c.getMyAttendanceSummary);

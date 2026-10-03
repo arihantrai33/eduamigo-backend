@@ -35,6 +35,7 @@ match this table. Update the table, the config and the test together.
 | View parents | ✓ | ✓ | |
 | Manage parents | ✓ | | |
 | User accounts, password resets | ✓ | | |
+| Activity log (who changed what) | ✓ | | |
 | Mark attendance | ✓ | | ✓ (own classes) |
 | Attendance dashboards and reports | ✓ | | |
 | Enter and publish marks (against a scheduled exam) | | | ✓ (own classes and subjects) |
