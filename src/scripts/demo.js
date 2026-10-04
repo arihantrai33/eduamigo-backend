@@ -18,7 +18,8 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const PASSWORD = 'Demo@1234';
 const DAY = 86400000;
 
-async function seed() {
+// skipCodes: demo schools not to create (their place is taken by real data from --from-backup).
+async function seed({ skipCodes = [] } = {}) {
   const User = require('../models/User');
   const School = require('../models/School');
   const SchoolClass = require('../models/SchoolClass');
@@ -37,6 +38,7 @@ async function seed() {
   rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
 
   async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, students }) {
+    if (skipCodes.includes(code)) return null;
     const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: `${code} Principal`, adminEmail: `admin@${code.toLowerCase()}.demo` });
     await ready(admin._id);
     const branding = { appName: appName || name, primaryColor: color, accentColor: accent || '', logoUrl: logoUrl || '', tagline: tagline || '', heroStyle: heroStyle || 'bold' };
@@ -121,9 +123,10 @@ async function seed() {
   return rows;
 }
 
-// --from-backup <folder>: a copy of real data (from `npm run backup`) instead of the demo schools.
-// The copy is migrated like a production database, and its school gets the Allied International School
-// look so the new branding can be tried on real records. Nothing is written back to the source database.
+// --from-backup <folder>: a copy of real data (from `npm run backup`) becomes Allied International School,
+// Gaya (code AISGAYA), next to the other demo schools. The copy is migrated like a production database.
+// Nothing is written back to the source database.
+const REAL_DATA_SCHOOL = { code: 'AISGAYA', name: 'Allied International School, Gaya', city: 'Gaya' };
 async function loadBackup(dir) {
   const path = require('path');
   const { restore } = require('./backup');
@@ -136,9 +139,10 @@ async function loadBackup(dir) {
   const User = require('../models/User');
   const Student = require('../models/Student');
   const schools = await School.find({}).sort({ createdAt: 1 });
+  const codeOf = (i) => (i === 0 ? REAL_DATA_SCHOOL.code : `${REAL_DATA_SCHOOL.code}${i + 1}`);
   for (const [i, school] of schools.entries()) {
     await School.updateOne({ _id: school._id }, {
-      name: 'Allied International School', city: 'Gaya', code: i === 0 ? 'ALLIED' : `ALLIED${i + 1}`,
+      name: REAL_DATA_SCHOOL.name, city: REAL_DATA_SCHOOL.city, code: codeOf(i),
       branding: {
         appName: 'Allied International School', primaryColor: '#E8590C', accentColor: '#F2B705', heroStyle: 'light',
         logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
@@ -146,15 +150,9 @@ async function loadBackup(dir) {
       'subscription.plan': 'premium', 'subscription.status': 'active', 'subscription.currentPeriodEnd': null,
     });
   }
-  const owner = await User.findOne({ role: 'superadmin' });
-  if (!owner) {
-    const { hashPassword } = require('../services/credentials');
-    await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: await hashPassword(PASSWORD) });
-  }
-
   const rows = [];
   for (const [i, school] of schools.entries()) {
-    const code = i === 0 ? 'ALLIED' : `ALLIED${i + 1}`;
+    const code = codeOf(i);
     const staff = await User.find({ school: school._id, role: { $in: ['admin', 'accountant', 'teacher'] } }).select('role email').sort({ role: 1 });
     for (const u of staff) rows.push({ school: code, role: u.role, loginId: u.email, password: 'your existing password' });
     const students = await Student.find({ school: school._id, isActive: true }).select('name admissionNo').sort({ admissionNo: 1 }).limit(5);
@@ -174,7 +172,8 @@ async function main() {
   await mongoose.connect(mongo.getUri());
   let rows;
   if (backupDir) {
-    rows = await loadBackup(backupDir);   // migrate builds the indexes after the data is in
+    const real = await loadBackup(backupDir);   // migrate builds the indexes after the data is in
+    rows = [...real, ...(await seed({ skipCodes: [REAL_DATA_SCHOOL.code] }))];
   } else {
     await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
     rows = await seed();
@@ -183,9 +182,10 @@ async function main() {
   require('../app')().listen(port, () => {
     console.log(`\nEduAmigo demo API on http://localhost:${port}  (data is temporary)`);
     if (backupDir) {
-      console.log('Real data copy: everyone signs in with their existing password (staff by email, students by admission number).\n');
+      console.log(`Your real data is ${REAL_DATA_SCHOOL.name} (code ${REAL_DATA_SCHOOL.code}): sign in with your existing passwords`);
+      console.log(`(staff by email, students by admission number). Other demo schools use ${PASSWORD}.\n`);
       console.table(rows);
-      console.log(`School code: ALLIED   ->  http://localhost:5173/s/ALLIED
+      console.log(`Real data school: http://localhost:5173/s/${REAL_DATA_SCHOOL.code}
 Platform owner: owner@eduamigo.demo / ${PASSWORD}
 Press Ctrl+C to stop (the copy is deleted; the source database was never changed).`);
       return;

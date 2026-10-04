@@ -34,7 +34,9 @@ npm run backup                                          # read-only copy of MONG
 npm run demo -- --from-backup backups/<time>            # loads the copy into the temporary database
 ```
 
-The copy is migrated (admission numbers, school code, plan) and the school gets the Allied International School
-look (code `ALLIED`) so the new branding shows on real records. Everyone signs in with their existing password:
-staff by email, students by admission number (printed at start). The source database is never written to, and the
+The copy is migrated (admission numbers, school code, plan) and becomes **Allied International School, Gaya**
+(code `AISGAYA`, link `http://localhost:5173/s/AISGAYA`) with its saffron branding. The other demo schools (Chakand,
+Green Valley, Sunrise, Little Flower) and the owner account are added alongside it with password `Demo@1234`.
+Real accounts sign in with their existing password: staff by email, students by admission number (printed at start).
+Login accounts the migration could not link to a profile are reported and will not sign in. The source database is never written to, and the
 copy disappears when the demo stops. `backups/` holds real personal data: it is git-ignored; delete it when done.
