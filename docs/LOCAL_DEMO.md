@@ -38,5 +38,7 @@ The copy is migrated (admission numbers, school code, plan) and becomes **Allied
 (code `AISGAYA`, link `http://localhost:5173/s/AISGAYA`) with its saffron branding. The other demo schools (Chakand,
 Green Valley, Sunrise, Little Flower) and the owner account are added alongside it with password `Demo@1234`.
 Real accounts sign in with their existing password: staff by email, students by admission number (printed at start).
-Login accounts the migration could not link to a profile are reported and will not sign in. The source database is never written to, and the
+Login accounts the migration could not link to a profile are reported and will not sign in.
+Add `--demo-passwords` to give every real account the demo password `Demo@1234` in the copy (for rehearsals
+and live demos); the source database and its passwords are never changed. The source database is never written to, and the
 copy disappears when the demo stops. `backups/` holds real personal data: it is git-ignored; delete it when done.

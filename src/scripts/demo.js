@@ -144,8 +144,10 @@ async function seed({ skipCodes = [] } = {}) {
 // --from-backup <folder>: a copy of real data (from `npm run backup`) becomes Allied International School,
 // Gaya (code AISGAYA), next to the other demo schools. The copy is migrated like a production database.
 // Nothing is written back to the source database.
+// --demo-passwords: every real account in the COPY gets the demo password, for rehearsals and live demos.
+// The source database and its passwords are never touched.
 const REAL_DATA_SCHOOL = { code: 'AISGAYA', name: 'Allied International School, Gaya', city: 'Gaya' };
-async function loadBackup(dir) {
+async function loadBackup(dir, { demoPasswords = false } = {}) {
   const path = require('path');
   const { restore } = require('./backup');
   const folder = path.resolve(dir);
@@ -168,13 +170,21 @@ async function loadBackup(dir) {
       'subscription.plan': 'premium', 'subscription.status': 'active', 'subscription.currentPeriodEnd': null,
     });
   }
+  if (demoPasswords) {
+    const { hashPassword } = require('../services/credentials');
+    await User.updateMany({ role: { $ne: 'superadmin' } }, { password: await hashPassword(PASSWORD), mustChangePassword: false, tokenVersion: 0 });
+  }
+  const pw = demoPasswords ? PASSWORD : 'your existing password';
+  const Parent = require('../models/Parent');
   const rows = [];
   for (const [i, school] of schools.entries()) {
     const code = codeOf(i);
     const staff = await User.find({ school: school._id, role: { $in: ['admin', 'accountant', 'teacher'] } }).select('role email').sort({ role: 1 });
-    for (const u of staff) rows.push({ school: code, role: u.role, loginId: u.email, password: 'your existing password' });
+    for (const u of staff) rows.push({ school: code, role: u.role, loginId: u.email, password: pw });
     const students = await Student.find({ school: school._id, isActive: true }).select('name admissionNo').sort({ admissionNo: 1 }).limit(5);
-    for (const s of students) rows.push({ school: code, role: `student (${s.name})`, loginId: s.admissionNo, password: 'your existing password' });
+    for (const s of students) rows.push({ school: code, role: `student (${s.name})`, loginId: s.admissionNo, password: pw });
+    const parents = await Parent.find({ school: school._id, userId: { $ne: null } }).select('name phone email').sort({ name: 1 }).limit(5);
+    for (const p of parents) rows.push({ school: code, role: `parent (${p.name})`, loginId: p.phone || p.email, password: pw });
   }
   console.log(`\nLoaded ${folder}: ${counts.users || 0} users, ${counts.students || 0} students, ${counts.schools || 0} school(s).`);
   return rows;
@@ -190,7 +200,7 @@ async function main() {
   await mongoose.connect(mongo.getUri());
   let rows;
   if (backupDir) {
-    const real = await loadBackup(backupDir);   // migrate builds the indexes after the data is in
+    const real = await loadBackup(backupDir, { demoPasswords: process.argv.includes('--demo-passwords') });   // migrate builds the indexes after the data is in
     rows = [...real, ...(await seed({ skipCodes: [REAL_DATA_SCHOOL.code] }))];
   } else {
     await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
@@ -200,8 +210,9 @@ async function main() {
   require('../app')().listen(port, () => {
     console.log(`\nEduAmigo demo API on http://localhost:${port}  (data is temporary)`);
     if (backupDir) {
-      console.log(`Your real data is ${REAL_DATA_SCHOOL.name} (code ${REAL_DATA_SCHOOL.code}): sign in with your existing passwords`);
-      console.log(`(staff by email, students by admission number). Other demo schools use ${PASSWORD}.\n`);
+      const demoPw = process.argv.includes('--demo-passwords');
+      console.log(`Your real data is ${REAL_DATA_SCHOOL.name} (code ${REAL_DATA_SCHOOL.code}): ${demoPw ? `every account uses ${PASSWORD} in this copy` : 'sign in with your existing passwords'}`);
+      console.log(`(staff by email, students by admission number or email, parents by mobile). Other demo schools use ${PASSWORD}.\n`);
       console.table(rows);
       console.log(`Real data school: http://localhost:5173/s/${REAL_DATA_SCHOOL.code}
 Platform owner: owner@eduamigo.demo / ${PASSWORD}
