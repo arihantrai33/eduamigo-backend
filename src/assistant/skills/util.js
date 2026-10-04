@@ -42,7 +42,7 @@ const SCREENS = {
   attendance: { student: '/student/attendance', parent: '/parent/attendance', teacher: '/teacher/attendance', admin: '/admin/attendance-reports' },
   timetable:  { student: '/student/timetable', parent: '/parent/home', teacher: '/teacher/timetable', admin: '/admin/timetable' },
   results:    { student: '/student/result', parent: '/parent/result', teacher: '/teacher/marks', admin: '/admin/results' },
-  exams:      { student: '/student/result', parent: '/parent/calendar', teacher: '/teacher/marks', admin: '/admin/exams' },
+  exams:      { student: '/student/home', parent: '/parent/calendar', teacher: '/teacher/marks', admin: '/admin/exams' },
   notes:      { student: '/student/notes', teacher: '/teacher/upload' },
   transport:  { student: '/student/bus', parent: '/parent/bus', admin: '/admin/transport' },
   notices:    { student: '/student/notifications', parent: '/parent/notifications', teacher: '/teacher/notifications', admin: '/admin/communications', accountant: '/admin/communications' },
