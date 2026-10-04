@@ -52,9 +52,9 @@ async function seed({ skipCodes = [] } = {}) {
 
   const { seedActivity } = require('./demoActivity');
 
-  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, students, stops }) {
+  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, principal, students, stops }) {
     if (skipCodes.includes(code)) return null;
-    const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: `${code} Principal`, adminEmail: `admin@${code.toLowerCase()}.demo` });
+    const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: principal || 'School Principal', adminEmail: `admin@${code.toLowerCase()}.demo` });
     await ready(admin._id);
     const branding = { appName: appName || name, primaryColor: color, accentColor: accent || '', logoUrl: logoUrl || '', tagline: tagline || '', heroStyle: heroStyle || 'bold' };
     await School.updateOne({ _id: school._id }, { branding, ...(subscription ? Object.fromEntries(Object.entries(subscription).map(([k, v]) => [`subscription.${k}`, v])) : {}) });
@@ -72,7 +72,7 @@ async function seed({ skipCodes = [] } = {}) {
         subjects: ['English', 'Hindi', 'Mathematics', 'Science', 'Social Science'],
       });
     }
-    await require('../models/Teacher').updateOne({ _id: t.teacher._id }, { $addToSet: { assignedClasses: `${classes[0]}-A` } });
+    await require('../models/Teacher').updateOne({ _id: t.teacher._id }, { $addToSet: { assignedClasses: `${classes[0]}-A` }, experience: 8, qualification: 'M.Sc., B.Ed.' });
 
     const parentsSeen = new Set();
     for (const s of students) {
@@ -91,7 +91,7 @@ async function seed({ skipCodes = [] } = {}) {
   }
 
   await demoSchool({
-    name: 'Green Valley Public School', code: 'GVPS', city: 'Jaipur', plan: 'premium', color: '#0A7E8C',
+    name: 'Green Valley Public School', code: 'GVPS', principal: 'Dr. Meenakshi Rathore', city: 'Jaipur', plan: 'premium', color: '#0A7E8C',
     classes: ['9', '10'], teacher: 'Anita Verma',
     students: [
       { name: 'Riya Sharma', parentName: 'Meera Sharma', parentPhone: '9876543210', gender: 'Female' },
@@ -100,13 +100,13 @@ async function seed({ skipCodes = [] } = {}) {
     ],
   });
   await demoSchool({
-    name: 'Sunrise Convent School', code: 'SCS', city: 'Lucknow', plan: 'basic', color: '#C2410C',
+    name: 'Sunrise Convent School', code: 'SCS', principal: 'Sister Mary Joseph', city: 'Lucknow', plan: 'basic', color: '#C2410C',
     subscription: { status: 'active', currentPeriodEnd: null },
     classes: ['5'], teacher: 'Rahul Mishra',
     students: [{ name: 'Ishita Singh', parentName: 'Pooja Singh', parentPhone: '9123456780', gender: 'Female' }],
   });
   await demoSchool({
-    name: 'Little Flower School', code: 'LFS', city: 'Indore', plan: 'standard', color: '#7C3AED',
+    name: 'Little Flower School', code: 'LFS', principal: 'Mr. Arvind Joshi', city: 'Indore', plan: 'standard', color: '#7C3AED',
     subscription: { status: 'trial', trialEndsAt: new Date(Date.now() - 10 * DAY) },   // trial over: read-only
     classes: ['3'], teacher: 'Sana Khan',
     students: [{ name: 'Vihaan Jain', parentName: 'Neha Jain', parentPhone: '9988776655', gender: 'Male' }],
@@ -121,7 +121,7 @@ async function seed({ skipCodes = [] } = {}) {
     subscription: { status: 'active', currentPeriodEnd: null },
   };
   await demoSchool({
-    ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', city: 'Gaya',
+    ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', principal: 'Dr. Anil Kumar Sinha', city: 'Gaya',
     classes: ['6', '7', '8'], teacher: 'Sunita Prasad', stops: ['School Gate', 'Gaya Junction', 'Chandauti More', 'Bodhgaya Road'],
     students: [
       { name: 'Aditya Kumar', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Male' },
@@ -130,7 +130,7 @@ async function seed({ skipCodes = [] } = {}) {
     ],
   });
   await demoSchool({
-    ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', city: 'Chakand, Gaya',
+    ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', principal: 'Mrs. Rekha Sinha', city: 'Chakand, Gaya',
     classes: ['1', '2', '3'], teacher: 'Ravi Ranjan', stops: ['School Gate', 'Chakand Bazaar', 'Chandauti More', 'Bodhgaya Road'],
     students: [
       { name: 'Khushi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },
