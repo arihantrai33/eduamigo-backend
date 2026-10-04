@@ -129,6 +129,12 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     }
   }
 
+  // The model picked a topic this person cannot use (a parent's "pocket money" read as payroll):
+  // treat it as a school question for the office rather than offering a topic they cannot open.
+  if (r.method === 'model' && DOMAINS[r.domain] && r.domain !== 'general' && !ctx.allowed.includes(r.domain)) {
+    r = { ...r, domain: 'school_other' };
+  }
+
   // Safety flagged by the model.
   if (r.sensitive) return handoffReply({ ctx, text, domain: r.domain === 'school_other' ? null : r.domain, reason: 'sensitive' });
 
@@ -330,7 +336,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   }
 
   // Wording in the user's language; numbers checked.
-  const rewritable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => ['answer', 'no_data', 'blocked', 'clarify'].includes(r.action) && !r.generated && r.text);
+  const rewritable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => ['answer', 'no_data', 'blocked', 'clarify', 'handoff'].includes(r.action) && !r.generated && r.text);
   if (ctx.aiAllowed && writer.shouldRewrite(language) && rewritable.length) {
     const { result, ai } = await writer.rewrite(rewritable.map(({ id, r }) => ({ id, text: r.text })), language);
     if (ai) ctx.noteAi(ai);

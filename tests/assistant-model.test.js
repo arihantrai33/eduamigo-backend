@@ -107,6 +107,33 @@ describe('model routing (stage B)', () => {
   });
 });
 
+describe('when the model is consulted', () => {
+  test('a tie between two topics is asked, never guessed by the model', async () => {
+    const res = await ask(A.teacherUser, 'leave status?');
+    expect(res.body.data.replies[0].action).toBe('clarify');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('one weak keyword is answered when the model agrees, asked when it does not', async () => {
+    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'timetable', confidence: 0.9, alternative: null, sensitive: false })));
+    const agreed = await ask(A.studentUser, 'kal kaunsa subject pehle hai');
+    expect(agreed.body.data.replies[0]).toMatchObject({ domain: 'timetable', action: 'answer', method: 'model' });
+
+    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'exams', confidence: 0.9, alternative: null, sensitive: false })));
+    const disagreed = await ask(A.studentUser, 'subject');
+    expect(disagreed.body.data.replies[0].action).toBe('clarify');
+    expect(disagreed.body.data.replies[0].options.map((o) => o.value)).toEqual(expect.arrayContaining(['timetable', 'exams']));
+  });
+
+  test('a topic the asker cannot use, picked by the model, is offered to the school office instead', async () => {
+    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'hr', confidence: 0.95, alternative: null, sensitive: false })));
+    const res = await ask(A.parentUser, 'mera pocket money kab milega');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('no_data');
+    expect(r.options.map((o) => o.type)).toEqual(['handoff']);
+  });
+});
+
 describe('provider fallback', () => {
   test('when Azure fails, Gemini answers; after three failures Azure is skipped for a while', async () => {
     global.fetch.mockResolvedValue({ ok: false, status: 503, text: async () => 'busy' });

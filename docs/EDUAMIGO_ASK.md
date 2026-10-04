@@ -68,6 +68,19 @@ general questions briefly, and routes questions the keywords cannot place.
 
 ### Setting up Azure OpenAI (Azure for Students)
 
+Current setup: resource `eduamigo-ask` in resource group `eduamigo-ai`, region UAE North, deployment
+`gpt-4.1-mini` (Global Standard, 50K tokens per minute), USD 10 monthly budget alert. Azure for Students
+only allows a few regions (here Malaysia West, Central India, India South Central, UAE North, Korea Central);
+Central India offers gpt-4.1-mini only as provisioned throughput, so UAE North is used. With the Azure CLI:
+
+```
+az cognitiveservices account create -n eduamigo-ask -g eduamigo-ai -l uaenorth --kind OpenAI --sku S0 --custom-domain eduamigo-ask
+az cognitiveservices account deployment create -n eduamigo-ask -g eduamigo-ai --deployment-name gpt-4.1-mini \
+  --model-name gpt-4.1-mini --model-version 2025-04-14 --model-format OpenAI --sku-name GlobalStandard --sku-capacity 50
+```
+
+From the portal:
+
 1. Sign up at azure.microsoft.com/free/students with the university email (USD 100 credit, no card).
 2. In the Azure portal create an **Azure OpenAI** resource (or an Azure AI Foundry project), region close
    to India if offered.
@@ -87,8 +100,11 @@ A free Gemini key is a fallback only: its rate limit is reached after a few ques
 - `npm run assistant:eval`: routing accuracy, action accuracy, per-topic precision, recall and F1, a
   confusion matrix and every mistake, for the development set (may be used to improve keyword lists) and the
   holdout set (never used for tuning). `-- --model` includes the questions that need a model; `-- --json`
-  prints the full report. Current keyword-only result: 100% topic accuracy, 98.4% fully correct overall,
-  92.1% on the holdout set.
+  prints the full report. Results on 4 Oct 2026: keywords only (191 questions) 100% topic accuracy, 98.4%
+  fully correct, 92.1% on the holdout set; keywords + Azure gpt-4.1-mini (all 200) 100% topic accuracy,
+  97% fully correct, 97.5% on the holdout set.
+- The model is only consulted when the keywords are unsure. A tie between two topics the asker can use is
+  always asked, never guessed; a single weak keyword is answered only when the model independently agrees.
 - `GET /api/assistant/metrics?days=30` (admins): answered, clarify and hand-off rates, end-to-end resolution
   (answered, not handed off, not marked unhelpful, and not asked again about the same topic within
   10 minutes), source citation, speed (p50, p95), model use and tokens, tickets, and the questions that most

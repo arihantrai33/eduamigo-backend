@@ -77,6 +77,7 @@ They write in English, Hindi or Hinglish, often with typos.
 Pick the ONE topic the question is about:
 ${DOMAIN_KEYS.filter((d) => d !== 'general').map((d) => `- ${d}: ${DOMAINS[d].label}`).join('\n')}
 - general: greetings, thanks, what the assistant can do, how to use the app, or general knowledge not about this school
+  (science, maths, history, news, sports scores, word meanings)
 - school_other: a question about this school that none of the topics cover (timings, uniform, canteen, fees policy text, rules)
 Also say whether it is a complaint, a safety concern or a payment dispute ("sensitive").
 Answer with JSON only: {"domain": "<topic>", "confidence": <0..1>, "alternative": "<second best topic or null>", "sensitive": <true|false>}
@@ -116,9 +117,21 @@ async function classifyWithModel(text, { role, previousTopic } = {}) {
 async function route(text, { role, allowed, previousTopic, useModel = true } = {}) {
   const a = scoreKeywords(text, allowed);
   if (a.confidence >= ANSWER_AT || !useModel) return a;
+  // A real tie between two topics the asker can use ("leave": students' requests or staff leave) is a
+  // question to ask, not one for the model to guess.
+  if (a.domain && a.runnerUp && a.confidence >= CLARIFY_AT) return a;
 
   const b = await classifyWithModel(text, { role, previousTopic });
   if (!b) return a;
+  const model = { provider: b.provider, model: b.model, usage: b.usage, cached: b.cached };
+
+  // One weak keyword ("kal kaunsa subject pehle hai"): answer only when the model independently agrees;
+  // otherwise ask, offering both readings. A safety concern the model spots still counts.
+  if (a.domain) {
+    if (b.sensitive) return { ...a, sensitive: true, model };
+    if (b.domain === a.domain) return { ...a, confidence: round(Math.max(ANSWER_AT, Math.min(1, b.confidence * 0.9 + 0.1))), method: 'model', model };
+    return { ...a, runnerUp: DOMAINS[b.domain] && b.domain !== 'general' ? b.domain : a.runnerUp, model };
+  }
 
   const agrees = b.domain === a.domain;
   const confidence = round(Math.min(1, b.confidence * 0.9 + (agrees ? 0.1 : 0)));
