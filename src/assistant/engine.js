@@ -35,7 +35,8 @@ const MAX_QUESTIONS = 4;
 const AI_METRIC = 'assistant_ai';
 
 const opt = (label, value, type) => ({ label, value: String(value), type });
-const domainOpt = (d) => opt(DOMAINS[d].label, d, 'domain');
+// Choice buttons use the same words as the clarifying question ("Students' leave requests").
+const domainOpt = (d) => opt(DOMAINS[d].ask.charAt(0).toUpperCase() + DOMAINS[d].ask.slice(1), d, 'domain');
 const HANDOFF_OPTION = opt('Ask the school office', 'office', 'handoff');
 
 // Words that never name a student (used when staff mention a student by name).
