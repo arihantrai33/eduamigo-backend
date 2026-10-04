@@ -243,7 +243,9 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     if (out.handoffOffer) ctx.setPending({ text, kind: 'handoff', domain: d, options: [HANDOFF_OPTION] });
     return reply({ ...base, action: 'no_data', text: out.text, link: out.link || null, options: out.handoffOffer ? [HANDOFF_OPTION] : [] });
   }
-  return reply({ ...base, action: 'answer', text: out.text, sources: out.sources || [], link: out.link || null, actions: out.actions || [], options: out.options || [] });
+  // Every data answer names what it was read from, including "nothing found" answers.
+  const sources = out.sources?.length ? out.sources : [{ type: d, label: `${DOMAINS[d].label} records checked` }];
+  return reply({ ...base, action: 'answer', text: out.text, sources, link: out.link || null, actions: out.actions || [], options: out.options || [] });
 }
 
 // Matches free text to a pending option ("Aditya", "fees", "8-B").

@@ -90,6 +90,7 @@ async function seedActivity(school, { stops = ['School Gate', 'Main Market', 'Ra
       school: school._id, studentId: s._id, feeType: 'Tuition Term 2', amount: 9000, paidAmount: part, status: part ? 'Partial' : 'Unpaid', academicYear: year,
       dueDate: at(11), ...(part ? { payments: [{ amount: part, mode: 'Cash', receiptNo: `R-${receipt}`, paidAt: at(0), collectedBy: admin?._id }] } : {}),
     });
+    await Student.updateOne({ _id: s._id }, { feeStatus: part ? 'Partial' : 'Pending' });
     if (onBus.has(String(s._id))) {
       const overdue = i % 2 === 0;
       await Fee.create({ school: school._id, studentId: s._id, feeType: 'Bus fee (October)', amount: 1500, paidAmount: 0, status: 'Unpaid', academicYear: year, dueDate: at(overdue ? -4 : 6) });
