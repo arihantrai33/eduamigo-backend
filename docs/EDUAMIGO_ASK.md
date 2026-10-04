@@ -13,7 +13,7 @@ and the assistant does one of three things:
 | PS18 asks for | Where |
 |---|---|
 | One assistant, one front door | Ask button on every signed-in screen (`AskWidget.jsx`), `POST /api/assistant/ask` |
-| Understand the topic and route it | `src/assistant/router.js`: weighted phrase matching first, a language model only when unsure |
+| Understand the topic and route it | `src/assistant/router.js`: the language model reads each message (`understand`), checked against weighted keywords (`reconcile`), which are also the fallback |
 | Several topics in one chat | `splitQuestions` (one message, several questions) and conversation memory (follow-ups) |
 | Clarify when unsure | Confidence gate in `engine.js`: answer at 0.75 or more, clarify from 0.45, topic menu below that |
 | Confidence with a clarify or hand-off fallback | Every reply carries `confidence` and `method`; tickets in `handoff.js` |
@@ -28,9 +28,15 @@ and the assistant does one of three things:
 3. **Safety.** Complaints, safety concerns, payment disputes and requests for a person become a ticket at once.
    Safety tickets are urgent and always go to the admins too.
 4. **Split.** "Fees kitni baki hai aur kal exam kab hai" becomes two questions.
-5. **Route.** Each question gets a topic, a runner-up and a confidence score:
-   `strength (top score / 2) x (0.5 + 0.5 x margin over the runner-up)`. Below 0.75 the model is asked
-   (if configured); its score is discounted and gets a bonus when it agrees with the keywords.
+5. **Understand.** Safety words (injury, bullying, payment disputes) go to a person at once, whatever a model would
+   say. Otherwise the language model reads the whole message in one call and returns, for each separate question
+   in it: the topic, a confidence, the kind (a normal question, a complaint being made, a request for a person,
+   or a question about complaints received), whether it is urgent, and any teacher name or class mentioned. This
+   replaces long keyword lists: it copes with new phrasings, spelling mistakes and languages. The model's reading
+   is then checked against the words (`reconcile`): a tie between two topics on a short message is asked, never
+   guessed; if the model finds no school topic but the words clearly name one, the words win; if both agree the
+   confidence is the higher of the two. Without a model (not configured, monthly allowance used up, call failed)
+   the keyword router (`scoreKeywords`, weights in `domains.js`) does all of this on its own.
 6. **Gate.** Answer, clarify between the two likely topics, or show a topic menu with "Ask the school office".
    A third unclear attempt in a row becomes a ticket.
 7. **Access.** The topic must be open to the role (`domains.js`) and part of the school's plan.
@@ -97,19 +103,15 @@ A free Gemini key is a fallback only: its rate limit is reached after a few ques
 
 ## Measuring it
 
-- `npm run assistant:eval`: routing accuracy, action accuracy, per-topic precision, recall and F1, a
+- `npm run assistant:eval` (add `-- --model --save` to keep a model run for the admin dashboard): routing accuracy, action accuracy, per-topic precision, recall and F1, a
   confusion matrix and every mistake, for the development set (may be used to improve keyword lists) and the
   holdout set (never used for tuning). `-- --model` includes the questions that need a model; `-- --json`
   prints the full report. Results on 4 Oct 2026: keywords only (191 questions) 100% topic accuracy, 98.4%
   fully correct, 92.1% on the holdout set; keywords + Azure gpt-4.1-mini (all 200) 100% topic accuracy,
   97% fully correct, 97.5% on the holdout set.
-- The model is only consulted when the keywords are unsure. A tie between two topics the asker can use is
-  always asked, never guessed; a single weak keyword is answered only when the model independently agrees.
-- `GET /api/assistant/metrics?days=30` (admins): answered, clarify and hand-off rates, end-to-end resolution
-  (answered, not handed off, not marked unhelpful, and not asked again about the same topic within
-  10 minutes), source citation, speed (p50, p95), model use and tokens, tickets, and the questions that most
-  often needed help.
-- Admin > EduAmigo Ask shows both, plus every ticket.
+- Model-first, 5 Oct 2026 (280 labelled questions, Azure gpt-4.1-mini): 98.2% fully correct overall; 96.7% on 30 *fresh* questions
+  written after the last change and never used for tuning, where keywords alone get 72.4%. Keywords alone score 100% on the
+  questions they were tuned on but only 72 to 76% on new phrasings, which is why the model reads the message first.
 
 ## API
 

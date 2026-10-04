@@ -1716,6 +1716,626 @@
       "expect": "timetable",
       "action": "answer",
       "split": "dev"
+    },
+    {
+      "id": 301,
+      "role": "parent",
+      "q": "bacche ka paisa kitna dena bacha hai school ko",
+      "expect": "fees",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 302,
+      "role": "parent",
+      "q": "mera beta kal school gaya tha ya nahi",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 303,
+      "role": "parent",
+      "q": "uska result kaisa raha",
+      "expect": "exams",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 304,
+      "role": "parent",
+      "q": "subah bus kitne baje aati hai",
+      "expect": "transport",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 305,
+      "role": "parent",
+      "q": "is mahine school mein koi program hai kya",
+      "expect": "notices",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 306,
+      "role": "parent",
+      "q": "mere bete ki leave manzoor hui kya",
+      "expect": "leave",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 307,
+      "role": "parent",
+      "q": "pichli payment ki rasid bhej do",
+      "expect": "fees",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 308,
+      "role": "parent",
+      "q": "fees jama karne ki aakhri tareekh kya hai",
+      "expect": "fees",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 309,
+      "role": "parent",
+      "q": "assignment kab tak submit karna hai",
+      "expect": "notes",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 310,
+      "role": "parent",
+      "q": "bete ka report card kab milega",
+      "expect": "exams",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 311,
+      "role": "student",
+      "q": "aaj pehle kaun sa subject padhaya jayega",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 312,
+      "role": "student",
+      "q": "mera attendance percent batao",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 313,
+      "role": "student",
+      "q": "agle hafte test hai kya",
+      "expect": "exams",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 314,
+      "role": "student",
+      "q": "library me science ki book milegi kya",
+      "expect": "library",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 315,
+      "role": "student",
+      "q": "diwali ki chhutti kab se hai",
+      "expect": "notices",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 316,
+      "role": "student",
+      "q": "kya aaj PT period hai",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 317,
+      "role": "student",
+      "q": "mujhe kal school nahi aana hai, kaise bataun",
+      "expect": "leave",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 318,
+      "role": "student",
+      "q": "who is the prime minister of india",
+      "expect": "general",
+      "action": "answer",
+      "split": "unseen",
+      "needsModel": true
+    },
+    {
+      "id": 319,
+      "role": "student",
+      "q": "school ke principal kaun hain",
+      "expect": "school_other",
+      "action": "answer",
+      "split": "unseen",
+      "needsModel": true
+    },
+    {
+      "id": 320,
+      "role": "student",
+      "q": "uniform ka color kya hai",
+      "expect": "school_other",
+      "action": "answer",
+      "split": "unseen",
+      "needsModel": true
+    },
+    {
+      "id": 321,
+      "role": "teacher",
+      "q": "7A mein aaj kaun absent hai",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 322,
+      "role": "teacher",
+      "q": "meri tankhwah credit hui kya",
+      "expect": "hr",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 323,
+      "role": "teacher",
+      "q": "aaj kitne bachche late the",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 324,
+      "role": "teacher",
+      "q": "next week meri koi class khali hai kya",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 325,
+      "role": "teacher",
+      "q": "mere liye koi notice aaya hai",
+      "expect": "notices",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 326,
+      "role": "admin",
+      "q": "is mahine kitni fees aayi",
+      "expect": "fees",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 327,
+      "role": "admin",
+      "q": "5th class mein kiski fees baki hai",
+      "expect": "fees",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 328,
+      "role": "admin",
+      "q": "bus 2 abhi kahan tak pahunchi",
+      "expect": "transport",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 329,
+      "role": "admin",
+      "q": "aaj school mein kitne log absent hain",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 330,
+      "role": "admin",
+      "q": "naye admission ke liye kitne phone aaye",
+      "expect": "admissions",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 331,
+      "role": "admin",
+      "q": "teachers ki leave pending hai kya",
+      "expect": "hr",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 332,
+      "role": "admin",
+      "q": "kaun kaun se routes chalte hain",
+      "expect": "transport",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 333,
+      "role": "parent",
+      "q": "teacher ne mere bachche ko bahut daanta hai",
+      "expect": null,
+      "action": "handoff",
+      "split": "unseen"
+    },
+    {
+      "id": 334,
+      "role": "parent",
+      "q": "bus service se hum bahut naraz hain",
+      "expect": "transport",
+      "action": "handoff",
+      "split": "unseen"
+    },
+    {
+      "id": 335,
+      "role": "parent",
+      "q": "mera paisa do baar kat gaya",
+      "expect": "fees",
+      "action": "handoff",
+      "split": "unseen"
+    },
+    {
+      "id": 336,
+      "role": "parent",
+      "q": "kya mere bachche ke khilaf koi shikayat aayi hai",
+      "expect": "general",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 337,
+      "role": "parent",
+      "q": "mujhe principal sahab se milna hai",
+      "expect": null,
+      "action": "handoff",
+      "split": "unseen"
+    },
+    {
+      "id": 338,
+      "role": "parent",
+      "q": "school ne meri beti ke baare mein koi remark likha hai kya",
+      "expect": "general",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 339,
+      "role": "student",
+      "q": "tum kya kya kar sakte ho",
+      "expect": "general",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 340,
+      "role": "student",
+      "q": "teri umar kitni hai",
+      "expect": "general",
+      "action": "answer",
+      "split": "unseen",
+      "needsModel": true
+    },
+    {
+      "id": 341,
+      "role": "parent",
+      "q": "fees aur uski bus ka time dono batao",
+      "expect": [
+        "fees",
+        "transport"
+      ],
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 342,
+      "role": "student",
+      "q": "kal exam hai aur homework bhi do",
+      "expect": [
+        "exams",
+        "notes"
+      ],
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 343,
+      "role": "admin",
+      "q": "aaj ki attendance aur bus fees pending",
+      "expect": [
+        "attendance",
+        "fees"
+      ],
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 344,
+      "role": "teacher",
+      "q": "salary slip aur kal ka timetable",
+      "expect": [
+        "hr",
+        "timetable"
+      ],
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 345,
+      "role": "parent",
+      "q": "Aditya sir ki class kab hai",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "unseen"
+    },
+    {
+      "id": 401,
+      "role": "parent",
+      "q": "mere dono bachchon ki fees ek saath bata do",
+      "expect": "fees",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 402,
+      "role": "parent",
+      "q": "pichle hafte Ananya kitne din absent rahi",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 403,
+      "role": "parent",
+      "q": "exam ka syllabus kahan milega",
+      "expect": "notes",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 404,
+      "role": "parent",
+      "q": "school bus late kyu aayi aaj",
+      "expect": "transport",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 405,
+      "role": "parent",
+      "q": "kal ptm hai kya",
+      "expect": "notices",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 406,
+      "role": "parent",
+      "q": "kya mere bachche ki science ki marks aa gayi",
+      "expect": "exams",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 407,
+      "role": "parent",
+      "q": "fee kitni baaki hai uske baad receipt bhi chahiye",
+      "expect": "fees",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 408,
+      "role": "parent",
+      "q": "bacche ke liye 3 din ki chhutti apply karni hai",
+      "expect": "leave",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 409,
+      "role": "parent",
+      "q": "meri beti ko class mein ek ladke ne dhakka diya",
+      "expect": null,
+      "action": "handoff",
+      "split": "fresh"
+    },
+    {
+      "id": 410,
+      "role": "parent",
+      "q": "kisi se baat karni hai fees ke baare mein",
+      "expect": null,
+      "action": "handoff",
+      "split": "fresh"
+    },
+    {
+      "id": 411,
+      "role": "student",
+      "q": "mera aaj ka routine kya hai",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 412,
+      "role": "student",
+      "q": "kitne din school nahi aaya main is mahine",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 413,
+      "role": "student",
+      "q": "english ka homework kya mila hai",
+      "expect": "notes",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 414,
+      "role": "student",
+      "q": "kya kal school khula hai",
+      "expect": "notices",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 415,
+      "role": "student",
+      "q": "maths ki exam kab hai",
+      "expect": "exams",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 416,
+      "role": "student",
+      "q": "library se kitab issue karwani hai",
+      "expect": "library",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 417,
+      "role": "student",
+      "q": "bye bye",
+      "expect": "general",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 418,
+      "role": "student",
+      "q": "what's the capital of france",
+      "expect": "general",
+      "action": "answer",
+      "split": "fresh",
+      "needsModel": true
+    },
+    {
+      "id": 419,
+      "role": "student",
+      "q": "mujhe canteen mein khana pasand nahi aaya",
+      "expect": null,
+      "action": "handoff",
+      "split": "fresh"
+    },
+    {
+      "id": 420,
+      "role": "teacher",
+      "q": "10A ki attendance lagayi ya nahi",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 421,
+      "role": "teacher",
+      "q": "mere is mahine ke paise kitne bane",
+      "expect": "hr",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 422,
+      "role": "teacher",
+      "q": "kal mera kaun sa period hai",
+      "expect": "timetable",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 423,
+      "role": "teacher",
+      "q": "kisi bachche ne leave maangi hai kya",
+      "expect": "leave",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 424,
+      "role": "admin",
+      "q": "aaj kitni fees collect hui",
+      "expect": "fees",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 425,
+      "role": "admin",
+      "q": "kis kis bachche ki bus fees pending hai",
+      "expect": "fees",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 426,
+      "role": "admin",
+      "q": "is hafte kitne naye bachche admission ke liye aaye",
+      "expect": "admissions",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 427,
+      "role": "admin",
+      "q": "kaun kaun si bus abhi chal rahi hai",
+      "expect": "transport",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 428,
+      "role": "admin",
+      "q": "sabhi teachers ki salary ka status",
+      "expect": "hr",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 429,
+      "role": "admin",
+      "q": "aaj kis class ki attendance nahi lagi",
+      "expect": "attendance",
+      "action": "answer",
+      "split": "fresh"
+    },
+    {
+      "id": 430,
+      "role": "admin",
+      "q": "ptm kab hai aur fees ka collection kitna hua",
+      "expect": [
+        "notices",
+        "fees"
+      ],
+      "action": "answer",
+      "split": "fresh"
     }
   ]
 }

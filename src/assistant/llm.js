@@ -42,7 +42,11 @@ const PROVIDERS = {
         }),
         signal: AbortSignal.timeout(timeoutMs()),
       });
-      if (!res.ok) throw new Error(`Azure OpenAI ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      if (!res.ok) {
+        const err = new Error(`Azure OpenAI ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (res.status === 429) err.retryAfterMs = Math.min(Number(res.headers.get('retry-after') || 1) * 1000, 4000);
+        throw err;
+      }
       const data = await res.json();
       return {
         text: data.choices?.[0]?.message?.content || '',
@@ -110,7 +114,15 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
     if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
     const started = Date.now();
     try {
-      const out = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
+      // A rate-limit answer (429) means "wait a moment": one short wait and one retry before giving up on the provider.
+      let out;
+      try {
+        out = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
+      } catch (err) {
+        if (!err.retryAfterMs) throw err;
+        await new Promise((resolve) => setTimeout(resolve, err.retryAfterMs));
+        out = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
+      }
       if (!out.text) throw new Error('empty response');
       health.set(name, { failures: 0, skipUntil: 0 });
       const value = { text: out.text, provider: name, model: PROVIDERS[name].model(), usage: out.usage };

@@ -124,9 +124,12 @@ const metrics = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { ...(await schoolMetrics(req.schoolId, { days })), model: llm.status() } });
 });
 
-// GET /api/assistant/evaluation - routing accuracy on the labelled question set (keyword router, no cost)
+// GET /api/assistant/evaluation - routing accuracy on the labelled question set (last saved model run, else keywords only)
 const evaluation = asyncHandler(async (req, res) => {
-  const report = await evaluate({ useModel: false });
+  // The last saved run with the language model (how the live assistant works), else the free keyword-only run.
+  let saved = null;
+  try { saved = require('../assistant/eval/last-model-report.json'); } catch { /* no saved run yet */ }
+  const report = saved || { ...(await evaluate({ useModel: false })), savedAt: null };
   res.json({ success: true, data: report });
 });
 

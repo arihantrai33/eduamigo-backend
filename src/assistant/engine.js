@@ -111,6 +111,26 @@ async function handoffReply({ ctx, text, domain, reason, student }) {
   return reply({ domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text, ticket: { id: String(ticket._id), number: ticket.number, team } });
 }
 
+function complaintInquiryReply(ctx, text) {
+  // The app keeps no complaint or remark records. Say so and offer to ask the office; a ticket is only
+  // created if the person agrees.
+  ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
+  return reply({
+    domain: 'general', label: DOMAINS.general.label, confidence: 1, method: 'rule', action: 'no_data', options: [HANDOFF_OPTION],
+    text: 'Complaints and remarks from the school are not recorded in the app, so I cannot check this. Shall I ask the school office whether anything has been sent for you?',
+  });
+}
+
+// The student a hand-off is about: the asker (students), or the child named or the only child (parents).
+async function studentForHandoff(ctx, text) {
+  if (ctx.role === 'student') return ctx.profile.student();
+  if (ctx.role === 'parent') {
+    const kids = await ctx.profile.children();
+    return pickChildren(text, kids, ctx.conv.state.lastStudentId)[0] || (kids.length === 1 ? kids[0] : null);
+  }
+  return null;
+}
+
 // One question -> one reply. `forced` comes from a tapped choice: { domain, studentIds, cls, staffId }.
 async function answerQuestion(ctx, text, forced = {}) {
   const out = await answerQuestionInner(ctx, text, forced);
@@ -119,17 +139,15 @@ async function answerQuestion(ctx, text, forced = {}) {
 
 async function answerQuestionInner(ctx, text, forced = {}) {
   const state = ctx.conv.state;
-  // "Has any complaint come from school for me?": the app keeps no complaint or remark records. Say so and
-  // offer to ask the office; a ticket is only created if the person agrees.
-  if (!forced.domain && router.isComplaintInquiry(text)) {
-    ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
-    return reply({
-      domain: 'general', label: DOMAINS.general.label, confidence: 1, method: 'rule', action: 'no_data', options: [HANDOFF_OPTION],
-      text: 'Complaints and remarks from the school are not recorded in the app, so I cannot check this. Shall I ask the school office whether anything has been sent for you?',
-    });
+  // "Has any complaint come from school for me?" (found by the model, or by words when there is no model).
+  if (!forced.domain && (forced.nlu?.kind === 'complaint_inquiry' || (!forced.nlu && router.isComplaintInquiry(text)))) {
+    return complaintInquiryReply(ctx, text);
   }
   let r;
-  if (forced.domain) r = { domain: forced.domain, confidence: 1, method: 'choice', runnerUp: null };
+  if (forced.nlu) {
+    // The model already read this question: its topic and confidence go through the same gate as keyword routing.
+    r = { ...router.reconcile({ ...forced.nlu, text }, ctx.allowed), sensitive: forced.nlu.urgent };
+  } else if (forced.domain) r = { domain: forced.domain, confidence: 1, method: 'choice', runnerUp: null };
   else {
     r = await router.route(text, { role: ctx.role, allowed: ctx.allowed, previousTopic: state.lastDomain, useModel: ctx.aiAllowed });
     if (r.model) ctx.noteAi(r.model);
@@ -143,7 +161,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
 
   // The model picked a topic this person cannot use (a parent's "pocket money" read as payroll):
   // treat it as a school question for the office rather than offering a topic they cannot open.
-  if (r.method === 'model' && DOMAINS[r.domain] && r.domain !== 'general' && !ctx.allowed.includes(r.domain)) {
+  if (r.method === 'model' && DOMAINS[r.domain] && r.domain !== 'general' && !ctx.allowed.includes(r.domain) && !router.wordsNameTopic(text, r.domain)) {
     r = { ...r, domain: 'school_other' };
   }
 
@@ -203,7 +221,8 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   }
 
   const skill = skills[d];
-  const sctx = { ...ctx, text, cls: forced.cls || parseClass(text), staffId: forced.staffId || null, students: [] };
+  const nluClass = forced.nlu?.class ? parseClass(`class ${forced.nlu.class}`) : null;
+  const sctx = { ...ctx, text, cls: forced.cls || parseClass(text) || nluClass, staffId: forced.staffId || null, personName: forced.nlu?.person || null, students: [] };
   if (d === 'general') {
     const out = await skill.run(sctx);
     if (out.ai) ctx.noteAi(out.ai);
@@ -332,20 +351,34 @@ async function ask({ user, school, entitlements, message, conversationId, choice
       r.method = r.method === 'rule' ? 'rule' : 'choice';
       replies.push(r);
     }
-  } else if (router.isSensitive(text) || router.wantsHuman(text)) {
-    const scored = router.scoreKeywords(text, ctx.allowed);
-    const domain = scored.domain && scored.domain !== 'general' ? scored.domain : (conv.state.lastDomain !== 'general' ? conv.state.lastDomain : null);
-    let student = null;
-    if (ctx.role === 'student') student = await ctx.profile.student();
-    if (ctx.role === 'parent') {
-      const kids = await ctx.profile.children();
-      student = pickChildren(text, kids, conv.state.lastStudentId)[0] || (kids.length === 1 ? kids[0] : null);
-    }
-    const reason = router.isSevere(text) ? 'sensitive' : router.isSensitive(text) ? 'complaint' : 'requested';
-    replies.push(await handoffReply({ ctx, text, domain, reason, student }));
   } else {
-    const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);
-    for (const q of questions) replies.push(await answerQuestion(ctx, q));
+    // Safety words always go to a person at once, whatever a model would say.
+    const severe = router.isSevere(text);
+    // Otherwise the model reads the message first; words are the fallback (no model, allowance used, call failed).
+    const understood = !severe && ctx.aiAllowed
+      ? await router.understand(text, {
+        role: ctx.role, allowed: ctx.allowed, previousTopic: conv.state.lastDomain,
+        childNames: ctx.role === 'parent' ? (await ctx.profile.children()).map((c) => c.name) : [],
+      })
+      : null;
+    if (understood) {
+      ctx.noteAi(understood.model);
+      for (const part of understood.parts) {
+        const topicDomain = DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null;
+        if (part.urgent || part.kind === 'complaint' || part.kind === 'human') {
+          const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : 'requested';
+          replies.push(await handoffReply({ ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text) }));
+        } else replies.push(await answerQuestion(ctx, part.text, { nlu: part }));
+      }
+    } else if (severe || router.isSensitive(text) || router.wantsHuman(text)) {
+      const scored = router.scoreKeywords(text, ctx.allowed);
+      const domain = scored.domain && scored.domain !== 'general' ? scored.domain : (conv.state.lastDomain !== 'general' ? conv.state.lastDomain : null);
+      const reason = severe ? 'sensitive' : router.isSensitive(text) ? 'complaint' : 'requested';
+      replies.push(await handoffReply({ ctx, text, domain, reason, student: await studentForHandoff(ctx, text) }));
+    } else {
+      const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);
+      for (const q of questions) replies.push(await answerQuestion(ctx, q));
+    }
   }
 
   // Wording in the user's language; numbers checked.

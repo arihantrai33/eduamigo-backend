@@ -1,0 +1,773 @@
+{
+  "mode": "keywords + model",
+  "thresholds": {
+    "answer": 0.75,
+    "clarify": 0.45
+  },
+  "skipped": 0,
+  "overall": {
+    "questions": 280,
+    "routingAccuracy": 98.6,
+    "actionAccuracy": 98.9,
+    "fullyCorrect": 98.2,
+    "perTopic": {
+      "fees": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 36
+      },
+      "attendance": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 31
+      },
+      "timetable": {
+        "precision": 1,
+        "recall": 0.963,
+        "f1": 0.981,
+        "support": 27
+      },
+      "exams": {
+        "precision": 0.966,
+        "recall": 0.966,
+        "f1": 0.966,
+        "support": 29
+      },
+      "notes": {
+        "precision": 0.944,
+        "recall": 0.944,
+        "f1": 0.944,
+        "support": 18
+      },
+      "transport": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 22
+      },
+      "notices": {
+        "precision": 1,
+        "recall": 0.955,
+        "f1": 0.977,
+        "support": 22
+      },
+      "leave": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 21
+      },
+      "library": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 13
+      },
+      "admissions": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 13
+      },
+      "hr": {
+        "precision": 0.96,
+        "recall": 1,
+        "f1": 0.98,
+        "support": 24
+      },
+      "general": {
+        "precision": 0.769,
+        "recall": 1,
+        "f1": 0.87,
+        "support": 20
+      },
+      "school_other": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 7
+      }
+    },
+    "confusion": {
+      "fees": {
+        "fees": 26
+      },
+      "attendance": {
+        "attendance": 22
+      },
+      "timetable": {
+        "timetable": 20
+      },
+      "exams": {
+        "exams": 19
+      },
+      "notes": {
+        "notes": 14,
+        "exams": 1
+      },
+      "transport": {
+        "transport": 18
+      },
+      "notices": {
+        "notices": 17,
+        "general": 1
+      },
+      "leave": {
+        "leave": 16
+      },
+      "library": {
+        "library": 12
+      },
+      "admissions": {
+        "admissions": 11,
+        "admissions+hr": 1
+      },
+      "hr": {
+        "hr": 17
+      },
+      "general": {
+        "general": 20
+      },
+      "school_other": {
+        "school_other": 7
+      }
+    },
+    "mistakes": [
+      {
+        "id": 134,
+        "role": "student",
+        "q": "subject",
+        "expected": "timetable",
+        "expectedAction": "clarify",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 0.8
+      },
+      {
+        "id": 184,
+        "role": "admin",
+        "q": "pending applications",
+        "expected": "admissions",
+        "expectedAction": "answer",
+        "got": [
+          "admissions",
+          "hr"
+        ],
+        "gotAction": "clarify",
+        "confidence": 0.7
+      },
+      {
+        "id": 193,
+        "role": "parent",
+        "q": "test",
+        "expected": "exams",
+        "expectedAction": "clarify",
+        "got": [
+          "exams"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      },
+      {
+        "id": 325,
+        "role": "teacher",
+        "q": "mere liye koi notice aaya hai",
+        "expected": "notices",
+        "expectedAction": "answer",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      },
+      {
+        "id": 403,
+        "role": "parent",
+        "q": "exam ka syllabus kahan milega",
+        "expected": "notes",
+        "expectedAction": "answer",
+        "got": [
+          "exams"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      }
+    ]
+  },
+  "dev": {
+    "questions": 165,
+    "routingAccuracy": 99.4,
+    "actionAccuracy": 99.4,
+    "fullyCorrect": 99.4,
+    "perTopic": {
+      "fees": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 18
+      },
+      "attendance": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 16
+      },
+      "timetable": {
+        "precision": 1,
+        "recall": 0.941,
+        "f1": 0.97,
+        "support": 17
+      },
+      "exams": {
+        "precision": 1,
+        "recall": 0.944,
+        "f1": 0.971,
+        "support": 18
+      },
+      "notes": {
+        "precision": 0.917,
+        "recall": 1,
+        "f1": 0.957,
+        "support": 11
+      },
+      "transport": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 12
+      },
+      "notices": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 13
+      },
+      "leave": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 14
+      },
+      "library": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 10
+      },
+      "admissions": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 9
+      },
+      "hr": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 16
+      },
+      "general": {
+        "precision": 0.688,
+        "recall": 1,
+        "f1": 0.815,
+        "support": 11
+      },
+      "school_other": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 4
+      }
+    },
+    "confusion": {
+      "fees": {
+        "fees": 13
+      },
+      "attendance": {
+        "attendance": 10
+      },
+      "timetable": {
+        "timetable": 12
+      },
+      "exams": {
+        "exams": 11
+      },
+      "notes": {
+        "notes": 10
+      },
+      "transport": {
+        "transport": 10
+      },
+      "notices": {
+        "notices": 10
+      },
+      "leave": {
+        "leave": 10
+      },
+      "library": {
+        "library": 9
+      },
+      "admissions": {
+        "admissions": 8
+      },
+      "hr": {
+        "hr": 11
+      },
+      "general": {
+        "general": 11
+      },
+      "school_other": {
+        "school_other": 4
+      }
+    },
+    "mistakes": [
+      {
+        "id": 134,
+        "role": "student",
+        "q": "subject",
+        "expected": "timetable",
+        "expectedAction": "clarify",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 0.8
+      }
+    ]
+  },
+  "holdout": {
+    "questions": 40,
+    "routingAccuracy": 97.5,
+    "actionAccuracy": 95,
+    "fullyCorrect": 95,
+    "perTopic": {
+      "fees": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 6
+      },
+      "attendance": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 5
+      },
+      "timetable": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "exams": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 5
+      },
+      "notes": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "transport": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 4
+      },
+      "notices": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "leave": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "library": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      },
+      "admissions": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "hr": {
+        "precision": 0.75,
+        "recall": 1,
+        "f1": 0.857,
+        "support": 3
+      },
+      "general": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "school_other": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      }
+    },
+    "confusion": {
+      "fees": {
+        "fees": 4
+      },
+      "attendance": {
+        "attendance": 3
+      },
+      "timetable": {
+        "timetable": 2
+      },
+      "exams": {
+        "exams": 3
+      },
+      "notes": {
+        "notes": 2
+      },
+      "transport": {
+        "transport": 3
+      },
+      "notices": {
+        "notices": 3
+      },
+      "leave": {
+        "leave": 2
+      },
+      "library": {
+        "library": 1
+      },
+      "admissions": {
+        "admissions": 1,
+        "admissions+hr": 1
+      },
+      "hr": {
+        "hr": 2
+      },
+      "general": {
+        "general": 2
+      },
+      "school_other": {
+        "school_other": 1
+      }
+    },
+    "mistakes": [
+      {
+        "id": 184,
+        "role": "admin",
+        "q": "pending applications",
+        "expected": "admissions",
+        "expectedAction": "answer",
+        "got": [
+          "admissions",
+          "hr"
+        ],
+        "gotAction": "clarify",
+        "confidence": 0.7
+      },
+      {
+        "id": 193,
+        "role": "parent",
+        "q": "test",
+        "expected": "exams",
+        "expectedAction": "clarify",
+        "got": [
+          "exams"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      }
+    ]
+  },
+  "unseen": {
+    "questions": 45,
+    "routingAccuracy": 97.8,
+    "actionAccuracy": 100,
+    "fullyCorrect": 97.8,
+    "perTopic": {
+      "fees": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 7
+      },
+      "attendance": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 6
+      },
+      "timetable": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 5
+      },
+      "exams": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 4
+      },
+      "notes": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "transport": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 4
+      },
+      "notices": {
+        "precision": 1,
+        "recall": 0.667,
+        "f1": 0.8,
+        "support": 3
+      },
+      "leave": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "library": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      },
+      "admissions": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      },
+      "hr": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "general": {
+        "precision": 0.833,
+        "recall": 1,
+        "f1": 0.909,
+        "support": 5
+      },
+      "school_other": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      }
+    },
+    "confusion": {
+      "fees": {
+        "fees": 5
+      },
+      "attendance": {
+        "attendance": 5
+      },
+      "exams": {
+        "exams": 3
+      },
+      "transport": {
+        "transport": 3
+      },
+      "notices": {
+        "notices": 2,
+        "general": 1
+      },
+      "leave": {
+        "leave": 2
+      },
+      "notes": {
+        "notes": 1
+      },
+      "timetable": {
+        "timetable": 4
+      },
+      "library": {
+        "library": 1
+      },
+      "general": {
+        "general": 5
+      },
+      "school_other": {
+        "school_other": 2
+      },
+      "hr": {
+        "hr": 2
+      },
+      "admissions": {
+        "admissions": 1
+      }
+    },
+    "mistakes": [
+      {
+        "id": 325,
+        "role": "teacher",
+        "q": "mere liye koi notice aaya hai",
+        "expected": "notices",
+        "expectedAction": "answer",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      }
+    ]
+  },
+  "fresh": {
+    "questions": 30,
+    "routingAccuracy": 96.7,
+    "actionAccuracy": 100,
+    "fullyCorrect": 96.7,
+    "perTopic": {
+      "fees": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 5
+      },
+      "attendance": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 4
+      },
+      "timetable": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "exams": {
+        "precision": 0.667,
+        "recall": 1,
+        "f1": 0.8,
+        "support": 2
+      },
+      "notes": {
+        "precision": 1,
+        "recall": 0.5,
+        "f1": 0.667,
+        "support": 2
+      },
+      "transport": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "notices": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 3
+      },
+      "leave": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "library": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      },
+      "admissions": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 1
+      },
+      "hr": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      },
+      "general": {
+        "precision": 1,
+        "recall": 1,
+        "f1": 1,
+        "support": 2
+      }
+    },
+    "confusion": {
+      "fees": {
+        "fees": 4
+      },
+      "attendance": {
+        "attendance": 4
+      },
+      "notes": {
+        "exams": 1,
+        "notes": 1
+      },
+      "transport": {
+        "transport": 2
+      },
+      "notices": {
+        "notices": 2
+      },
+      "exams": {
+        "exams": 2
+      },
+      "leave": {
+        "leave": 2
+      },
+      "timetable": {
+        "timetable": 2
+      },
+      "library": {
+        "library": 1
+      },
+      "general": {
+        "general": 2
+      },
+      "hr": {
+        "hr": 2
+      },
+      "admissions": {
+        "admissions": 1
+      }
+    },
+    "mistakes": [
+      {
+        "id": 403,
+        "role": "parent",
+        "q": "exam ka syllabus kahan milega",
+        "expected": "notes",
+        "expectedAction": "answer",
+        "got": [
+          "exams"
+        ],
+        "gotAction": "answer",
+        "confidence": 1
+      }
+    ]
+  },
+  "savedAt": "2026-10-04T20:53:24.030Z"
+}

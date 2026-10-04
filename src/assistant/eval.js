@@ -5,7 +5,8 @@
 //   routing accuracy   - the topic(s) found equal the expected topic(s)
 //   action accuracy    - answer / clarify / hand-off chosen correctly
 //   per-topic precision, recall and F1, and a confusion matrix
-// separately for the dev split (may be used to improve keyword lists) and the holdout split (never tuned on).
+// separately for the dev split (may be used to improve keyword lists), the holdout split (never tuned on) and
+// the unseen split (written afterwards in new styles and spellings; never used to add keywords).
 //
 // Keyword mode (default) skips questions marked needsModel; model mode (useModel) includes them and calls
 // the configured language model for low-confidence questions.
@@ -17,8 +18,37 @@ const questions = require('./eval/questions.json');
 const GENERAL_ROUTES = new Set(['general', null]);
 
 // What the live assistant would do with a message, at routing level.
+async function predictWithModel(item, allowed) {
+  const u = await router.understand(item.q, { role: item.role, allowed });
+  if (!u) return null;
+  const domains = [];
+  let action = 'answer';
+  let minConfidence = 1;
+  for (const part of u.parts) {
+    if (part.urgent || part.kind === 'complaint' || part.kind === 'human') {
+      return { domains: [DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null], action: 'handoff', confidence: part.confidence };
+    }
+    if (part.kind === 'complaint_inquiry') { domains.push('general'); continue; }
+    const r = router.reconcile(part, allowed);
+    // Same as the live assistant: a topic this person cannot use becomes a school question, unless the words name it.
+    const topic = DOMAINS[r.domain] && r.domain !== 'general' && !allowed.includes(r.domain) && r.method === 'model' && !router.wordsNameTopic(part.text, r.domain) ? 'school_other' : r.domain;
+    domains.push(topic);
+    minConfidence = Math.min(minConfidence, r.confidence);
+    if (DOMAINS[topic] && topic !== 'general' && r.confidence < router.ANSWER_AT) {
+      action = 'clarify';
+      if (r.runnerUp && r.confidence >= router.CLARIFY_AT) domains.push(r.runnerUp);
+    }
+  }
+  return { domains: [...new Set(domains)], action, confidence: minConfidence };
+}
+
 async function predict(item, { useModel = false } = {}) {
   const allowed = domainsForRole(item.role);
+  // Same order as the live assistant: safety words first, then the model reads the message, words are the fallback.
+  if (useModel && !router.isSevere(item.q)) {
+    const viaModel = await predictWithModel(item, allowed);
+    if (viaModel) return viaModel;
+  }
   if (router.isSensitive(item.q) || router.wantsHuman(item.q)) {
     const s = router.scoreKeywords(item.q, allowed);
     return { domains: [s.domain && s.domain !== 'general' ? s.domain : null], action: 'handoff', confidence: 1 };
@@ -103,6 +133,7 @@ async function evaluate({ useModel = false, items = questions.items } = {}) {
   const rows = [];
   for (const item of used) {
     const pred = await predict(item, { useModel });
+    if (useModel) await new Promise((resolve) => setTimeout(resolve, Number(process.env.EVAL_PAUSE_MS || 350))); // stay under the model's rate limit
     rows.push({ item, pred, domainOk: domainCorrect(item, pred), actionOk: pred.action === item.action });
   }
   return {
@@ -112,6 +143,8 @@ async function evaluate({ useModel = false, items = questions.items } = {}) {
     overall: summarize(rows),
     dev: summarize(rows.filter((r) => r.item.split === 'dev')),
     holdout: summarize(rows.filter((r) => r.item.split === 'holdout')),
+    unseen: summarize(rows.filter((r) => r.item.split === 'unseen')),
+    fresh: summarize(rows.filter((r) => r.item.split === 'fresh')),
   };
 }
 

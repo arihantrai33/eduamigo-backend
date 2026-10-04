@@ -108,8 +108,10 @@ const TEACHER_WORDS = ['sir', 'madam', 'maam', 'mam', 'miss', 'teacher', 'ji', '
 const NAME_STOP = new Set(['class', 'periods', 'period', 'timetable', 'kab', 'kaun', 'kaunsi', 'kaunsa', 'hai', 'hain', 'ki', 'ka', 'ke', 'aaj', 'kal', 'next', 'when', 'what', 'which', 'teacher', 'sir', 'madam', 'maam', 'mam', 'miss', 'wale', 'wali']);
 
 async function findNamedTeachers(ctx) {
-  const tokens = tokenize(ctx.text).filter((t) => t.length >= 4 && !NAME_STOP.has(t) && /^[a-z]+$/.test(t));
-  if (!tokens.length || !tokenize(ctx.text).some((t) => TEACHER_WORDS.includes(t))) return [];
+  // The model names the person; without it a name only counts when written with Sir, Madam, Miss and so on.
+  const fromModel = ctx.personName ? tokenize(ctx.personName) : null;
+  const tokens = (fromModel || tokenize(ctx.text)).filter((t) => t.length >= 4 && !NAME_STOP.has(t) && /^[a-z]+$/.test(t));
+  if (!tokens.length || (!fromModel && !tokenize(ctx.text).some((t) => TEACHER_WORDS.includes(t)))) return [];
   const teachers = await Teacher.find({ school: ctx.schoolId, isActive: true }).select('name subjects').lean();
   return teachers.filter((t) => tokenize(t.name).some((w) => w.length >= 4 && tokens.some((tok) => closeEnough(tok, w))));
 }

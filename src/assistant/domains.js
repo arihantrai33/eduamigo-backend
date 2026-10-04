@@ -2,6 +2,7 @@
 //
 // Each domain has:
 //   label     - shown on answers ("Routed to: Fees")
+//   about     - one line telling the language model what the topic covers
 //   ask       - how the topic is named in a clarifying question ("students' leave requests or staff leave and salary?")
 //   feature   - plan feature the school must have (config/features.js); null = core module
 //   roles     - who may ask about it; anyone else gets a polite "not available for your account"
@@ -13,6 +14,7 @@
 
 const DOMAINS = {
   fees: {
+    about: "school fees, dues, payments, receipts, collection, defaulters, bus fees",
     ask: "fees",
     label: 'Fees',
     feature: 'fees',
@@ -27,6 +29,7 @@ const DOMAINS = {
     ],
   },
   attendance: {
+    about: "who was present, absent or late, attendance percentage and reports",
     ask: "attendance",
     label: 'Attendance',
     feature: null,
@@ -39,6 +42,7 @@ const DOMAINS = {
     ],
   },
   timetable: {
+    about: "class timetable, periods, which teacher takes which period and when, free periods",
     ask: "the timetable",
     label: 'Timetable',
     feature: null,
@@ -47,10 +51,11 @@ const DOMAINS = {
     terms: [
       ['timetable', 3], ['time table', 3], ['routine', 2], ['period', 2], ['periods', 2], ['lecture', 2], ['lectures', 2],
       ['next class', 3], ['pehla period', 3], ['first period', 3], ['kaunsi class', 2], ['class schedule', 3],
-      ['class kab', 3], ['class kb', 3], ['class kb hai', 3], ['class kab hai', 3], ['class kitne baje', 3], ['kitne baje', 2], ['kis time', 2], ['schedule', 1], ['subject', 1], ['free period', 3], ['samay sarini', 3], ['समय सारणी', 3],
+      ['class kab', 3], ['class kb', 3], ['class kb hai', 3], ['class kab hai', 3], ['class kitne baje', 3], ['kitne baje', 1], ['kis time', 1], ['schedule', 1], ['subject', 1], ['free period', 3], ['samay sarini', 3], ['समय सारणी', 3],
     ],
   },
   exams: {
+    about: "exam dates and date sheet, marks, results, grades, report cards",
     ask: "exams and results",
     label: 'Exams & results',
     feature: 'exams',
@@ -64,6 +69,7 @@ const DOMAINS = {
     ],
   },
   notes: {
+    about: "homework, assignments, worksheets, notes and study material uploaded by teachers",
     ask: "homework and notes",
     label: 'Homework & notes',
     feature: null,
@@ -76,6 +82,7 @@ const DOMAINS = {
     ],
   },
   transport: {
+    about: "school bus, routes, stops, pick-up and drop timing, where the bus is now",
     ask: "the school bus",
     label: 'Transport',
     feature: 'transport',
@@ -88,6 +95,7 @@ const DOMAINS = {
     ],
   },
   notices: {
+    about: "notice board circulars, school events, holidays, vacations, PTM, whether school is closed",
     ask: "notices and holidays",
     label: 'Notices & events',
     feature: null,
@@ -102,6 +110,7 @@ const DOMAINS = {
     ],
   },
   leave: {
+    about: "leave applications of students: applying, status, approvals",
     ask: "students' leave requests",
     label: 'Leave requests',
     feature: null,
@@ -115,6 +124,7 @@ const DOMAINS = {
     ],
   },
   library: {
+    about: "library books: availability, author, catalogue",
     ask: "the library",
     label: 'Library',
     feature: 'library',
@@ -126,6 +136,7 @@ const DOMAINS = {
     ],
   },
   admissions: {
+    about: "enquiries and applications for new students (admin)",
     ask: "admissions",
     label: 'Admissions',
     feature: 'admissions',
@@ -137,6 +148,7 @@ const DOMAINS = {
     ],
   },
   hr: {
+    about: "staff leave and salary: leave taken, payslips, payroll (teachers and admin)",
     ask: "staff leave and salary",
     label: 'HR & payroll',
     feature: 'hr',
@@ -149,6 +161,7 @@ const DOMAINS = {
     ],
   },
   general: {
+    about: "greetings, thanks, what the assistant can do",
     ask: "something general",
     label: 'General',
     feature: null,

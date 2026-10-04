@@ -77,60 +77,114 @@ describe('Hinglish answers', () => {
   });
 });
 
-describe('model routing (stage B)', () => {
-  test('a question the keywords cannot place is classified by the model', async () => {
-    global.fetch.mockResolvedValue(azureReply(JSON.stringify({ domain: 'school_other', confidence: 0.92, alternative: null, sensitive: false })));
-    const res = await api().post('/api/assistant/ask').set(auth(A.parentUser)).send({ message: 'school timing kya hai' });
+// Answers each kind of call the assistant makes, by what the call asks for.
+function mockModel({ understand, general, rewrite } = {}) {
+  global.fetch.mockImplementation(async (url, opts) => {
+    const system = JSON.parse(opts.body).messages[0].content;
+    if (system.includes('split it into the separate questions')) return azureReply(JSON.stringify({ questions: understand }));
+    if (system.includes('reword answers')) return azureReply(JSON.stringify(rewrite || { replies: [] }));
+    return azureReply(general || 'ok');
+  });
+}
+const part = (over) => ({ text: 'x', topic: 'fees', confidence: 0.95, alternative: null, kind: 'ask', urgent: false, person: null, class: null, ...over });
+
+describe('the model reads the message first', () => {
+  test('a school question no topic covers is offered to the office, and a ticket only if the person agrees', async () => {
+    mockModel({ understand: [part({ text: 'school timing kya hai', topic: 'school_other' })] });
+    const res = await ask(A.parentUser, 'school timing kya hai');
     const r = res.body.data.replies[0];
     expect(r.action).toBe('no_data');
     expect(r.options[0]).toMatchObject({ type: 'handoff' });
+    expect(await AssistantTicket.countDocuments({})).toBe(0);
 
     const t = await ask(A.parentUser, { message: 'Ask the school office', choice: { type: 'handoff', value: 'office' }, conversationId: res.body.data.conversationId });
     expect(t.body.data.replies[0].action).toBe('handoff');
     expect(await AssistantTicket.countDocuments({ reason: 'not_covered' })).toBe(1);
   });
 
-  test('a safety concern the keywords miss is still handed off when the model flags it', async () => {
-    global.fetch.mockResolvedValue(azureReply(JSON.stringify({ domain: 'transport', confidence: 0.9, alternative: null, sensitive: true })));
+  test('an urgent concern the safety words miss is still handed off as urgent', async () => {
+    mockModel({ understand: [part({ text: 'conductor uncle ne galat tarike se pakda', topic: 'transport', urgent: true })] });
     const res = await ask(A.parentUser, 'conductor uncle ne galat tarike se pakda');
     expect(res.body.data.replies[0].action).toBe('handoff');
     expect((await AssistantTicket.findOne({})).priority).toBe('high');
   });
 
-  test('general questions get a short model answer', async () => {
-    global.fetch
-      .mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'general', confidence: 0.95, alternative: null, sensitive: false })))
-      .mockResolvedValueOnce(azureReply('Photosynthesis is how plants make food from sunlight, water and carbon dioxide.'));
-    const res = await ask(A.studentUser, 'what is photosynthesis');
-    expect(res.body.data.replies[0]).toMatchObject({ domain: 'general', action: 'answer' });
-    expect(res.body.data.replies[0].text).toContain('Photosynthesis');
+  test('making a complaint, asking for a person and asking about complaints are told apart without keywords', async () => {
+    mockModel({ understand: [part({ text: 'canteen ka khana kharab hai, kuch karo', topic: 'school_other', kind: 'complaint' })] });
+    const filed = await ask(A.parentUser, 'canteen ka khana kharab hai, kuch karo');
+    expect(filed.body.data.replies[0].action).toBe('handoff');
+    expect(await AssistantTicket.findOne({ reason: 'complaint' })).toMatchObject({ priority: 'normal' });
+
+    mockModel({ understand: [part({ text: 'meri beti ke baare mein school ne kuch likha hai kya', topic: 'general', kind: 'complaint_inquiry' })] });
+    const asked = await ask(A.parentUser, 'meri beti ke baare mein school ne kuch likha hai kya');
+    expect(asked.body.data.replies[0]).toMatchObject({ action: 'no_data' });
+    expect(await AssistantTicket.countDocuments({})).toBe(1);
+
+    mockModel({ understand: [part({ text: 'principal sahab se milna hai', topic: 'general', kind: 'human' })] });
+    const human = await ask(A.parentUser, 'principal sahab se milna hai');
+    expect(human.body.data.replies[0].action).toBe('handoff');
+    expect(await AssistantTicket.countDocuments({ reason: 'requested' })).toBe(1);
   });
-});
 
-describe('when the model is consulted', () => {
-  test('a tie between two topics is asked, never guessed by the model', async () => {
-    const res = await ask(A.teacherUser, 'leave status?');
-    expect(res.body.data.replies[0].action).toBe('clarify');
-    expect(global.fetch).not.toHaveBeenCalled();
+  test('a message with several questions is split by the model and each one is answered', async () => {
+    mockModel({ understand: [part({ text: 'fees kitni baki hai', topic: 'fees' }), part({ text: 'kal ka timetable', topic: 'timetable' })] });
+    const res = await ask(A.studentUser, 'fees kitni baki hai or kal ka timetable');
+    expect(res.body.data.replies.map((r) => r.domain)).toEqual(['fees', 'timetable']);
   });
 
-  test('one weak keyword is answered when the model agrees, asked when it does not', async () => {
-    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'timetable', confidence: 0.9, alternative: null, sensitive: false })));
-    const agreed = await ask(A.studentUser, 'kal kaunsa subject pehle hai');
-    expect(agreed.body.data.replies[0]).toMatchObject({ domain: 'timetable', action: 'answer', method: 'model' });
+  test('a teacher named in the question gets that teacher\'s periods, whatever the spelling or wording', async () => {
+    const Timetable = require('../src/models/Timetable');
+    await A.teacher.constructor.updateOne({ _id: A.teacher._id }, { name: 'Ramesh Kumar' });
+    await Timetable.create({ school: A.school._id, class: '10', section: 'A', day: 'Monday', periods: [{ periodNo: 3, subject: 'Mathematics', startTime: '09:20', endTime: '10:00', teacher: A.teacher._id }] });
+    mockModel({ understand: [part({ text: 'rmesh ji kab padhate hain hamein', topic: 'timetable', person: 'rmesh' })] });
+    const res = await ask(A.studentUser, 'rmesh ji kab padhate hain hamein');
+    expect(res.body.data.replies[0].text).toContain('Ramesh Kumar takes Mathematics');
+  });
 
-    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'exams', confidence: 0.9, alternative: null, sensitive: false })));
-    const disagreed = await ask(A.studentUser, 'subject');
-    expect(disagreed.body.data.replies[0].action).toBe('clarify');
-    expect(disagreed.body.data.replies[0].options.map((o) => o.value)).toEqual(expect.arrayContaining(['timetable', 'exams']));
+  test('the model\'s confidence goes through the same gate: unsure topics are asked, not guessed', async () => {
+    mockModel({ understand: [part({ text: 'schedule', topic: 'timetable', confidence: 0.55, alternative: 'exams' })] });
+    const res = await ask(A.studentUser, 'schedule');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('clarify');
+    expect(r.options.map((o) => o.value)).toEqual(expect.arrayContaining(['timetable', 'exams']));
   });
 
   test('a topic the asker cannot use, picked by the model, is offered to the school office instead', async () => {
-    global.fetch.mockResolvedValueOnce(azureReply(JSON.stringify({ domain: 'hr', confidence: 0.95, alternative: null, sensitive: false })));
+    mockModel({ understand: [part({ text: 'mera pocket money kab milega', topic: 'hr' })] });
     const res = await ask(A.parentUser, 'mera pocket money kab milega');
     const r = res.body.data.replies[0];
     expect(r.action).toBe('no_data');
     expect(r.options.map((o) => o.type)).toEqual(['handoff']);
+  });
+
+  test('general questions get a short model answer', async () => {
+    mockModel({ understand: [part({ text: 'what is photosynthesis', topic: 'general' })], general: 'Photosynthesis is how plants make food from sunlight, water and carbon dioxide.' });
+    const res = await ask(A.studentUser, 'what is photosynthesis');
+    expect(res.body.data.replies[0]).toMatchObject({ domain: 'general', action: 'answer' });
+    expect(res.body.data.replies[0].text).toContain('Photosynthesis');
+  });
+
+  test('safety words never wait for the model', async () => {
+    const res = await ask(A.parentUser, 'Bus mein kisi ne bachche ko maara');
+    expect(res.body.data.replies[0].action).toBe('handoff');
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('chat/completions'), expect.objectContaining({ body: expect.stringContaining('split it into') }));
+  });
+
+  test('if the model cannot be reached the keyword path still answers', async () => {
+    global.fetch.mockResolvedValue({ ok: false, status: 503, text: async () => 'busy' });
+    gemini.__generateContent.mockRejectedValue(new Error('down'));
+    await Fee.create({ school: A.school._id, studentId: A.student._id, feeType: 'Tuition', amount: 2000, dueDate: new Date() });
+    const res = await ask(A.parentUser, 'fees kitni baki hai');
+    expect(res.body.data.replies[0].text).toContain('₹2,000');
+  });
+});
+
+describe('without a model, words decide (fallback)', () => {
+  test('a tie between two topics is asked', async () => {
+    process.env.ASSISTANT_AI = 'off';
+    const res = await ask(A.teacherUser, 'leave status?');
+    expect(res.body.data.replies[0].action).toBe('clarify');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 
