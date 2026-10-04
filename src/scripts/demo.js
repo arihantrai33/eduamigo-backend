@@ -12,6 +12,19 @@ process.env.EMAIL_PROVIDER = 'log';            // reset codes are printed in thi
 process.env.JWT_SECRET = process.env.DEMO_JWT_SECRET || 'local-demo-secret-not-for-production-use-only';
 delete process.env.CORS_ORIGINS;               // allow the local frontend
 
+// Language model settings only (EduAmigo Ask, AI revision) are taken from .env, so the demo answers in
+// Hindi/Hinglish like production. Nothing else is read: the database, payment and email settings stay unused.
+{
+  const fs = require('fs');
+  const path = require('path');
+  const file = path.join(__dirname, '../../.env');
+  if (fs.existsSync(file)) {
+    const parsed = require('dotenv').parse(fs.readFileSync(file));
+    const AI_KEYS = /^(AZURE_OPENAI_|ASSISTANT_|GEMINI_)/;
+    for (const [k, v] of Object.entries(parsed)) if (AI_KEYS.test(k) && process.env[k] === undefined) process.env[k] = v;
+  }
+}
+
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
