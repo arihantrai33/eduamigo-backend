@@ -27,7 +27,7 @@ const SENSITIVE = [
   'maara', 'maar', 'mara', 'maarta', 'peeta', 'pitai', 'pitaai', 'hit', 'hits', 'beat', 'beaten', 'slapped', 'thappad', 'bully', 'bullying',
   'bullied', 'ragging', 'harass', 'harassment', 'harassed', 'abuse', 'abused', 'gaali', 'gali di', 'chhed', 'chhedkhani',
   'injury', 'injured', 'chot', 'chot lagi', 'ghayal', 'accident', 'unsafe', 'threat', 'dhamki', 'darr lagta', 'scared',
-  'lost child', 'ghar nahi pahuncha', 'ghar nahi aaya', 'not reached home', 'complaint', 'complain', 'shikayat', 'refund', 'double payment',
+  'lost child', 'ghar nahi pahuncha', 'ghar nahi aaya', 'not reached home', 'refund', 'double payment',
   'paid twice', 'wrong amount', 'galat fees', 'galat charge', 'paise kat gaye', 'money deducted', 'fraud', 'rude', 'misbehave',
   'misbehaved', 'badtameezi', 'drunk', 'overspeeding', 'rash driving', 'tez chala',
 ];
@@ -38,7 +38,21 @@ const HUMAN = [
   'principal se baat', 'principal se milna', 'escalate', 'connect me',
 ];
 
-const isSensitive = (text) => hasPhrase(text, SENSITIVE);
+// Complaint words alone are ambiguous: "I want to complain about the canteen" is a complaint to pass on, but
+// "has any complaint come from school for me?" is a question about records the app does not hold.
+const COMPLAINT_WORDS = ['complaint', 'complaints', 'complain', 'shikayat', 'shikayatein', 'cpmplaint'];
+const RECEIVED = ['aai', 'aayi', 'aaya', 'aya', 'aaye', 'aye', 'received', 'mila', 'mili', 'mile', 'against my', 'about my child', 'from school',
+  'school se', 'teacher ne', 'for me', 'mere liye', 'mere baare', 'mere bache ke', 'mere bachche ke', 'hai kya', 'hui hai', 'any complaint', 'koi complaint', 'koi shikayat'];
+const FILING = ['karni hai', 'karna hai', 'karni', 'karna', 'want to', 'wish to', 'would like to', 'file', 'lodge', 'register', 'darj', 'i have a complaint', 'meri complaint', 'meri shikayat'];
+
+// A question about complaints received from the school (not one being made).
+const isComplaintInquiry = (text) => hasPhrase(text, COMPLAINT_WORDS) && hasPhrase(text, RECEIVED) && !hasPhrase(text, FILING)
+  && !hasPhrase(text, SENSITIVE);
+
+// Safety, injury and payment-dispute words: urgent. A plain complaint (canteen, fees policy) is a normal ticket.
+const isSevere = (text) => hasPhrase(text, SENSITIVE);
+
+const isSensitive = (text) => hasPhrase(text, SENSITIVE) || (hasPhrase(text, COMPLAINT_WORDS) && !isComplaintInquiry(text));
 const wantsHuman = (text) => hasPhrase(text, HUMAN);
 
 const round = (n) => Math.round(n * 100) / 100;
@@ -190,6 +204,6 @@ function splitQuestions(text, allowed) {
 }
 
 module.exports = {
-  route, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, wantsHuman,
+  route, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, isSevere, isComplaintInquiry, wantsHuman,
   ANSWER_AT, CLARIFY_AT, SENSITIVE, HUMAN, normalize,
 };

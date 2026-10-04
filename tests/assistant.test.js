@@ -127,6 +127,49 @@ describe('clarify when unsure', () => {
   });
 });
 
+describe('questions that only look like complaints or class questions', () => {
+  test('"has any complaint come from school for me?" is answered, not turned into a ticket', async () => {
+    const res = await ask(A.parentUser, 'school se kisi trh ki koi cpmplaint aai hai mere liye?');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('no_data');
+    expect(r.ticket).toBeNull();
+    expect(r.options.map((o) => o.type)).toEqual(['handoff']);
+    expect(await AssistantTicket.countDocuments({})).toBe(0);
+
+    // A ticket is created only when the person agrees to ask the office.
+    const yes = await ask(A.parentUser, { message: 'Ask the school office', choice: { type: 'handoff', value: 'office' }, conversationId: res.body.data.conversationId });
+    expect(yes.body.data.replies[0].action).toBe('handoff');
+    expect(await AssistantTicket.countDocuments({})).toBe(1);
+  });
+
+  test('making a complaint still goes to a person at once', async () => {
+    const res = await ask(A.parentUser, 'I want to complain about the canteen');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('handoff');
+    expect(r.text).not.toContain('112');                       // no emergency wording for an ordinary complaint
+    expect(await AssistantTicket.findOne({ number: r.ticket.number })).toMatchObject({ reason: 'complaint', priority: 'normal' });
+  });
+
+  test('"Ramesh sir ki class kab hai?" lists that teacher\'s periods in the child\'s class', async () => {
+    const Timetable = require('../src/models/Timetable');
+    await A.teacher.constructor.updateOne({ _id: A.teacher._id }, { name: 'Ramesh Kumar' });
+    await Timetable.create({ school: A.school._id, class: '10', section: 'A', day: 'Monday', periods: [
+      { periodNo: 1, subject: 'English', startTime: '08:00', endTime: '08:40' },
+      { periodNo: 2, subject: 'Mathematics', startTime: '08:40', endTime: '09:20', teacher: A.teacher._id },
+    ] });
+    const res = await ask(A.parentUser, 'ramesh sir ki class kab hai?');
+    const r = res.body.data.replies[0];
+    expect(r.domain).toBe('timetable');
+    expect(r.text).toContain('Ramesh Kumar takes Mathematics');
+    expect(r.text).toContain('Monday: period 2 (08:40 - 09:20)');
+    // Days with the same periods are grouped.
+    await require('../src/models/Timetable').create({ school: A.school._id, class: '10', section: 'A', day: 'Tuesday', periods: [{ periodNo: 2, subject: 'Mathematics', startTime: '08:40', endTime: '09:20', teacher: A.teacher._id }] });
+    const again = await ask(A.parentUser, 'ramesh sir ki class kab hai?');
+    expect(again.body.data.replies[0].text).toContain('Monday and Tuesday: period 2');
+    expect(r.text).not.toContain('English');
+  });
+});
+
 describe('hand-off to a person', () => {
   test('a safety complaint becomes an urgent ticket for the admins, who are notified', async () => {
     const res = await ask(A.parentUser, 'Bus mein kisi ne bachche ko maara');

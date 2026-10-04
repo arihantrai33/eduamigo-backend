@@ -103,7 +103,9 @@ function reply(base) {
 async function handoffReply({ ctx, text, domain, reason, student }) {
   const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student });
   const team = teamLabel(ticket.team);
-  const msg = reason === 'sensitive'
+  const msg = reason === 'complaint'
+    ? `I have noted your complaint and passed it to the ${team.toLowerCase()} (ticket ${ticket.number}). You will get a reply in the app.`
+    : reason === 'sensitive'
     ? `I am sorry to hear this. It is important, so I have passed it to the ${team.toLowerCase()} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
     : `I have passed your message to the ${team.toLowerCase()} (ticket ${ticket.number}). You will get a reply in the app.`;
   return reply({ domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text, ticket: { id: String(ticket._id), number: ticket.number, team } });
@@ -117,6 +119,15 @@ async function answerQuestion(ctx, text, forced = {}) {
 
 async function answerQuestionInner(ctx, text, forced = {}) {
   const state = ctx.conv.state;
+  // "Has any complaint come from school for me?": the app keeps no complaint or remark records. Say so and
+  // offer to ask the office; a ticket is only created if the person agrees.
+  if (!forced.domain && router.isComplaintInquiry(text)) {
+    ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
+    return reply({
+      domain: 'general', label: DOMAINS.general.label, confidence: 1, method: 'rule', action: 'no_data', options: [HANDOFF_OPTION],
+      text: 'Complaints and remarks from the school are not recorded in the app, so I cannot check this. Shall I ask the school office whether anything has been sent for you?',
+    });
+  }
   let r;
   if (forced.domain) r = { domain: forced.domain, confidence: 1, method: 'choice', runnerUp: null };
   else {
@@ -330,7 +341,8 @@ async function ask({ user, school, entitlements, message, conversationId, choice
       const kids = await ctx.profile.children();
       student = pickChildren(text, kids, conv.state.lastStudentId)[0] || (kids.length === 1 ? kids[0] : null);
     }
-    replies.push(await handoffReply({ ctx, text, domain, reason: router.isSensitive(text) ? 'sensitive' : 'requested', student }));
+    const reason = router.isSevere(text) ? 'sensitive' : router.isSensitive(text) ? 'complaint' : 'requested';
+    replies.push(await handoffReply({ ctx, text, domain, reason, student }));
   } else {
     const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);
     for (const q of questions) replies.push(await answerQuestion(ctx, q));

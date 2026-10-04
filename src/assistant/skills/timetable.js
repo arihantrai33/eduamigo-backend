@@ -6,7 +6,7 @@
 const Timetable = require('../../models/Timetable');
 const Teacher = require('../../models/Teacher');
 const { parseWhen, WEEKDAYS } = require('../entities');
-const { hasPhrase } = require('../text');
+const { hasPhrase, tokenize, closeEnough } = require('../text');
 const { day, today, addDays, studentLabel, link, source, escapeRegex } = require('./util');
 const { SCHOOL_TZ } = require('../../utils/dates');
 
@@ -103,8 +103,64 @@ async function forTeacher(ctx) {
   };
 }
 
+// "Simarpreet sir ki class kab hai?": the periods a named teacher takes in the child's (or asked-for) class.
+const TEACHER_WORDS = ['sir', 'madam', 'maam', 'mam', 'miss', 'teacher', 'ji', 'sirs'];
+const NAME_STOP = new Set(['class', 'periods', 'period', 'timetable', 'kab', 'kaun', 'kaunsi', 'kaunsa', 'hai', 'hain', 'ki', 'ka', 'ke', 'aaj', 'kal', 'next', 'when', 'what', 'which', 'teacher', 'sir', 'madam', 'maam', 'mam', 'miss', 'wale', 'wali']);
+
+async function findNamedTeachers(ctx) {
+  const tokens = tokenize(ctx.text).filter((t) => t.length >= 4 && !NAME_STOP.has(t) && /^[a-z]+$/.test(t));
+  if (!tokens.length || !tokenize(ctx.text).some((t) => TEACHER_WORDS.includes(t))) return [];
+  const teachers = await Teacher.find({ school: ctx.schoolId, isActive: true }).select('name subjects').lean();
+  return teachers.filter((t) => tokenize(t.name).some((w) => w.length >= 4 && tokens.some((tok) => closeEnough(tok, w))));
+}
+
+async function forNamedTeacher(ctx, teachers, cls, section, who) {
+  const ids = new Set(teachers.map((t) => String(t._id)));
+  const rows = await Timetable.find({ school: ctx.schoolId, class: { $regex: `^${escapeRegex(cls)}$`, $options: 'i' }, ...(section ? { section } : {}) }).lean();
+  const byDay = new Map();
+  for (const tt of rows) {
+    for (const p of tt.periods || []) {
+      if (!p.teacher || !ids.has(String(p.teacher))) continue;
+      const list = byDay.get(tt.day) || [];
+      list.push({ no: periodNo(p, list.length), subject: p.subject, time: periodTime(p) });
+      byDay.set(tt.day, list);
+    }
+  }
+  const name = teachers.map((t) => t.name).join(' / ');
+  if (!byDay.size) {
+    return { text: `${name} has no period in ${who.title}'s timetable.`, facts: { teacher: name, periods: 0 }, sources: [source('timetable', `Timetable · ${cls}${section ? `-${section}` : ''}`)] };
+  }
+  const days = WEEKDAYS.filter((d) => byDay.has(d));
+  const subjects = [...new Set(days.flatMap((d) => byDay.get(d).map((p) => p.subject)))].filter(Boolean);
+  // Days with the same periods are listed together ("Monday to Saturday").
+  const groups = [];
+  for (const d of days) {
+    const text = byDay.get(d).sort((x, y) => x.no - y.no).map((p) => `period ${p.no}${p.time ? ` (${p.time})` : ''}`).join(', ');
+    const last = groups[groups.length - 1];
+    if (last && last.text === text && WEEKDAYS.indexOf(last.to) === WEEKDAYS.indexOf(d) - 1) last.to = d;
+    else groups.push({ from: d, to: d, text });
+  }
+  const lines = groups.map((g) => `- ${g.from === g.to ? g.from : g.to === WEEKDAYS[WEEKDAYS.indexOf(g.from) + 1] ? `${g.from} and ${g.to}` : `${g.from} to ${g.to}`}: ${g.text}`);
+  return {
+    text: `${name} takes ${subjects.join(' and ') || 'classes'} for ${who.title}:\n${lines.join('\n')}`,
+    facts: { teacher: name, subjects, days: days.map((d) => ({ day: d, periods: byDay.get(d) })) },
+    sources: [source('timetable', `Timetable · ${cls}${section ? `-${section}` : ''}`)],
+  };
+}
+
 async function run(ctx) {
   let out;
+  const named = await findNamedTeachers(ctx);
+  if (named.length && ctx.students?.length) {
+    const parts = [];
+    for (const s of ctx.students) parts.push(await forNamedTeacher(ctx, named, s.class, s.section, { title: ctx.role === 'student' ? 'your class' : studentLabel(s) }));
+    return { text: parts.map((p) => p.text).join('\n\n'), facts: { teachers: parts.map((p) => p.facts) }, sources: parts.flatMap((p) => p.sources), link: link('timetable', ctx.role) };
+  }
+  if (named.length && ctx.cls) {
+    const label = `Class ${ctx.cls.class}${ctx.cls.section ? `-${ctx.cls.section}` : ''}`;
+    const r = await forNamedTeacher(ctx, named, ctx.cls.class, ctx.cls.section, { title: label });
+    return { ...r, link: link('timetable', ctx.role) };
+  }
   if (ctx.students?.length) {
     const parts = [];
     for (const s of ctx.students) {

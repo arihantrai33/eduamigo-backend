@@ -10,7 +10,7 @@ const assistantTicketSchema = new mongoose.Schema({
   student:    { type: mongoose.Schema.Types.ObjectId, ref: 'Student', default: null },
   domain:     { type: String, default: null },
   question:   { type: String, required: true, maxlength: 1000 },
-  reason:     { type: String, enum: ['sensitive', 'requested', 'unclear', 'not_covered'], required: true },
+  reason:     { type: String, enum: ['sensitive', 'complaint', 'requested', 'unclear', 'not_covered'], required: true },
   priority:   { type: String, enum: ['normal', 'high'], default: 'normal' },
   team:       { type: String, required: true },                                  // owner key from domains.js
   assignees:  [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],          // people notified

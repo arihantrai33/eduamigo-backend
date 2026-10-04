@@ -49,6 +49,7 @@ async function assigneesFor(school, team, student, priority) {
 
 const REASON_TITLES = {
   sensitive: 'Needs attention',
+  complaint: 'Complaint',
   requested: 'Asked for a person',
   unclear: 'Could not understand',
   not_covered: 'Question for the school',

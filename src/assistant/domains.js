@@ -47,7 +47,7 @@ const DOMAINS = {
     terms: [
       ['timetable', 3], ['time table', 3], ['routine', 2], ['period', 2], ['periods', 2], ['lecture', 2], ['lectures', 2],
       ['next class', 3], ['pehla period', 3], ['first period', 3], ['kaunsi class', 2], ['class schedule', 3],
-      ['schedule', 1], ['subject', 1], ['free period', 3], ['samay sarini', 3], ['समय सारणी', 3],
+      ['class kab', 3], ['class kb', 3], ['class kb hai', 3], ['class kab hai', 3], ['class kitne baje', 3], ['kitne baje', 2], ['kis time', 2], ['schedule', 1], ['subject', 1], ['free period', 3], ['samay sarini', 3], ['समय सारणी', 3],
     ],
   },
   exams: {
