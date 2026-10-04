@@ -59,6 +59,7 @@ const intro = asyncHandler(async (req, res) => {
 const ticketView = (t) => ({
   id: String(t._id), number: t.number, status: t.status, priority: t.priority, reason: t.reason, domain: t.domain,
   domainLabel: DOMAINS[t.domain]?.label || null, team: t.team, question: t.question,
+  sentTo: (t.contacts || []).map((c) => ({ name: c.name, title: c.title })),
   raisedBy: t.raisedBy ? { id: String(t.raisedBy._id || t.raisedBy), name: t.raisedBy.name, role: t.raisedRole } : null,
   student: t.student ? { id: String(t.student._id || t.student), name: t.student.name, class: t.student.class ? `${t.student.class}-${t.student.section}` : null } : null,
   notes: (t.notes || []).map((n) => ({ text: n.text, at: n.at, by: n.by?.name || null })),

@@ -78,7 +78,8 @@ async function results(ctx, student) {
 }
 
 async function run(ctx) {
-  const wantsResults = hasPhrase(ctx.text, RESULT_WORDS);
+  // The model's reading of the question decides; the word list is the fallback.
+  const wantsResults = ctx.view ? ctx.view === 'results' : hasPhrase(ctx.text, RESULT_WORDS);
   let out;
   if (ctx.students?.length) {
     const parts = [];
@@ -105,4 +106,7 @@ async function run(ctx) {
   return { ...out, link: link(out.screen || 'exams', ctx.role) };
 }
 
-module.exports = { run, needsStudent: true, staffCanName: true };
+// The exam schedule is the same for every child of one class, so a parent is not asked which child.
+const classLevel = (ctx) => !(ctx.view ? ctx.view === 'results' : hasPhrase(ctx.text, RESULT_WORDS));
+
+module.exports = { run, needsStudent: true, staffCanName: true, classLevel };

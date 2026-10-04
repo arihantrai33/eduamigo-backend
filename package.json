@@ -13,7 +13,8 @@
     "backup": "node src/scripts/backup.js",
     "create-platform-admin": "node src/scripts/createPlatformAdmin.js",
     "demo": "node src/scripts/demo.js",
-    "assistant:eval": "node src/scripts/assistantEval.js"
+    "assistant:eval": "node src/scripts/assistantEval.js",
+    "assistant:answers": "node src/scripts/assistantAnswerEval.js"
   },
   "keywords": [],
   "author": "",

@@ -1,0 +1,833 @@
+{
+ "note": "Answer-quality cases for the GVPS demo school. who: parent (Meera Sharma, children Kabir and Riya), parent2 (Rohit Gupta, Aarav), student (Riya), teacher, admin. all: every pattern must appear (| = either); none: no pattern may appear.",
+ "cases": [
+  {
+   "who": "parent",
+   "q": "mere bete ki last exam me kitne marks aaye",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "129",
+    "150"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "meri beti ke maths me kitne number aaye the",
+   "action": "answer",
+   "all": [
+    "Riya",
+    "29",
+    "50"
+   ],
+   "none": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ke science ke marks batao",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "49"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "how did Riya do in the last test?",
+   "action": "answer",
+   "all": [
+    "Riya",
+    "29"
+   ],
+   "none": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ki bus fee kitni baaki hai",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "1,500"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "meri beti ki bus fee kitni baaki hai",
+   "action": "answer",
+   "all": [
+    "Riya",
+    "1,500"
+   ],
+   "none": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Riya ki attendance kitni hai is mahine",
+   "action": "answer",
+   "all": [
+    "Riya",
+    "%|din|day"
+   ],
+   "none": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "kya Riya aaj school aayi thi?",
+   "action": "answer",
+   "all": [
+    "Riya"
+   ],
+   "none": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "mere bete ka kal ka timetable",
+   "action": "answer",
+   "all": [
+    "Hindi|Mathematics|Maths"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "kal ke liye kaun sa subject ka exam hai Kabir ka",
+   "action": "answer",
+   "all": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "science teacher ka naam kya hai Kabir ka",
+   "action": "answer",
+   "all": [
+    "Anita Verma"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ka maths ka homework kya hai",
+   "action": "answer",
+   "all": [
+    "Kabir"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "kya kal school khula hai",
+   "action": "answer",
+   "all": [
+    "Diwali|Chhath|chhutti|holiday"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "kya koi notice aaya hai school se",
+   "action": "answer",
+   "all": [
+    "Diwali|Chhath|Parent|Unit Test"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Unit Test 2 kab hai",
+   "action": "answer",
+   "all": [
+    "6 Oct|Oct"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "dono bachon ki fees ek saath batao",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ki fees aur Riya ki attendance",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "Riya"
+   ],
+   "note": "two topics, two children"
+  },
+  {
+   "who": "parent",
+   "q": "Riya ka bus abhi kahan hai aur uska stop kaunsa hai",
+   "action": "answer",
+   "all": [
+    "Riya|bus|Bus"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "mujhe Kabir ke maths teacher se uske marks ke baare mein baat karni hai",
+   "action": "handoff",
+   "ticketTo": "Anita Verma"
+  },
+  {
+   "who": "parent",
+   "q": "Riya ke science me marks kam kyu aaye?",
+   "action": "handoff",
+   "ticketTo": "Anita Verma"
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ke fees ke baare me principal sir se baat karni hai",
+   "action": "handoff",
+   "ticketTo": "Meenakshi"
+  },
+  {
+   "who": "parent",
+   "q": "mere bete ko kal doctor ke liye jaldi nikalna hai",
+   "action": "handoff",
+   "ticketTo": "Anita Verma",
+   "note": "goes to class teacher of Kabir"
+  },
+  {
+   "who": "parent",
+   "q": "Riya ko school me kisi ne maara hai",
+   "action": "handoff",
+   "ticketTo": "Meenakshi",
+   "note": "safety, urgent"
+  },
+  {
+   "who": "parent",
+   "q": "school ki uniform kaunsi hai",
+   "action": "no_data"
+  },
+  {
+   "who": "parent",
+   "q": "मेरे बेटे की फीस कितनी बाकी है",
+   "action": "answer",
+   "all": [
+    "1,500|6,000|₹"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ka attendance 75 percent se upar hai kya",
+   "action": "answer",
+   "all": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "is there any homework today for Riya",
+   "action": "answer",
+   "all": [
+    "Riya|homework|Homework"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Kabir kal school nahi aa payega",
+   "action": "handoff",
+   "ticketTo": "Anita Verma",
+   "note": "absence intimation -> class teacher / leave"
+  },
+  {
+   "who": "parent2",
+   "q": "Aarav ki fees kitni pending hai",
+   "action": "answer",
+   "all": [
+    "Aarav",
+    "10,500"
+   ]
+  },
+  {
+   "who": "parent2",
+   "q": "meri fees kitni baaki hai",
+   "action": "answer",
+   "all": [
+    "10,500"
+   ]
+  },
+  {
+   "who": "parent2",
+   "q": "Aarav ki last exam ka result kya raha",
+   "action": "answer",
+   "all": [
+    "Aarav"
+   ]
+  },
+  {
+   "who": "parent2",
+   "q": "kya mere bete ka bus fee jama hai",
+   "action": "answer",
+   "all": [
+    "Aarav|bus|Bus"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "mera kal ka time table batao",
+   "action": "answer",
+   "all": [
+    "Hindi",
+    "Mathematics|Maths"
+   ],
+   "none": [
+    "Riya Sharma ka"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "meri maths me kitne marks aaye the",
+   "action": "answer",
+   "all": [
+    "29",
+    "50"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "mere science ke notes kaha milenge",
+   "action": "answer",
+   "all": [
+    "Science|science"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "next exam kab hai",
+   "action": "answer",
+   "all": [
+    "Mathematics|Maths|Science|English"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "mujhe kitni fees dena baaki hai",
+   "action": "answer",
+   "all": [
+    "10,500|₹"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "meri attendance kitni hai",
+   "action": "answer",
+   "all": [
+    "%|din"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "kya mujhe kal chhutti mil sakti hai",
+   "action": "handoff",
+   "ticketTo": "Anita Verma"
+  },
+  {
+   "who": "student",
+   "q": "mera science ka doubt hai teacher se puchna hai",
+   "action": "handoff",
+   "ticketTo": "Anita Verma"
+  },
+  {
+   "who": "student",
+   "q": "what is photosynthesis",
+   "action": "answer",
+   "all": [
+    "light|plant|energy"
+   ],
+   "note": "general knowledge allowed"
+  },
+  {
+   "who": "student",
+   "q": "aaj ka homework kya hai",
+   "action": "answer",
+   "all": [
+    "homework|Homework|assignment"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "mera bus kitne baje aata hai",
+   "action": "answer",
+   "all": [
+    "bus|Bus"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "hi",
+   "action": "answer",
+   "all": [
+    "Namaste|Hello|EduAmigo"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "kal kaun sa period free hai mera",
+   "action": "answer",
+   "all": [
+    "Hindi|Mathematics|Science|free|Free"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "mere aaj ke periods kaunse hain",
+   "action": "answer",
+   "all": [
+    "Mathematics|Science"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "kal mera pehla period kaunsa hai",
+   "action": "answer",
+   "all": [
+    "Mathematics|Science|period"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "meri is mahine ki salary kitni aayi",
+   "action": "answer",
+   "all": [
+    "29,800"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "9-A me aaj kaun absent hai",
+   "action": "answer",
+   "all": [
+    "9-A"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "kitne leaves baaki hai mere",
+   "action": "answer",
+   "all": [
+    "leave|Leave|chhutti"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "Kabir ki attendance kitni hai",
+   "action": "answer",
+   "all": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "pending leave requests dikhao",
+   "action": "answer",
+   "all": [
+    "leave|Leave"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "mujhe principal se milna hai",
+   "action": "handoff",
+   "ticketTo": "Meenakshi"
+  },
+  {
+   "who": "admin",
+   "q": "aaj kitne bacche absent hain",
+   "action": "answer",
+   "all": [
+    "0|absent"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "9-A me kis kis ki fees pending hai",
+   "action": "answer",
+   "all": [
+    "Aarav",
+    "Riya",
+    "Kabir",
+    "27,000"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "is hafte kitni fees collect hui",
+   "action": "answer",
+   "all": [
+    "4,500"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "Anita Verma ka kal ka schedule",
+   "action": "answer",
+   "all": [
+    "Anita Verma",
+    "Mathematics",
+    "Science"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "kitne naye admission enquiries aaye is mahine",
+   "action": "answer",
+   "all": [
+    "4"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "Kabir Sharma ki fees kitni baaki hai",
+   "action": "answer",
+   "all": [
+    "Kabir",
+    "6,000|1,500"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "kitni salary pending hai",
+   "action": "answer",
+   "all": [
+    "salary|Salary|payroll|₹"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "aaj ka fee collection",
+   "action": "answer",
+   "all": [
+    "₹"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "books kitne issue hue hain",
+   "action": "answer",
+   "all": [
+    "kitab|kitaab|book|library"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "9-A ka kal ka timetable",
+   "action": "answer",
+   "all": [
+    "Hindi",
+    "Mathematics"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "bus kahan hai abhi",
+   "action": "answer",
+   "all": [
+    "bus|Bus"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "Riya ke maths teacher kaun hai",
+   "action": "answer",
+   "all": [
+    "Anita Verma"
+   ],
+   "note": "staff asks for subject teacher of a student"
+  },
+  {
+   "who": "admin",
+   "q": "school ke timings kya hai",
+   "action": "no_data"
+  },
+  {
+   "who": "parent",
+   "q": "Kabir ne last unit test me science me kitna scored kiya",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "49"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "kya meri beti ke number maths me achhe hain",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "29",
+    "50"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "bus ka paisa kitna dena bacha hai dono bachon ka",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Kabir",
+    "Riya",
+    "1,500"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Tell me about Kabir's attendance this week",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Kabir"
+   ],
+   "none": [
+    "Riya"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "sir mere bete ko kal kya padhna hai science me",
+   "action": "answer|no_data|handoff",
+   "fresh": true
+  },
+  {
+   "who": "parent",
+   "q": "parso exam hai kya kisi subject ka",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Science|Mathematics|English|exam|Exam"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "mera beta kal chhutti lega",
+   "action": "handoff",
+   "fresh": true,
+   "ticketTo": "Anita Verma"
+  },
+  {
+   "who": "parent",
+   "q": "accounts wale se baat karni hai fees ko lekar",
+   "action": "handoff",
+   "fresh": true
+  },
+  {
+   "who": "parent",
+   "q": "Riya ki English ki teacher kaun hai",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Anita Verma|English"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "abhi tak kitna paisa diya hai maine Kabir ki fees me",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Kabir"
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "is there a holiday next week",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Diwali|Chhath|holiday|chhutti|no "
+   ]
+  },
+  {
+   "who": "parent",
+   "q": "Riya late kyun aayi aaj",
+   "action": "handoff|no_data|answer",
+   "fresh": true
+  },
+  {
+   "who": "student",
+   "q": "mujhe maths ke liye kitne number chahiye pass hone ko",
+   "action": "no_data|handoff|answer",
+   "fresh": true
+  },
+  {
+   "who": "student",
+   "q": "science ka homework kitna bacha hai",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "homework|Science|science"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "aaj mere kitne periods hain",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Hindi|Mathematics|Science|period"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "mera result dikhao",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "29|Unit Test"
+   ]
+  },
+  {
+   "who": "student",
+   "q": "fees nahi di to kya hoga",
+   "action": "no_data|handoff|answer",
+   "fresh": true
+  },
+  {
+   "who": "student",
+   "q": "sir se milna hai kal",
+   "action": "handoff",
+   "fresh": true
+  },
+  {
+   "who": "student",
+   "q": "which subject is tomorrow",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Hindi|Mathematics|Science|exam|period|Exam"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "aaj 9-A ki attendance kisne mark ki",
+   "action": "answer|no_data",
+   "fresh": true,
+   "all": [
+    "9-A|attendance|Attendance"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "mera free period kab hai kal",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "period|Period"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "kitne bachhe aaj present hain meri class me",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "present|Present|9-A"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "salary slip kab milegi",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "29,800|salary|Salary"
+   ]
+  },
+  {
+   "who": "teacher",
+   "q": "Riya ke marks maths me kitne hain",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "29|Riya|Maths|Mathematics"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "kal kitne log absent the",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "absent|Absent|0"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "fees ki pending list dikhao 9-A ki",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Aarav",
+    "27,000"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "Aarav Gupta ka kya baaki hai fees me",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Aarav",
+    "10,500"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "is mahine ka collection",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "₹"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "Anita ma'am ki periods kal",
+   "action": "answer",
+   "fresh": true,
+   "all": [
+    "Anita"
+   ]
+  },
+  {
+   "who": "admin",
+   "q": "principal ko kisne complaint ki hai",
+   "action": "no_data|handoff|answer",
+   "fresh": true
+  }
+ ]
+}

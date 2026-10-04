@@ -56,9 +56,9 @@ describe('Hinglish answers', () => {
   test('a Hinglish question gets a Hinglish answer when the numbers match', async () => {
     global.fetch.mockImplementation(async (url, opts) => {
       const body = JSON.parse(opts.body);
-      const { replies } = JSON.parse(body.messages[1].content);
-      const amount = replies[0].text.match(/₹[\d,]+/)[0];
-      return azureReply(JSON.stringify({ replies: [{ id: replies[0].id, text: `Aarav ki ${amount} fees baki hai.` }] }));
+      const { items } = JSON.parse(body.messages[1].content);
+      const amount = items[0].standardAnswer.match(/₹[\d,]+/)[0];
+      return azureReply(JSON.stringify({ replies: [{ id: items[0].id, answered: true, text: `Aarav ki ${amount} fees baki hai.` }] }));
     });
     const res = await ask(A.parentUser, 'meri beti ki fees kitni baki hai');
     const r = res.body.data.replies[0];
@@ -69,8 +69,8 @@ describe('Hinglish answers', () => {
 
   test('a reworded answer with a wrong number is thrown away and the record-based answer is kept', async () => {
     global.fetch.mockImplementation(async (url, opts) => {
-      const { replies } = JSON.parse(JSON.parse(opts.body).messages[1].content);
-      return azureReply(JSON.stringify({ replies: [{ id: replies[0].id, text: 'Aarav ki ₹450 fees baki hai.' }] }));
+      const { items } = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      return azureReply(JSON.stringify({ replies: [{ id: items[0].id, answered: true, text: 'Aarav ki ₹450 fees baki hai.' }] }));
     });
     const res = await ask(A.parentUser, 'meri beti ki fees kitni baki hai');
     expect(res.body.data.replies[0].text).toContain('₹4,500 is due');
@@ -78,10 +78,14 @@ describe('Hinglish answers', () => {
 });
 
 // Answers each kind of call the assistant makes, by what the call asks for.
-function mockModel({ understand, general, rewrite } = {}) {
+function mockModel({ understand, general, rewrite, compose } = {}) {
   global.fetch.mockImplementation(async (url, opts) => {
     const system = JSON.parse(opts.body).messages[0].content;
     if (system.includes('split it into the separate questions')) return azureReply(JSON.stringify({ questions: understand }));
+    if (system.includes('For each item you get the user')) {
+      const { items } = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      return azureReply(JSON.stringify({ replies: items.map((i) => ({ id: i.id, ...(typeof compose === 'function' ? compose(i) : compose || { answered: true, text: i.standardAnswer }) })) }));
+    }
     if (system.includes('reword answers')) return azureReply(JSON.stringify(rewrite || { replies: [] }));
     return azureReply(general || 'ok');
   });
@@ -218,5 +222,85 @@ describe('provider fallback', () => {
     const res = await ask(A.parentUser, 'fees kitni baki hai');
     expect(res.status).toBe(200);
     expect(res.body.data.replies[0].text).toContain('₹3,000');
+  });
+});
+
+
+const { grounded } = require('../src/assistant/compose');
+const Timetable = require('../src/models/Timetable');
+const Teacher = require('../src/models/Teacher');
+
+describe('grounding of composed answers', () => {
+  const source = `${JSON.stringify({ student: 'Aarav (10-A)', totalDue: 4500, teacher: 'Ramesh Kumar' })}\nmaths teacher kaun hai`;
+  test('numbers and names must come from the facts', () => {
+    expect(grounded('Aarav ki ₹4,500 fees baki hai.', source)).toBe(true);
+    expect(grounded('Aarav ki ₹5,000 fees baki hai.', source)).toBe(false);
+    expect(grounded('Rohit ki fees baki hai.', source)).toBe(false);
+    expect(grounded('Aapke Maths teacher Priya Singh hain.', source)).toBe(false);
+    expect(grounded('Ramesh Kumar Maths padhate hain.', source)).toBe(true);
+  });
+});
+
+describe('answers written for the exact question', () => {
+  beforeEach(async () => {
+    await Fee.create({ school: A.school._id, studentId: A.student._id, feeType: 'Tuition', amount: 4500, dueDate: new Date(toDayKey(new Date()).getTime() + 5 * 86400000) });
+  });
+
+  test('the composed answer replaces the standard one when its numbers and names are in the facts', async () => {
+    mockModel({ understand: [part({ text: 'kya fees baki hai', topic: 'fees', english: 'Is any fee pending?' })], compose: { answered: true, text: 'Haan, Aarav ki ₹4,500 fees baki hai.' } });
+    const res = await ask(A.parentUser, 'kya fees baki hai');
+    expect(res.body.data.replies[0].text).toBe('Haan, Aarav ki ₹4,500 fees baki hai.');
+  });
+
+  test('an answer with an invented amount or name is thrown away', async () => {
+    mockModel({ understand: [part({ text: 'kya fees baki hai', topic: 'fees' })], compose: { answered: true, text: 'Haan, Rohit ki ₹9,000 fees baki hai.' } });
+    const res = await ask(A.parentUser, 'kya fees baki hai');
+    expect(res.body.data.replies[0].text).toContain('₹4,500 is due');
+  });
+
+  test('when the records do not hold the detail, the person is offered the right teacher by name', async () => {
+    await Teacher.updateOne({ _id: A.teacher._id }, { name: 'Ramesh Kumar' });
+    await Timetable.create({ school: A.school._id, class: '10', section: 'A', day: 'Monday', periods: [{ periodNo: 3, subject: 'Mathematics', startTime: '09:20', endTime: '10:00', teacher: A.teacher._id }] });
+    mockModel({ understand: [part({ text: 'maths me kitna syllabus bacha hai', topic: 'fees', subject: 'Maths' })], compose: { answered: false, text: 'Fees ke records me ye detail nahi hai.' } });
+    const res = await ask(A.parentUser, 'maths me kitna syllabus bacha hai');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('no_data');
+    expect(r.options[0].label).toBe('Ask Ramesh Kumar');
+    const t = await ask(A.parentUser, { message: 'Ask Ramesh Kumar', choice: { type: 'handoff', value: 'office' }, conversationId: res.body.data.conversationId });
+    expect(t.body.data.replies[0].text).toContain('Ramesh Kumar (Maths teacher)');
+    expect(t.body.data.replies[0].ticket.sentTo).toEqual([{ name: 'Ramesh Kumar', title: 'Maths teacher' }]);
+    expect((await AssistantTicket.findOne({})).assignees.map(String)).toContain(String(A.teacherUser._id));
+  });
+});
+
+describe('forwarding to a person by name', () => {
+  beforeEach(async () => {
+    await Teacher.updateOne({ _id: A.teacher._id }, { name: 'Ramesh Kumar' });
+    await Timetable.create({ school: A.school._id, class: '10', section: 'A', day: 'Monday', periods: [{ periodNo: 3, subject: 'Mathematics', startTime: '09:20', endTime: '10:00', teacher: A.teacher._id }] });
+  });
+
+  test('a question only a person can answer goes to that subject\'s teacher, and the reply names them', async () => {
+    mockModel({ understand: [part({ text: 'maths me beta ke marks kam kyu aaye', topic: 'exams', kind: 'forward', subject: 'Maths' })] });
+    const res = await ask(A.parentUser, 'maths me beta ke marks kam kyu aaye');
+    const r = res.body.data.replies[0];
+    expect(r.action).toBe('handoff');
+    expect(r.text).toContain('Ramesh Kumar (Maths teacher)');
+    const t = await AssistantTicket.findOne({});
+    expect(t).toMatchObject({ reason: 'forwarded', team: 'subject_teacher' });
+    expect(t.assignees.map(String)).toEqual([String(A.teacherUser._id)]);
+  });
+
+  test('without a subject it goes to the class teacher of the child', async () => {
+    mockModel({ understand: [part({ text: 'kal jaldi nikalna hai', topic: 'leave', kind: 'forward' })] });
+    const res = await ask(A.parentUser, 'kal jaldi nikalna hai');
+    expect(res.body.data.replies[0].ticket.sentTo[0]).toMatchObject({ name: 'Ramesh Kumar', title: 'Class teacher, 10-A' });
+  });
+});
+
+describe('typos never turn an ordinary question into an emergency', () => {
+  test('"scored" is not "scared"', () => {
+    const router = require('../src/assistant/router');
+    expect(router.isSevere('Aarav ne science me kitna scored kiya')).toBe(false);
+    expect(router.isSevere('usne mujhe maara')).toBe(true);
   });
 });

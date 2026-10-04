@@ -23,8 +23,10 @@ const { DOMAINS, domainsForRole } = require('./domains');
 const router = require('./router');
 const { redact, detectLanguage, tokenize, normalize, closeEnough } = require('./text');
 const { parseClass, pickChildren, looksLikeFollowUp } = require('./entities');
-const { createTicket, teamLabel } = require('./handoff');
+const { createTicket, recipientsFor, teamLabel } = require('./handoff');
 const writer = require('./writer');
+const { compose } = require('./compose');
+const { today: dayKey, day: dayText } = require('./skills/util');
 const llm = require('./llm');
 const skills = require('./skills');
 const { suggestionsFor } = require('./skills/general');
@@ -49,8 +51,11 @@ const NOT_NAMES = new Set([
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'last', 'next', 'first', 'chahiye', 'hai', 'hain', 'tha', 'thi',
 ]);
 
+const ageOf = (dob, now = new Date()) => (dob ? Math.floor((now - new Date(dob)) / (365.25 * 86400000)) : null);
+const childSummary = (c) => ({ name: c.name, gender: c.gender ? (c.gender === 'Male' ? 'boy' : c.gender === 'Female' ? 'girl' : null) : null, age: ageOf(c.dateOfBirth), class: `class ${c.class}-${c.section}` });
+
 function emptyPending() {
-  return { text: null, kind: null, domain: null, options: [], attempts: 0 };
+  return { text: null, kind: null, domain: null, subject: null, person: null, child: null, options: [], attempts: 0 };
 }
 
 async function loadConversation(user, schoolId, conversationId) {
@@ -78,7 +83,10 @@ async function namedStudents(ctx, text) {
   const found = await Student.find({ school: ctx.schoolId, isActive: true, name: { $regex: `(^|\\s)(${words.map(escapeRegex).join('|')})(\\s|$)`, $options: 'i' } }).limit(6);
   const visible = [];
   for (const s of found) if (await canAccessStudent(ctx.user, s)) visible.push(s);
-  return visible;
+  // "Kabir Sharma" matches every Sharma; the student whose name has the most of the written words is the one meant.
+  const score = (s) => tokenize(s.name).filter((w) => words.some((x) => x === w)).length;
+  const best = Math.max(0, ...visible.map(score));
+  return visible.filter((s) => score(s) === best);
 }
 
 // Class choices for "which class?" questions.
@@ -100,15 +108,36 @@ function reply(base) {
   };
 }
 
-async function handoffReply({ ctx, text, domain, reason, student }) {
-  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student });
+// "Mrs. Sunita Sharma (Maths teacher)" for the people a ticket went to, school management left out.
+function sentToText(ticket) {
+  const named = (ticket.contacts || []).filter((c) => c.title !== 'School office' || (ticket.contacts || []).length === 1);
+  const people = named.slice(0, 2).map((c) => (c.title && c.title !== 'School office' ? `${c.name} (${c.title})` : c.name));
+  if (!people.length) return teamLabel(ticket.team).toLowerCase();
+  return people.join(' and ');
+}
+
+async function handoffReply({ ctx, text, domain, reason, student, subject = null, personName = null }) {
+  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student, subject, personName });
   const team = teamLabel(ticket.team);
+  const to = sentToText(ticket);
   const msg = reason === 'complaint'
-    ? `I have noted your complaint and passed it to the ${team.toLowerCase()} (ticket ${ticket.number}). You will get a reply in the app.`
+    ? `I have noted your complaint and passed it to ${to} (ticket ${ticket.number}). You will get a reply in the app.`
     : reason === 'sensitive'
-    ? `I am sorry to hear this. It is important, so I have passed it to the ${team.toLowerCase()} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
-    : `I have passed your message to the ${team.toLowerCase()} (ticket ${ticket.number}). You will get a reply in the app.`;
-  return reply({ domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text, ticket: { id: String(ticket._id), number: ticket.number, team } });
+    ? `I am sorry to hear this. It is important, so I have passed it to ${to} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
+    : `I have sent your message to ${to} (ticket ${ticket.number}). You will get their reply in the app.`;
+  return reply({
+    domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text,
+    ticket: { id: String(ticket._id), number: ticket.number, team, sentTo: (ticket.contacts || []).map((c) => ({ name: c.name, title: c.title })) },
+  });
+}
+
+// The hand-off button, naming the person when one is known ("Ask Mrs. Sunita Sharma").
+async function handoffOffer(ctx, { text, domain = null, subject = null, person = null, child = null }) {
+  const student = await studentForHandoff(ctx, text, child);
+  const { people } = await recipientsFor({ school: ctx.schoolId, domain, student, subject, personName: person });
+  const first = people.find((p) => p.title !== 'School office' && p.title !== 'Accounts office');
+  const label = first ? `Ask ${first.name}` : domain && DOMAINS[domain]?.owner === 'accounts' ? 'Ask the accounts office' : 'Ask the school office';
+  return { option: opt(label, 'office', 'handoff'), who: first ? `${first.name} (${first.title})` : null };
 }
 
 function complaintInquiryReply(ctx, text) {
@@ -122,10 +151,12 @@ function complaintInquiryReply(ctx, text) {
 }
 
 // The student a hand-off is about: the asker (students), or the child named or the only child (parents).
-async function studentForHandoff(ctx, text) {
+async function studentForHandoff(ctx, text, child = null) {
   if (ctx.role === 'student') return ctx.profile.student();
   if (ctx.role === 'parent') {
     const kids = await ctx.profile.children();
+    const named = child && kids.find((c) => c.name.toLowerCase() === child.toLowerCase());
+    if (named) return named;
     return pickChildren(text, kids, ctx.conv.state.lastStudentId)[0] || (kids.length === 1 ? kids[0] : null);
   }
   return null;
@@ -222,7 +253,12 @@ async function answerQuestionInner(ctx, text, forced = {}) {
 
   const skill = skills[d];
   const nluClass = forced.nlu?.class ? parseClass(`class ${forced.nlu.class}`) : null;
-  const sctx = { ...ctx, text, cls: forced.cls || parseClass(text) || nluClass, staffId: forced.staffId || null, personName: forced.nlu?.person || null, students: [] };
+  // The model's plain-English restatement goes first, so a date word like "kal" is read the way the model understood the sentence.
+  const understood = forced.nlu?.english ? `${forced.nlu.english} ${text}` : text;
+  const sctx = {
+    ...ctx, text: understood, question: text, cls: forced.cls || parseClass(text) || nluClass, staffId: forced.staffId || null,
+    personName: forced.nlu?.person || null, subject: forced.nlu?.subject || null, child: forced.nlu?.child || null, view: forced.nlu?.view || null, students: [],
+  };
   if (d === 'general') {
     const out = await skill.run(sctx);
     if (out.ai) ctx.noteAi(out.ai);
@@ -239,8 +275,14 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     else if (forced.studentIds) sctx.students = forced.studentIds.includes('all') ? children : children.filter((c) => forced.studentIds.includes(String(c._id)));
     else {
       let chosen = pickChildren(text, children, state.lastStudentId);
+      // The model matched the child from the sentence itself ("mere bete ki", "chhoti ka").
+      if (!chosen.length && forced.nlu?.child) {
+        chosen = forced.nlu.child.toLowerCase() === 'all' ? children : children.filter((c) => c.name.toLowerCase() === forced.nlu.child.toLowerCase());
+      }
       if (!chosen.length && children.length === 1) chosen = children;
       if (!chosen.length && state.lastStudentId) chosen = children.filter((c) => String(c._id) === String(state.lastStudentId));
+      // Class-wide answers (timetable, exam dates) are the same for children in one class.
+      if (!chosen.length && children.length > 1 && skill.classLevel?.(sctx) && new Set(children.map((c) => `${c.class}-${c.section}`)).size === 1) chosen = [children[0]];
       if (!chosen.length && children.length > 1) {
         const options = [...children.map((c) => opt(`${c.name} (${c.class}-${c.section})`, c._id, 'student')), opt('All children', 'all', 'student')];
         ctx.setPending({ text, kind: 'student', domain: d, options, attempts: 1 });
@@ -253,7 +295,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
       const s = await Student.find({ _id: { $in: forced.studentIds }, school: ctx.schoolId });
       sctx.students = [];
       for (const x of s) if (await canAccessStudent(ctx.user, x)) sctx.students.push(x);
-    } else if (!sctx.cls) {
+    } else if (!sctx.cls && !sctx.personName) {
       const named = await namedStudents(sctx, text);
       if (named.length === 1) sctx.students = named;
       else if (named.length > 1) {
@@ -277,12 +319,19 @@ async function answerQuestionInner(ctx, text, forced = {}) {
 
   if (out.blocked) return reply({ ...base, action: 'blocked', text: out.text });
   if (out.noData) {
-    if (out.handoffOffer) ctx.setPending({ text, kind: 'handoff', domain: d, options: [HANDOFF_OPTION] });
-    return reply({ ...base, action: 'no_data', text: out.text, link: out.link || null, options: out.handoffOffer ? [HANDOFF_OPTION] : [] });
+    let offer = null;
+    if (out.handoffOffer) {
+      offer = await handoffOffer(ctx, { text, domain: d, subject: sctx.subject, person: sctx.personName, child: sctx.child });
+      ctx.setPending({ text, kind: 'handoff', domain: d, subject: sctx.subject, person: sctx.personName, child: sctx.child, options: [offer.option] });
+    }
+    return reply({ ...base, action: 'no_data', text: out.text, link: out.link || null, options: offer ? [offer.option] : [] });
   }
   // Every data answer names what it was read from, including "nothing found" answers.
   const sources = out.sources?.length ? out.sources : [{ type: d, label: `${DOMAINS[d].label} records checked` }];
-  return reply({ ...base, action: 'answer', text: out.text, sources, link: out.link || null, actions: out.actions || [], options: out.options || [] });
+  return reply({
+    ...base, action: 'answer', text: out.text, sources, link: out.link || null, actions: out.actions || [], options: out.options || [],
+    facts: out.facts && Object.keys(out.facts).length ? out.facts : null, subject: sctx.subject, person: sctx.personName, child: sctx.child,
+  });
 }
 
 // Matches free text to a pending option ("Aditya", "fees", "8-B").
@@ -303,7 +352,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
 
   const allowance = entitlements?.limits?.aiQuestionsPerMonth;
   const aiAllowed = llm.available() && (allowance == null || (await usageThisMonth(schoolId, AI_METRIC)) < allowance);
-  const aiInfo = { used: false, provider: null, model: null, inputTokens: 0, outputTokens: 0, rewritten: false };
+  const aiInfo = { used: false, provider: null, model: null, inputTokens: 0, outputTokens: 0, rewritten: false, composed: false };
   const ctx = {
     user, role: user.role, school, schoolId, entitlements, now, conv, aiAllowed,
     allowed: domainsForRole(user.role),
@@ -330,7 +379,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     const err = new Error('Please type a question'); err.status = 400; err.expose = true; throw err;
   }
   ctx.redacted = redact(text || pending?.text || '');
-  const language = detectLanguage(text || pending?.text || '');
+  let language = detectLanguage(text || pending?.text || '');
   ctx.language = language;
 
   const replies = [];
@@ -339,7 +388,10 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   if (tapped && pending) {
     const forced = {};
     if (tapped.type === 'handoff') {
-      replies.push(await handoffReply({ ctx, text: pending.text, domain: pending.domain, reason: pending.kind === 'handoff' ? 'not_covered' : 'unclear' }));
+      replies.push(await handoffReply({
+        ctx, text: pending.text, domain: pending.domain, reason: pending.kind === 'handoff' ? (pending.subject || pending.person ? 'forwarded' : 'not_covered') : 'unclear',
+        student: await studentForHandoff(ctx, pending.text, pending.child), subject: pending.subject, personName: pending.person,
+      }));
     } else {
       if (tapped.type === 'domain') forced.domain = tapped.value;
       else forced.domain = pending.domain;
@@ -358,16 +410,20 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     const understood = !severe && ctx.aiAllowed
       ? await router.understand(text, {
         role: ctx.role, allowed: ctx.allowed, previousTopic: conv.state.lastDomain,
-        childNames: ctx.role === 'parent' ? (await ctx.profile.children()).map((c) => c.name) : [],
+        children: ctx.role === 'parent' ? (await ctx.profile.children()).map(childSummary) : [],
       })
       : null;
     if (understood) {
       ctx.noteAi(understood.model);
+      // The model's reading of the language is better than word counts (short Hinglish looks like English).
+      if (understood.language && language !== 'hi') { language = understood.language; ctx.language = language; }
       for (const part of understood.parts) {
         const topicDomain = DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null;
-        if (part.urgent || part.kind === 'complaint' || part.kind === 'human') {
-          const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : 'requested';
-          replies.push(await handoffReply({ ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text) }));
+        if (part.urgent || ['complaint', 'human', 'forward'].includes(part.kind)) {
+          const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : part.kind === 'forward' ? 'forwarded' : 'requested';
+          replies.push(await handoffReply({
+            ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person,
+          }));
         } else replies.push(await answerQuestion(ctx, part.text, { nlu: part }));
       }
     } else if (severe || router.isSensitive(text) || router.wantsHuman(text)) {
@@ -381,12 +437,34 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     }
   }
 
-  // Wording in the user's language; numbers checked.
-  const rewritable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => ['answer', 'no_data', 'blocked', 'clarify', 'handoff'].includes(r.action) && !r.generated && r.text);
-  if (ctx.aiAllowed && writer.shouldRewrite(language) && rewritable.length) {
-    const { result, ai } = await writer.rewrite(rewritable.map(({ id, r }) => ({ id, text: r.text })), language);
+  // Each data answer is written for the exact question asked, in the person's language (facts, numbers and names checked);
+  // the other replies (clarifying questions, hand-offs, blocks) are only put into the person's language.
+  const composable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => r.action === 'answer' && r.facts && !r.generated);
+  const wordable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => !composable.some((c) => c.r === r)
+    && ['answer', 'no_data', 'blocked', 'clarify', 'handoff'].includes(r.action) && !r.generated && r.text);
+  if (ctx.aiAllowed && composable.length) {
+    const { result, ai } = await compose(
+      composable.map(({ id, r }) => ({ id, question: r.question, text: r.text, facts: r.facts })),
+      { role: ctx.role, askerName: ctx.user?.name || '', today: `${dayText(dayKey(now), { weekday: true })}` },
+    );
     if (ai) ctx.noteAi(ai);
-    for (const { id, r } of rewritable) {
+    for (const { id, r } of composable) {
+      const w = result.get(id);
+      if (!w || w.rejected) { if (w?.rejected) r.groundedCheck = 'kept_original'; continue; }
+      if (w.text !== r.text) { r.text = w.text; aiInfo.composed = true; }
+      // The records do not hold what was asked: say what they do hold and offer to ask the right person.
+      if (!w.answered) {
+        const offer = await handoffOffer(ctx, { text: r.question, domain: r.domain, subject: r.subject, person: r.person, child: r.child });
+        r.action = 'no_data';
+        r.options = [offer.option];
+        ctx.setPending({ text: r.question, kind: 'handoff', domain: r.domain, subject: r.subject, person: r.person, child: r.child, options: [offer.option] });
+      }
+    }
+  }
+  if (ctx.aiAllowed && writer.shouldRewrite(language) && wordable.length) {
+    const { result, ai } = await writer.rewrite(wordable.map(({ id, r }) => ({ id, text: r.text })), language);
+    if (ai) ctx.noteAi(ai);
+    for (const { id, r } of wordable) {
       const w = result.get(id);
       if (w && !w.rejected && w.text !== r.text) { r.text = w.text; aiInfo.rewritten = true; }
       if (w?.rejected) r.groundedCheck = 'kept_original';
@@ -419,7 +497,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     conversationId: String(conv._id),
     queryId: String(log._id),
     language,
-    replies: replies.map(({ generated, groundedCheck, runnerUp, question, ...r }) => r),
+    replies: replies.map(({ generated, groundedCheck, runnerUp, question, facts, subject, person, child, ...r }) => r),
     ai: { used: aiInfo.used, provider: aiInfo.provider },
   };
 }

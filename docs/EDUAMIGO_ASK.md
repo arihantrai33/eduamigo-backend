@@ -31,7 +31,10 @@ and the assistant does one of three things:
 5. **Understand.** Safety words (injury, bullying, payment disputes) go to a person at once, whatever a model would
    say. Otherwise the language model reads the whole message in one call and returns, for each separate question
    in it: the topic, a confidence, the kind (a normal question, a complaint being made, a request for a person,
-   or a question about complaints received), whether it is urgent, and any teacher name or class mentioned. This
+   a question about complaints received, or one only a person can answer), whether it is urgent, the teacher, class,
+   child (resolved from "mere bete", "chhoti wali" and names), subject and exam view (results or schedule) it is about,
+   the language, and the question restated in plain English (so "kal" is read as yesterday or tomorrow the way the
+   sentence meant it). This
    replaces long keyword lists: it copes with new phrasings, spelling mistakes and languages. The model's reading
    is then checked against the words (`reconcile`): a tie between two topics on a short message is asked, never
    guessed; if the model finds no school topic but the words clearly name one, the words win; if both agree the
@@ -43,8 +46,17 @@ and the assistant does one of three things:
 8. **Details.** Which child (parents), which student (staff naming one; teachers only see their classes),
    which class (admins asking for a timetable), which teacher (HR).
 9. **Skill.** Reads the records and returns the answer, its sources and the app screen to open.
-10. **Writer.** For Hindi or Hinglish, the model rewords the answer. The reworded text is used only if every
-    number in it appears in the original and no rupee amount was dropped (`writer.js`).
+10. **Composer.** Every skill returns the standard answer and the facts behind it. The model then writes the
+    answer to the exact question asked, in the person's language: "kya bus fee baaki hai?" gets a yes or no
+    with the amount, "kal ka timetable" only tomorrow's periods, "mere bete ke marks" only that child. Nothing it
+    writes is trusted: every number and every name must appear in the facts, the standard answer or the question
+    (`compose.js`), otherwise the standard answer is shown. When the records do not hold the detail asked, the
+    model says what they do hold and the person is offered the right teacher by name ("Ask Mr. Sharma"). Other
+    replies (clarifying questions, hand-offs) are only put into the person's language (`writer.js`).
+    **Forwarding:** a question only a person can answer (why marks are low, a doubt, permission, an absence
+    notice) goes to the named teacher, the subject's teacher for the child's class (timetable), else the child's
+    class teacher, accountants for fees, or the school office. The reply says who ("sent to Ms. Rao (Maths teacher)")
+    and the teacher's answer comes back as a notification.
 11. **Log.** The question (phone numbers, emails and ID numbers removed), topic, confidence, action, sources,
     speed and model use are logged for the metrics and the school's audit.
 
@@ -112,6 +124,13 @@ A free Gemini key is a fallback only: its rate limit is reached after a few ques
 - Model-first, 5 Oct 2026 (280 labelled questions, Azure gpt-4.1-mini): 98.2% fully correct overall; 96.7% on 30 *fresh* questions
   written after the last change and never used for tuning, where keywords alone get 72.4%. Keywords alone score 100% on the
   questions they were tuned on but only 72 to 76% on new phrasings, which is why the model reads the message first.
+
+- `npm run assistant:answers` (against a running demo, `BASE=http://localhost:8300`) measures whether people get the right
+  *answer*, not just the right topic: 96 questions asked as a parent (two children), a student, a teacher and an admin on
+  the GVPS demo school, each checked for the facts it must contain, the facts it must not (the other child's data), the
+  action, and the person a hand-off went to. 5 Oct 2026: 66/66 on the first set (tuned on), 27/30 on 30 fresh questions
+  written afterwards; the three misses were one real bug (the word "scored" read as "scared", fixed: safety words now match
+  exactly) and two cases whose expected action was too strict.
 
 ## API
 

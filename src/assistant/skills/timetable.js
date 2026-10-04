@@ -81,24 +81,27 @@ async function forClass(ctx, cls, section, who) {
   };
 }
 
-async function forTeacher(ctx) {
+// A teacher's own periods for a day across classes; staff can ask about a named teacher (self = false).
+async function forTeacher(ctx, teacher = ctx.teacher, self = true) {
   const t = targetDay(ctx);
-  if (!ctx.teacher) return { noData: true, text: 'I could not find your teacher record. Please ask the school office.' };
-  const tts = await Timetable.find({ school: ctx.schoolId, day: t.weekday, 'periods.teacher': ctx.teacher._id }).lean();
-  const mine = tts.flatMap((tt) => tt.periods.filter((p) => String(p.teacher) === String(ctx.teacher._id))
+  if (!teacher) return { noData: true, text: 'I could not find your teacher record. Please ask the school office.' };
+  const who = self ? 'You have' : `${teacher.name} has`;
+  const whose = self ? 'Your' : `${teacher.name}'s`;
+  const tts = await Timetable.find({ school: ctx.schoolId, day: t.weekday, 'periods.teacher': teacher._id }).lean();
+  const mine = tts.flatMap((tt) => tt.periods.filter((p) => String(p.teacher) === String(teacher._id))
     .map((p, i) => ({ no: periodNo(p, i), subject: p.subject, time: periodTime(p), cls: `${tt.class}-${tt.section}`, start: toMinutes(p.startTime || p.time) })))
     .sort((a, b) => (a.start ?? a.no * 100) - (b.start ?? b.no * 100) || a.no - b.no);
-  if (!mine.length) return { text: `${t.note}You have no periods on ${t.weekday} (${day(t.d, { short: true })}).`, facts: { day: t.weekday, periods: 0 }, sources: [] };
+  if (!mine.length) return { text: `${t.note}${who} no periods on ${t.weekday} (${day(t.d, { short: true })}).`, facts: { teacher: teacher.name, day: t.weekday, periods: 0 }, sources: [] };
   if (t.isToday && hasPhrase(ctx.text, NEXT_WORDS)) {
     const nowMin = minutesNow(ctx.now);
     const next = mine.find((p) => (p.start ?? -1) > nowMin);
     return next
-      ? { text: `Your next period today: ${next.subject} in ${next.cls}${next.time ? ` (${next.time})` : ''}.`, facts: { next }, sources: [source('timetable', `Timetable · ${t.weekday}`)] }
-      : { text: 'You have no more periods today.', facts: { day: t.weekday }, sources: [source('timetable', `Timetable · ${t.weekday}`)] };
+      ? { text: `${whose} next period today: ${next.subject} in ${next.cls}${next.time ? ` (${next.time})` : ''}.`, facts: { teacher: teacher.name, next }, sources: [source('timetable', `Timetable · ${t.weekday}`)] }
+      : { text: `${who} no more periods today.`, facts: { teacher: teacher.name, day: t.weekday }, sources: [source('timetable', `Timetable · ${t.weekday}`)] };
   }
   return {
-    text: `${t.note}Your periods on ${t.weekday} (${day(t.d, { short: true })}):\n${mine.map((p) => `- Period ${p.no}: ${p.subject} in ${p.cls}${p.time ? ` (${p.time})` : ''}`).join('\n')}`,
-    facts: { day: t.weekday, periods: mine.map(({ start, ...p }) => p) },
+    text: `${t.note}${whose} periods on ${t.weekday} (${day(t.d, { short: true })}):\n${mine.map((p) => `- Period ${p.no}: ${p.subject} in ${p.cls}${p.time ? ` (${p.time})` : ''}`).join('\n')}`,
+    facts: { teacher: teacher.name, day: t.weekday, periods: mine.map(({ start, ...p }) => p) },
     sources: [source('timetable', `Timetable · ${t.weekday}`)],
   };
 }
@@ -163,6 +166,10 @@ async function run(ctx) {
     const r = await forNamedTeacher(ctx, named, ctx.cls.class, ctx.cls.section, { title: label });
     return { ...r, link: link('timetable', ctx.role) };
   }
+  if (named.length === 1 && !ctx.students?.length && !ctx.cls) {
+    const t = await forTeacher(ctx, named[0], String(named[0]._id) === String(ctx.teacher?._id));
+    return { ...t, link: link('timetable', ctx.role) };
+  }
   if (ctx.students?.length) {
     const parts = [];
     for (const s of ctx.students) {
@@ -179,4 +186,4 @@ async function run(ctx) {
   return { ...out, link: link('timetable', ctx.role) };
 }
 
-module.exports = { run, needsStudent: true };
+module.exports = { run, needsStudent: true, staffCanName: true, classLevel: () => true };

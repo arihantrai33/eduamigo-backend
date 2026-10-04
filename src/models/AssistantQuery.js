@@ -31,6 +31,7 @@ const assistantQuerySchema = new mongoose.Schema({
     inputTokens:  { type: Number, default: 0 },
     outputTokens: { type: Number, default: 0 },
     rewritten:    { type: Boolean, default: false }, // the reply wording came from the model (numbers checked)
+    composed:     { type: Boolean, default: false }, // the answer was written for the exact question from the facts (numbers and names checked)
   },
   feedback: {
     helpful: { type: Boolean, default: null },
