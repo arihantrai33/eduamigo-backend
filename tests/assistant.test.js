@@ -54,6 +54,11 @@ describe('one front door: several topics in one message', () => {
     expect(exams.text).toContain('10:00');
   });
 
+  test('no part of a message is dropped, even with a typo ("exaam")', async () => {
+    const res = await ask(A.studentUser, 'what is my attendance and next exaam kab hai?');
+    expect(res.body.data.replies.map((r) => r.domain)).toEqual(['attendance', 'exams']);
+  });
+
   test('a greeting before a question is not answered separately', async () => {
     const res = await ask(A.studentUser, 'hello, meri fees batao');
     expect(res.body.data.replies).toHaveLength(1);

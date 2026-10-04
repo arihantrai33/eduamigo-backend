@@ -154,6 +154,8 @@ async function route(text, { role, allowed, previousTopic, useModel = true } = {
 // greetings are dropped when real questions are present, and neighbouring pieces on the same topic are merged.
 const SPLIT_RE = /(?:\n+|[;?]+|\s+(?:aur|and|also|plus|tatha|evam|as well as|और|तथा|साथ ही)\s+|,\s*(?=\S))/i;
 
+const QUESTION_WORDS = /\b(kab|kya|kitna|kitni|kitne|kaun|kaunsa|kaunsi|kahan|kaha|kaise|kyun|when|what|how|which|where|who|why|is there|are there)\b|\?/i;
+
 function splitQuestions(text, allowed) {
   const raw = String(text || '').split(SPLIT_RE).map((s) => s && s.trim()).filter(Boolean);
   if (raw.length <= 1) return [String(text || '').trim()];
@@ -168,7 +170,10 @@ function splitQuestions(text, allowed) {
     carry = '';
   }
   if (carry) {
-    if (joined.length) joined[joined.length - 1].text += ` ${carry}`;
+    // A trailing piece that is a question of its own ("... aur next exaam kab hai") is never folded into
+    // the previous question: it is answered separately (or clarified), so nothing asked is silently dropped.
+    if (joined.length && QUESTION_WORDS.test(carry)) joined.push({ text: carry, domain: null });
+    else if (joined.length) joined[joined.length - 1].text += ` ${carry}`;
     else return [String(text).trim()];
   }
   parts = joined;

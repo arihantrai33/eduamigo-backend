@@ -38,11 +38,12 @@ async function forStudent(ctx, student) {
   const from = when?.session ? sessionStart(ctx.now) : range.from;
   const to = when?.session ? today(ctx.now) : range.to;
   let periodLabel = when?.session ? 'this session' : range.label;
+  let noneThisMonth = false;
   let records = await Attendance.find({ school: ctx.schoolId, studentId: student._id, date: { $gte: from, $lte: to } }).sort({ date: 1 }).lean();
   // Nothing marked this month yet (start of a month, or a new school): show the session so far instead.
   if (!records.length && !when) {
     records = await Attendance.find({ school: ctx.schoolId, studentId: student._id, date: { $gte: sessionStart(ctx.now), $lte: today(ctx.now) } }).sort({ date: 1 }).lean();
-    if (records.length) periodLabel = 'this session (nothing is marked this month yet)';
+    if (records.length) { periodLabel = 'this session'; noneThisMonth = true; }
   }
   const s = summarize(records);
   if (!s.schoolDays) {
@@ -50,7 +51,8 @@ async function forStudent(ctx, student) {
   }
   const absentDays = records.filter((r) => r.status === 'Absent').map((r) => day(r.date, { short: true }));
   const lines = [
-    `${label} ${periodLabel}: present ${plural(s.Present + s.Late, 'day')} out of ${s.schoolDays} (${s.percentage}%), absent ${plural(s.Absent, 'day')}${s.Late ? `, late ${s.Late}` : ''}${s.Leave ? `, on leave ${s.Leave}` : ''}.`,
+    `${label}, ${periodLabel}: present ${s.Present + s.Late} of ${plural(s.schoolDays, 'day')} (${s.percentage}%), absent ${plural(s.Absent, 'day')}${s.Late ? `, late ${s.Late}` : ''}${s.Leave ? `, on leave ${s.Leave}` : ''}.`,
+    ...(noneThisMonth ? ['No attendance has been marked this month yet.'] : []),
   ];
   if (absentDays.length) lines.push(`Absent on: ${absentDays.slice(-6).join(', ')}${absentDays.length > 6 ? ' and earlier' : ''}.`);
   return {

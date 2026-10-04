@@ -33,9 +33,14 @@ function editDistance(a, b, max = 2) {
 }
 
 // Typos are only forgiven on longer Latin words, where a near miss is very unlikely to be another word.
+// Repeated letters collapsed: "exaam" -> "exam", "feess" -> "fes".
+const squash = (s) => s.replace(/(.)\1+/g, '$1');
+
 function closeEnough(token, word) {
   if (token === word) return true;
   if (!/^[a-z]+$/.test(token) || !/^[a-z]+$/.test(word)) return false;
+  // A doubled or missing repeated letter, common when typing fast ("exaam", "feess", "atendance").
+  if (token.length >= 4 && word.length >= 4 && squash(token) === squash(word)) return true;
   if (word.length < 5 || token.length < 4) return false;
   return editDistance(token, word, 2) <= (word.length >= 8 ? 2 : 1);
 }
