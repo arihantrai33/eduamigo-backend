@@ -12,7 +12,8 @@
     "create-school": "node src/scripts/createSchool.js",
     "backup": "node src/scripts/backup.js",
     "create-platform-admin": "node src/scripts/createPlatformAdmin.js",
-    "demo": "node src/scripts/demo.js"
+    "demo": "node src/scripts/demo.js",
+    "assistant:eval": "node src/scripts/assistantEval.js"
   },
   "keywords": [],
   "author": "",

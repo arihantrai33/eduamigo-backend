@@ -72,6 +72,7 @@ function buildApp() {
   app.use('/api/library',        ...gated('library'),     require('./routes/libraryRoutes'));
   app.use('/api/chat',           ...gated('chat'),        require('./routes/chatRoutes'));
   app.use('/api/revision',       ...gated('ai_revision'), require('./routes/revisionRoutes'));
+  app.use('/api/assistant',      ...gated('ai_assistant'), require('./routes/assistantRoutes'));
 
   app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
 

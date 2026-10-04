@@ -38,6 +38,17 @@ const revisionLimiter = rateLimit({
   message: { success: false, message: 'You have reached the hourly limit for AI revision. Please try again later.' },
 });
 
+// EduAmigo Ask: questions per user per hour (keyword answers are cheap, but this keeps model use fair).
+const assistantLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.ASSISTANT_HOURLY_LIMIT || 120),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: disabled,
+  keyGenerator: (req) => String(req.user?._id || ipKeyGenerator(req.ip)),
+  message: { success: false, message: 'You have asked a lot of questions this hour. Please try again a little later.' },
+});
+
 // Public school lookup (no login): stops anyone from scraping the school list.
 const publicLookupLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -49,4 +60,4 @@ const publicLookupLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
 });
 
-module.exports = { loginLimiter, passwordResetLimiter, revisionLimiter, publicLookupLimiter };
+module.exports = { loginLimiter, passwordResetLimiter, revisionLimiter, assistantLimiter, publicLookupLimiter };

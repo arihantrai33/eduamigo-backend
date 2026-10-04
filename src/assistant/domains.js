@@ -1,0 +1,182 @@
+// EduAmigo Ask: the school's knowledge areas ("domains").
+//
+// Each domain has:
+//   label     - shown on answers ("Routed to: Fees")
+//   ask       - how the topic is named in a clarifying question ("students' leave requests or staff leave and salary?")
+//   feature   - plan feature the school must have (config/features.js); null = core module
+//   roles     - who may ask about it; anyone else gets a polite "not available for your account"
+//   owner     - who a hand-off ticket goes to
+//   terms     - [phrase, weight] in English, Hinglish (Roman script) and Hindi (Devanagari).
+//               Weight 3 = names the topic on its own, 2 = strong hint, 1 = weak hint (shared with other topics).
+//
+// Matching is on whole words after normalising (see text.js), with typo tolerance for longer words.
+
+const DOMAINS = {
+  fees: {
+    ask: "fees",
+    label: 'Fees',
+    feature: 'fees',
+    roles: ['student', 'parent', 'admin', 'accountant'],
+    owner: 'accounts',
+    terms: [
+      ['fee', 3], ['fees', 3], ['fess', 3], ['feez', 3], ['fes', 2], ['school fees', 3], ['bus fees', 4], ['transport fees', 4], ['van fees', 4], ['tuition', 3], ['shulk', 3], ['फीस', 3], ['शुल्क', 3],
+      ['fee receipt', 3], ['receipt', 2], ['rasid', 2], ['raseed', 2], ['installment', 2], ['instalment', 2], ['kisht', 2],
+      ['challan', 2], ['payment', 2], ['pay', 2], ['paid', 1], ['dues', 2], ['due', 1], ['overdue', 2], ['outstanding', 2],
+      ['balance', 1], ['baki', 1], ['baaki', 1], ['bakaya', 2], ['jama', 1], ['paisa', 1], ['paise', 1], ['concession', 2],
+      ['defaulter', 3], ['defaulters', 3], ['collection', 2], ['collected', 2], ['pending fees', 3], ['unpaid', 2],
+    ],
+  },
+  attendance: {
+    ask: "attendance",
+    label: 'Attendance',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'class_teacher',
+    terms: [
+      ['attendance', 3], ['hazri', 3], ['haziri', 3], ['haajri', 3], ['हाजिरी', 3], ['उपस्थिति', 3], ['upasthiti', 3],
+      ['present', 2], ['absent', 2], ['absentees', 3], ['gairhazir', 3], ['late', 1], ['school aaya', 2], ['school gaya', 2],
+      ['school aayi', 2], ['school gayi', 2], ['kitne din', 1], ['bunk', 1], ['missed school', 2],
+    ],
+  },
+  timetable: {
+    ask: "the timetable",
+    label: 'Timetable',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'class_teacher',
+    terms: [
+      ['timetable', 3], ['time table', 3], ['routine', 2], ['period', 2], ['periods', 2], ['lecture', 2], ['lectures', 2],
+      ['next class', 3], ['pehla period', 3], ['first period', 3], ['kaunsi class', 2], ['class schedule', 3],
+      ['schedule', 1], ['subject', 1], ['free period', 3], ['samay sarini', 3], ['समय सारणी', 3],
+    ],
+  },
+  exams: {
+    ask: "exams and results",
+    label: 'Exams & results',
+    feature: 'exams',
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'exam_cell',
+    terms: [
+      ['exam', 3], ['exams', 3], ['exm', 3], ['examination', 3], ['pariksha', 3], ['परीक्षा', 3], ['test', 2], ['unit test', 3],
+      ['mid term', 3], ['midterm', 3], ['final exam', 3], ['date sheet', 3], ['datesheet', 3], ['result', 3], ['results', 3],
+      ['marks', 3], ['mark', 2], ['score', 2], ['grade', 2], ['grades', 2], ['percentage', 2], ['report card', 3],
+      ['number', 1], ['numbers', 1], ['rank', 2], ['paper', 1], ['topper', 2],
+    ],
+  },
+  notes: {
+    ask: "homework and notes",
+    label: 'Homework & notes',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'subject_teacher',
+    terms: [
+      ['homework', 3], ['home work', 3], ['hw', 2], ['assignment', 3], ['assignments', 3], ['notes', 3], ['note', 2],
+      ['study material', 3], ['worksheet', 3], ['grihkarya', 3], ['गृहकार्य', 3], ['question paper', 2], ['sample paper', 3],
+      ['chapter', 1], ['pdf', 1], ['submission', 2], ['submit', 1],
+    ],
+  },
+  transport: {
+    ask: "the school bus",
+    label: 'Transport',
+    feature: 'transport',
+    roles: ['student', 'parent', 'admin'],
+    owner: 'transport',
+    terms: [
+      ['bus', 3], ['buses', 3], ['school bus', 3], ['van', 2], ['transport', 3], ['route', 2], ['routes', 2], ['stop', 2],
+      ['bus stop', 3], ['driver', 2], ['pickup', 2], ['pick up', 2], ['drop', 2], ['trip', 2], ['gaadi', 1], ['gadi', 1],
+      ['बस', 3],
+    ],
+  },
+  notices: {
+    ask: "notices and holidays",
+    label: 'Notices & events',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin', 'accountant'],
+    owner: 'office',
+    terms: [
+      ['notice', 3], ['notices', 3], ['circular', 3], ['circulars', 3], ['announcement', 3], ['announcements', 3],
+      ['suchna', 3], ['सूचना', 3], ['event', 2], ['events', 2], ['function', 2], ['ptm', 3], ['parent teacher meeting', 3],
+      ['calendar', 2], ['holiday', 3], ['holidays', 3], ['vacation', 3], ['chhutti kab', 3], ['chutti kab', 3],
+      ['chhutti hai', 3], ['chutti hai', 3], ['school band', 3], ['school closed', 3], ['annual day', 3], ['sports day', 3],
+      ['chhutti', 1], ['chutti', 1], ['news', 1],
+    ],
+  },
+  leave: {
+    ask: "students' leave requests",
+    label: 'Leave requests',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'class_teacher',
+    terms: [
+      ['leave', 3], ['leaves', 3], ['leave application', 3], ['leave request', 3], ['leave requests', 3], ['apply leave', 3],
+      ['avkash', 3], ['अवकाश', 3], ['chhutti chahiye', 3], ['chutti chahiye', 3], ['chhutti leni', 3], ['chutti leni', 3],
+      ['sick leave', 2], ['student leave', 4], ['students leave', 4], ['student leave requests', 5], ['leave requests of students', 5],
+      ['leave of students', 4], ['bachche ki leave', 4], ['bachchon ki leave', 4], ['bachchon ki chhutti', 4], ['chhutti', 1], ['chutti', 1], ['approve', 1], ['approved', 1],
+    ],
+  },
+  library: {
+    ask: "the library",
+    label: 'Library',
+    feature: 'library',
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'librarian',
+    terms: [
+      ['library', 3], ['book', 3], ['books', 3], ['kitab', 3], ['kitaab', 3], ['kitabein', 3], ['पुस्तक', 3], ['किताब', 3],
+      ['author', 2], ['librarian', 3], ['novel', 2], ['pustakalay', 3],
+    ],
+  },
+  admissions: {
+    ask: "admissions",
+    label: 'Admissions',
+    feature: 'admissions',
+    roles: ['admin'],
+    owner: 'office',
+    terms: [
+      ['admission', 3], ['admissions', 3], ['enquiry', 3], ['enquiries', 3], ['inquiry', 3], ['inquiries', 3],
+      ['pravesh', 3], ['प्रवेश', 3], ['new admission', 3], ['application', 1], ['applications', 1], ['walk in', 2],
+    ],
+  },
+  hr: {
+    ask: "staff leave and salary",
+    label: 'HR & payroll',
+    feature: 'hr',
+    roles: ['teacher', 'admin'],
+    owner: 'office',
+    terms: [
+      ['salary', 3], ['salaries', 3], ['payslip', 3], ['pay slip', 3], ['salary slip', 3], ['vetan', 3], ['वेतन', 3],
+      ['tankhwah', 3], ['payroll', 3], ['staff leave', 3], ['casual leave', 3], ['earned leave', 3], ['leave balance', 3],
+      ['leave', 3], ['leaves', 3], ['leave requests', 3], ['leave request', 3], ['sir ki leave', 4], ['madam ki leave', 4], ['mam ki leave', 4], ['sir ki chhutti', 4], ['madam ki chhutti', 4], ['staff', 1], ['teachers leave', 3], ['teacher leave', 3], ['appraisal', 2],
+    ],
+  },
+  general: {
+    ask: "something general",
+    label: 'General',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin', 'accountant'],
+    owner: 'office',
+    terms: [
+      ['hi', 3], ['hello', 3], ['hey', 3], ['namaste', 3], ['namaskar', 3], ['good morning', 3], ['good afternoon', 3],
+      ['good evening', 3], ['thanks', 3], ['thank you', 3], ['thank', 2], ['dhanyavad', 3], ['shukriya', 3], ['bye', 3],
+      ['help', 2], ['what can you do', 3], ['kya kar sakte', 3], ['who are you', 3], ['tum kaun', 3], ['aap kaun', 3],
+      ['ok', 2], ['okay', 2], ['theek hai', 2],
+    ],
+  },
+};
+
+// Who handles a hand-off for each owner key (resolved to real people in handoff.js).
+const OWNERS = {
+  accounts: 'Accounts office',
+  class_teacher: 'Class teacher',
+  exam_cell: 'Exam cell',
+  subject_teacher: 'Subject teacher',
+  transport: 'Transport in-charge',
+  librarian: 'Librarian',
+  office: 'School office',
+};
+
+const DOMAIN_KEYS = Object.keys(DOMAINS);
+
+// Domains a role may ask about.
+const domainsForRole = (role) => DOMAIN_KEYS.filter((d) => DOMAINS[d].roles.includes(role));
+
+module.exports = { DOMAINS, DOMAIN_KEYS, OWNERS, domainsForRole };

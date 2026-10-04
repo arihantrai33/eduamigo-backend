@@ -17,6 +17,7 @@ const FEATURES = {
   library:         { name: 'Library',                  description: 'Library catalogue' },
   chat:            { name: 'Parent-Teacher Chat',      description: 'Messaging between parents, students and staff' },
   ai_revision:     { name: 'AI Revision Assistant',    description: 'Students revise from their class notes with AI' },
+  ai_assistant:    { name: 'EduAmigo Ask',             description: 'One assistant for fees, attendance, exams, bus, notices and more, in English, Hindi or Hinglish, with hand-off to staff' },
 };
 
 // Always included, in every plan. Listed for the apps and documentation; never gated.
@@ -29,7 +30,8 @@ const FEATURE_KEYS = Object.keys(FEATURES);
 
 // Limits: null means unlimited.
 //   maxStudents          - active students the school can have
-//   aiQuestionsPerMonth  - AI revision questions per school per calendar month
+//   aiQuestionsPerMonth  - AI revision questions per school per calendar month; EduAmigo Ask counts its
+//                          model-assisted questions against the same number separately (keyword answers are free)
 const DEFAULT_PLANS = [
   {
     code: 'basic', name: 'Basic', sortOrder: 1,
@@ -64,6 +66,7 @@ const PERMISSION_FEATURE = {
   'transport.manage': 'transport',
   'library.manage': 'library',
   'chat.directory': 'chat',
+  'assistant.insights': 'ai_assistant',
 };
 
 const SUBSCRIPTION_STATUSES = ['trial', 'active', 'read_only', 'suspended'];

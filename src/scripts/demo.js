@@ -37,7 +37,9 @@ async function seed({ skipCodes = [] } = {}) {
   await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
   rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
 
-  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, students }) {
+  const { seedActivity } = require('./demoActivity');
+
+  async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, students, stops }) {
     if (skipCodes.includes(code)) return null;
     const { school, admin } = await onboardSchool({ name, code, city, plan, adminName: `${code} Principal`, adminEmail: `admin@${code.toLowerCase()}.demo` });
     await ready(admin._id);
@@ -70,6 +72,8 @@ async function seed({ skipCodes = [] } = {}) {
         rows.push({ school: code, role: `Parent (${s.parentName})`, loginId: s.parentPhone, where: 'Parent tab' });
       }
     }
+    // A month of fees, attendance, exams, buses, notices and more, so EduAmigo Ask has data to answer from.
+    await seedActivity({ _id: school._id, code }, stops ? { stops } : {});
     return school;
   }
 
@@ -105,7 +109,7 @@ async function seed({ skipCodes = [] } = {}) {
   };
   await demoSchool({
     ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', city: 'Gaya',
-    classes: ['6', '7', '8'], teacher: 'Sunita Prasad',
+    classes: ['6', '7', '8'], teacher: 'Sunita Prasad', stops: ['School Gate', 'Gaya Junction', 'Chandauti More', 'Bodhgaya Road'],
     students: [
       { name: 'Aditya Kumar', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Male' },
       { name: 'Ananya Kumari', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Female' },  // sibling
@@ -114,9 +118,10 @@ async function seed({ skipCodes = [] } = {}) {
   });
   await demoSchool({
     ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', city: 'Chakand, Gaya',
-    classes: ['1', '2', '3'], teacher: 'Ravi Ranjan',
+    classes: ['1', '2', '3'], teacher: 'Ravi Ranjan', stops: ['School Gate', 'Chakand Bazaar', 'Chandauti More', 'Bodhgaya Road'],
     students: [
       { name: 'Khushi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },
+      { name: 'Aarohi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },  // sibling
       { name: 'Arnav Singh', parentName: 'Vikash Singh', parentPhone: '9304012345', gender: 'Male' },
     ],
   });

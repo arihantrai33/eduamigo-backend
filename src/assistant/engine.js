@@ -1,0 +1,373 @@
+// EduAmigo Ask engine: one message in, one or more replies out.
+//
+//  1. Guard        the caller is signed in (route), AI quota decides whether the model may be used
+//  2. Choice       a tapped button (topic, child, class, teacher, hand-off) resumes the pending question
+//  3. Safety       complaints, safety concerns and requests for a person become a ticket at once
+//  4. Split        one message can hold several questions
+//  5. Route        each question gets a topic and a confidence score (router.js)
+//  6. Gate         answer (>= 0.75) / clarify (0.45 - 0.75) / topic menu with a hand-off option (< 0.45)
+//  7. Access       the topic must be open to the role and part of the school's plan
+//  8. Details      which child (parents), which student (staff naming one), which class or teacher
+//  9. Skill        reads the records and returns an answer with sources and a screen link
+// 10. Writer       Hindi / Hinglish wording by the model, accepted only if the numbers match
+// 11. Log         query log (metrics, audit) and conversation memory for follow-ups
+
+const AssistantConversation = require('../models/AssistantConversation');
+const AssistantQuery = require('../models/AssistantQuery');
+const Student = require('../models/Student');
+const SchoolClass = require('../models/SchoolClass');
+const { studentForUser, teacherForUser, childrenForParent, canAccessStudent } = require('../services/directory');
+const { usageThisMonth, recordUsage } = require('../services/subscription');
+const { parseClassKey } = require('../utils/classes');
+const { DOMAINS, domainsForRole } = require('./domains');
+const router = require('./router');
+const { redact, detectLanguage, tokenize, normalize, closeEnough } = require('./text');
+const { parseClass, pickChildren, looksLikeFollowUp } = require('./entities');
+const { createTicket, teamLabel } = require('./handoff');
+const writer = require('./writer');
+const llm = require('./llm');
+const skills = require('./skills');
+const { suggestionsFor } = require('./skills/general');
+const { escapeRegex } = require('./skills/util');
+
+const MAX_MESSAGE = 500;
+const MAX_QUESTIONS = 4;
+const AI_METRIC = 'assistant_ai';
+
+const opt = (label, value, type) => ({ label, value: String(value), type });
+const domainOpt = (d) => opt(DOMAINS[d].label, d, 'domain');
+const HANDOFF_OPTION = opt('Ask the school office', 'office', 'handoff');
+
+// Words that never name a student (used when staff mention a student by name).
+const NOT_NAMES = new Set([
+  ...Object.values(DOMAINS).flatMap((d) => d.terms.flatMap(([p]) => tokenize(p))),
+  'today', 'tomorrow', 'yesterday', 'aaj', 'kal', 'parso', 'class', 'section', 'school', 'student', 'students', 'teacher', 'teachers',
+  'what', 'which', 'when', 'where', 'show', 'tell', 'give', 'list', 'please', 'month', 'week', 'year', 'mahine', 'hafte', 'pending', 'today',
+  'kitni', 'kitna', 'kitne', 'batao', 'dikhao', 'kaise', 'kaun', 'kaunsa', 'kaunsi', 'meri', 'mera', 'mere', 'uski', 'uska', 'unki', 'hamara',
+  'with', 'have', 'from', 'this', 'that', 'there', 'their', 'about', 'details', 'status', 'report', 'summary', 'total', 'all', 'sabhi', 'wala', 'wali',
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'last', 'next', 'first', 'chahiye', 'hai', 'hain', 'tha', 'thi',
+]);
+
+function emptyPending() {
+  return { text: null, kind: null, domain: null, options: [], attempts: 0 };
+}
+
+async function loadConversation(user, schoolId, conversationId) {
+  if (conversationId) {
+    const conv = await AssistantConversation.findOne({ _id: conversationId, user: user._id, school: schoolId }).catch(() => null);
+    if (conv) return conv;
+  }
+  return AssistantConversation.create({ school: schoolId, user: user._id });
+}
+
+// Lazily loaded profile of the asker.
+function profileLoader(user) {
+  const cache = {};
+  return {
+    async student() { if (!('student' in cache)) cache.student = await studentForUser(user); return cache.student; },
+    async children() { if (!('children' in cache)) cache.children = await childrenForParent(user); return cache.children; },
+    async teacher() { if (!('teacher' in cache)) cache.teacher = await teacherForUser(user); return cache.teacher; },
+  };
+}
+
+// Students named in a staff member's question. Teachers only see students they teach.
+async function namedStudents(ctx, text) {
+  const words = [...new Set(tokenize(text).filter((w) => w.length >= 3 && /^[a-z]+$/.test(w) && !NOT_NAMES.has(w)))];
+  if (!words.length) return [];
+  const found = await Student.find({ school: ctx.schoolId, isActive: true, name: { $regex: `(^|\\s)(${words.map(escapeRegex).join('|')})(\\s|$)`, $options: 'i' } }).limit(6);
+  const visible = [];
+  for (const s of found) if (await canAccessStudent(ctx.user, s)) visible.push(s);
+  return visible;
+}
+
+// Class choices for "which class?" questions.
+async function classOptions(ctx) {
+  if (ctx.role === 'teacher' && ctx.teacher) {
+    return (ctx.teacher.assignedClasses || []).slice(0, 8).map((c) => { const k = parseClassKey(c); return opt(`${k.class}${k.section ? `-${k.section}` : ''}`, `${k.class}-${k.section}`, 'class'); });
+  }
+  const masters = await SchoolClass.find({ school: ctx.schoolId, isActive: true }).sort({ order: 1 }).lean();
+  const keys = masters.flatMap((m) => (m.sections?.length ? m.sections.map((s) => `${m.name}-${s.name}`) : [m.name]));
+  if (keys.length) return keys.slice(0, 8).map((k) => opt(k, k, 'class'));
+  const groups = await Student.aggregate([{ $match: { school: ctx.schoolId, isActive: true } }, { $group: { _id: { c: '$class', s: '$section' } } }, { $sort: { '_id.c': 1, '_id.s': 1 } }, { $limit: 8 }]);
+  return groups.map((g) => opt(`${g._id.c}-${g._id.s}`, `${g._id.c}-${g._id.s}`, 'class'));
+}
+
+function reply(base) {
+  return {
+    domain: null, label: null, confidence: 0, method: 'keywords', action: 'answer', text: '', sources: [], link: null, actions: [], options: [], ticket: null,
+    ...base,
+  };
+}
+
+async function handoffReply({ ctx, text, domain, reason, student }) {
+  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student });
+  const team = teamLabel(ticket.team);
+  const msg = reason === 'sensitive'
+    ? `I am sorry to hear this. It is important, so I have passed it to the ${team.toLowerCase()} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
+    : `I have passed your message to the ${team.toLowerCase()} (ticket ${ticket.number}). You will get a reply in the app.`;
+  return reply({ domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text, ticket: { id: String(ticket._id), number: ticket.number, team } });
+}
+
+// One question -> one reply. `forced` comes from a tapped choice: { domain, studentIds, cls, staffId }.
+async function answerQuestion(ctx, text, forced = {}) {
+  const out = await answerQuestionInner(ctx, text, forced);
+  return { ...out, question: text };
+}
+
+async function answerQuestionInner(ctx, text, forced = {}) {
+  const state = ctx.conv.state;
+  let r;
+  if (forced.domain) r = { domain: forced.domain, confidence: 1, method: 'choice', runnerUp: null };
+  else {
+    r = await router.route(text, { role: ctx.role, allowed: ctx.allowed, previousTopic: state.lastDomain, useModel: ctx.aiAllowed });
+    if (r.model) ctx.noteAi(r.model);
+    // Follow-ups ("aur Ananya ki?", "uski attendance?") keep the previous topic.
+    const namesChild = ctx.role === 'parent' && pickChildren(text, await ctx.profile.children(), state.lastStudentId).length > 0;
+    if (state.lastDomain && state.lastDomain !== 'general' && (!r.domain || r.domain === 'general' || r.confidence < router.CLARIFY_AT)
+      && (looksLikeFollowUp(text) || namesChild)) {
+      r = { domain: state.lastDomain, confidence: 0.8, method: 'context', runnerUp: null };
+    }
+  }
+
+  // Safety flagged by the model.
+  if (r.sensitive) return handoffReply({ ctx, text, domain: r.domain === 'school_other' ? null : r.domain, reason: 'sensitive' });
+
+  // A school question no topic covers: offer the office.
+  if (r.domain === 'school_other') {
+    ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
+    return reply({ confidence: r.confidence, method: r.method, action: 'no_data', text: 'I do not have that information in the app. Shall I ask the school office for you?', options: [HANDOFF_OPTION] });
+  }
+
+  // Nothing recognised: a general answer from the model when one is available, otherwise say what the
+  // assistant can do and offer to pass the question to the school office.
+  if (!r.domain) {
+    const out = await skills.general.run({ ...ctx, text });
+    if (out.ai) ctx.noteAi(out.ai);
+    if (out.generated) {
+      return reply({ domain: 'general', label: DOMAINS.general.label, confidence: 0, method: r.method, action: 'answer', text: out.text, options: out.options || [], generated: true });
+    }
+    const options = [...(out.options || []).slice(0, 4), HANDOFF_OPTION];
+    ctx.setPending({ text, kind: 'handoff', domain: null, options });
+    return reply({ domain: 'general', label: DOMAINS.general.label, confidence: 0, method: r.method, action: 'clarify', text: out.text, options });
+  }
+
+  // Confidence gate.
+  if (r.confidence < router.ANSWER_AT) {
+    const attempts = (state.pending?.text ? state.pending.attempts : 0) + 1;
+    if (attempts > 2) return handoffReply({ ctx, text, domain: r.domain, reason: 'unclear' });
+    let options;
+    let question;
+    if (r.confidence >= router.CLARIFY_AT && r.runnerUp && ctx.allowed.includes(r.runnerUp)) {
+      options = [domainOpt(r.domain), domainOpt(r.runnerUp)];
+      question = `Do you mean ${DOMAINS[r.domain].ask} or ${DOMAINS[r.runnerUp].ask}?`;
+    } else if (r.confidence >= router.CLARIFY_AT) {
+      options = [domainOpt(r.domain)];
+      question = `Is this about ${DOMAINS[r.domain].ask}?`;
+    } else {
+      const likely = [r.domain, r.runnerUp, ...ctx.allowed].filter((d, i, a) => d && d !== 'general' && ctx.allowed.includes(d) && a.indexOf(d) === i).slice(0, 4);
+      options = likely.map(domainOpt);
+      question = 'I am not sure what this is about. Which topic is it?';
+    }
+    options.push(opt('Something else', 'office', 'handoff'));
+    ctx.setPending({ text, kind: 'domain', domain: r.domain, options, attempts });
+    return reply({ domain: r.domain, label: DOMAINS[r.domain].label, confidence: r.confidence, method: r.method, runnerUp: r.runnerUp, action: 'clarify', text: question, options });
+  }
+
+  const d = r.domain;
+  const base = { domain: d, label: DOMAINS[d].label, confidence: r.confidence, method: r.method, runnerUp: r.runnerUp || null };
+
+  // Access: role, then plan.
+  if (!DOMAINS[d].roles.includes(ctx.role)) {
+    return reply({ ...base, action: 'blocked', text: `${DOMAINS[d].label} information is not available for your account.` });
+  }
+  if (DOMAINS[d].feature && !ctx.entitlements?.features?.includes(DOMAINS[d].feature)) {
+    return reply({ ...base, action: 'blocked', text: `The ${DOMAINS[d].label} module is not part of ${ctx.school?.name || 'your school'}'s plan.` });
+  }
+
+  const skill = skills[d];
+  const sctx = { ...ctx, text, cls: forced.cls || parseClass(text), staffId: forced.staffId || null, students: [] };
+  if (d === 'general') {
+    const out = await skill.run(sctx);
+    if (out.ai) ctx.noteAi(out.ai);
+    return reply({ ...base, text: out.text, options: out.options || [], generated: !!out.generated });
+  }
+
+  // Which student(s).
+  if (ctx.role === 'student') {
+    const s = await ctx.profile.student();
+    sctx.students = s ? [s] : [];
+  } else if (ctx.role === 'parent') {
+    const children = await ctx.profile.children();
+    if (!skill.needsStudent) sctx.students = children;
+    else if (forced.studentIds) sctx.students = forced.studentIds.includes('all') ? children : children.filter((c) => forced.studentIds.includes(String(c._id)));
+    else {
+      let chosen = pickChildren(text, children, state.lastStudentId);
+      if (!chosen.length && children.length === 1) chosen = children;
+      if (!chosen.length && state.lastStudentId) chosen = children.filter((c) => String(c._id) === String(state.lastStudentId));
+      if (!chosen.length && children.length > 1) {
+        const options = [...children.map((c) => opt(`${c.name} (${c.class}-${c.section})`, c._id, 'student')), opt('All children', 'all', 'student')];
+        ctx.setPending({ text, kind: 'student', domain: d, options, attempts: 1 });
+        return reply({ ...base, action: 'clarify', text: `You have ${children.length} children at this school. Who is this about?`, options });
+      }
+      sctx.students = chosen;
+    }
+  } else if (skill.staffCanName && !forced.cls) {
+    if (forced.studentIds) {
+      const s = await Student.find({ _id: { $in: forced.studentIds }, school: ctx.schoolId });
+      sctx.students = [];
+      for (const x of s) if (await canAccessStudent(ctx.user, x)) sctx.students.push(x);
+    } else if (!sctx.cls) {
+      const named = await namedStudents(sctx, text);
+      if (named.length === 1) sctx.students = named;
+      else if (named.length > 1) {
+        const options = named.slice(0, 5).map((s) => opt(`${s.name} (${s.class}-${s.section})`, s._id, 'student'));
+        ctx.setPending({ text, kind: 'student', domain: d, options, attempts: 1 });
+        return reply({ ...base, action: 'clarify', text: 'Which student do you mean?', options });
+      }
+    }
+  }
+
+  const out = await skill.run(sctx);
+  if (out.need) {
+    const options = out.need.options || (out.need.kind === 'class' ? await classOptions(sctx) : []);
+    ctx.setPending({ text, kind: out.need.kind, domain: d, options, attempts: 1 });
+    return reply({ ...base, action: 'clarify', text: out.need.question, options });
+  }
+
+  state.lastDomain = d;
+  if (sctx.students.length === 1) state.lastStudentId = sctx.students[0]._id;
+  if (sctx.cls) state.lastClass = `${sctx.cls.class}-${sctx.cls.section}`;
+
+  if (out.blocked) return reply({ ...base, action: 'blocked', text: out.text });
+  if (out.noData) {
+    if (out.handoffOffer) ctx.setPending({ text, kind: 'handoff', domain: d, options: [HANDOFF_OPTION] });
+    return reply({ ...base, action: 'no_data', text: out.text, link: out.link || null, options: out.handoffOffer ? [HANDOFF_OPTION] : [] });
+  }
+  return reply({ ...base, action: 'answer', text: out.text, sources: out.sources || [], link: out.link || null, actions: out.actions || [], options: out.options || [] });
+}
+
+// Matches free text to a pending option ("Aditya", "fees", "8-B").
+function matchOption(text, options) {
+  const t = normalize(text);
+  if (!t) return null;
+  return options.find((o) => normalize(o.label) === t || normalize(o.value) === t
+    || tokenize(o.label).some((w) => w.length >= 3 && tokenize(t).length <= 3 && tokenize(t).some((x) => closeEnough(x, w)))) || null;
+}
+
+// Main entry. Returns { conversationId, queryId, language, replies, suggestions }.
+async function ask({ user, school, entitlements, message, conversationId, choice, now = new Date() }) {
+  const started = Date.now();
+  const schoolId = school._id;
+  const conv = await loadConversation(user, schoolId, conversationId);
+  const pending = conv.state?.pending?.text ? JSON.parse(JSON.stringify(conv.state.pending)) : null;
+  let text = String(message || '').trim().slice(0, MAX_MESSAGE);
+
+  const allowance = entitlements?.limits?.aiQuestionsPerMonth;
+  const aiAllowed = llm.available() && (allowance == null || (await usageThisMonth(schoolId, AI_METRIC)) < allowance);
+  const aiInfo = { used: false, provider: null, model: null, inputTokens: 0, outputTokens: 0, rewritten: false };
+  const ctx = {
+    user, role: user.role, school, schoolId, entitlements, now, conv, aiAllowed,
+    allowed: domainsForRole(user.role),
+    profile: profileLoader(user),
+    noteAi(m) {
+      if (!m || m.cached) return;
+      aiInfo.used = true; aiInfo.provider = m.provider; aiInfo.model = m.model;
+      aiInfo.inputTokens += m.usage?.input || 0; aiInfo.outputTokens += m.usage?.output || 0;
+    },
+    setPending(p) { this.newPending = { ...emptyPending(), ...p }; },
+    newPending: null,
+  };
+  if (ctx.role === 'teacher') ctx.teacher = await ctx.profile.teacher();
+
+  // A suggestion chip is just a question.
+  if (choice?.type === 'ask' && choice.value) text = String(choice.value).slice(0, MAX_MESSAGE);
+  // Free text that answers a pending question counts as tapping that option.
+  let tapped = choice && choice.type !== 'ask' ? choice : null;
+  if (!tapped && pending && text) {
+    const m = matchOption(text, pending.options || []);
+    if (m) tapped = { type: m.type, value: m.value };
+  }
+  if (!text && !tapped) {
+    const err = new Error('Please type a question'); err.status = 400; err.expose = true; throw err;
+  }
+  ctx.redacted = redact(text || pending?.text || '');
+  const language = detectLanguage(text || pending?.text || '');
+  ctx.language = language;
+
+  const replies = [];
+  const shown = text || tapped?.label || '';
+
+  if (tapped && pending) {
+    const forced = {};
+    if (tapped.type === 'handoff') {
+      replies.push(await handoffReply({ ctx, text: pending.text, domain: pending.domain, reason: pending.kind === 'handoff' ? 'not_covered' : 'unclear' }));
+    } else {
+      if (tapped.type === 'domain') forced.domain = tapped.value;
+      else forced.domain = pending.domain;
+      if (tapped.type === 'student') forced.studentIds = [tapped.value];
+      if (tapped.type === 'class') { const k = parseClassKey(tapped.value); forced.cls = { class: k.class, section: k.section }; }
+      if (tapped.type === 'staff') forced.staffId = tapped.value;
+      if (forced.domain && !DOMAINS[forced.domain]) forced.domain = null;
+      const r = await answerQuestion(ctx, pending.text, forced);
+      r.method = r.method === 'rule' ? 'rule' : 'choice';
+      replies.push(r);
+    }
+  } else if (router.isSensitive(text) || router.wantsHuman(text)) {
+    const scored = router.scoreKeywords(text, ctx.allowed);
+    const domain = scored.domain && scored.domain !== 'general' ? scored.domain : (conv.state.lastDomain !== 'general' ? conv.state.lastDomain : null);
+    let student = null;
+    if (ctx.role === 'student') student = await ctx.profile.student();
+    if (ctx.role === 'parent') {
+      const kids = await ctx.profile.children();
+      student = pickChildren(text, kids, conv.state.lastStudentId)[0] || (kids.length === 1 ? kids[0] : null);
+    }
+    replies.push(await handoffReply({ ctx, text, domain, reason: router.isSensitive(text) ? 'sensitive' : 'requested', student }));
+  } else {
+    const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);
+    for (const q of questions) replies.push(await answerQuestion(ctx, q));
+  }
+
+  // Wording in the user's language; numbers checked.
+  const rewritable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => ['answer', 'no_data', 'blocked', 'clarify'].includes(r.action) && !r.generated && r.text);
+  if (ctx.aiAllowed && writer.shouldRewrite(language) && rewritable.length) {
+    const { result, ai } = await writer.rewrite(rewritable.map(({ id, r }) => ({ id, text: r.text })), language);
+    if (ai) ctx.noteAi(ai);
+    for (const { id, r } of rewritable) {
+      const w = result.get(id);
+      if (w && !w.rejected && w.text !== r.text) { r.text = w.text; aiInfo.rewritten = true; }
+      if (w?.rejected) r.groundedCheck = 'kept_original';
+    }
+  }
+
+  // Conversation memory.
+  conv.state.pending = ctx.newPending || emptyPending();
+  conv.turns += 1;
+  conv.lastActiveAt = new Date();
+  conv.markModified('state');
+  await conv.save();
+
+  if (aiInfo.used) await recordUsage(schoolId, AI_METRIC);
+
+  const ACTION_RANK = ['handoff', 'clarify', 'blocked', 'no_data', 'answer'];
+  const overall = ACTION_RANK.find((a) => replies.some((r) => r.action === a)) || 'answer';
+  const log = await AssistantQuery.create({
+    school: schoolId, user: user._id, role: user.role, conversation: conv._id,
+    text: redact(shown).slice(0, 1000), language,
+    parts: replies.map((r, i) => ({
+      text: redact(r.question || shown).slice(0, 600),
+      domain: r.domain, confidence: r.confidence, runnerUp: r.runnerUp || null, method: r.method, action: r.action,
+      sources: r.sources.length, grounded: true, ticket: r.ticket?.id || null,
+    })),
+    action: overall, latencyMs: Date.now() - started, ai: aiInfo,
+  });
+
+  return {
+    conversationId: String(conv._id),
+    queryId: String(log._id),
+    language,
+    replies: replies.map(({ generated, groundedCheck, runnerUp, question, ...r }) => r),
+    ai: { used: aiInfo.used, provider: aiInfo.provider },
+  };
+}
+
+module.exports = { ask, answerQuestion, matchOption, AI_METRIC, suggestionsFor };
