@@ -44,11 +44,12 @@ school; "unit" means an automated test with a scripted model. Nothing here has s
 | Real confidence, clarify, handoff fallback | `reconcile`, gate 0.75/0.45 | calibration (ECE 0.02); `assistant.test.js` | PASS |
 | Domain skills grounded in records | `skills/*.js`, `compose.js` | answer eval 125/125; `AI_GROUNDING.md` | PASS |
 | Document grounding with evidence | `services/knowledge.js`, `SchoolDocument` | `assistant-knowledge.test.js` (12 tests incl. time/timing) | PARTIAL: lexical |
-| LLM proposes, backend validates and executes | `actions/` contracts, `planner.js` | `assistant-conversation.test.js` (verification, failure, not_yours) | PASS |
+| LLM proposes, backend validates and executes | `actions/` contracts, `planner.js`, owner-scoped lookup by number | `assistant-conversation.test.js`, `assistant-hardening.test.js` (states, lookup, ownership) | PASS |
 | No unconfirmed success claims | `actions/messages.js` | tests for failed create, failed notification | PASS |
 | Ticket dedupe, follow-up, repeat, escalate, reopen, status | `planner.js`, `ticketActions.js`, `policy.js` | lifecycle tests; chats "lifecycle", "same complaint again" | PASS; thresholds are heuristics |
 | Professional staff brief, original kept | `router.js` brief, `handoff.js`, `AssistantTicket` | brief tests; chat "student complaint becomes professional English" (no Devanagari, no Hinglish for staff) | PASS |
-| Priority by policy, not by the model | `policy.js` | tests: bare "urgent" ignored; payment problem urgent by policy (`final2`) | PASS |
+| Priority by policy, not by the model | `policy.js` (model label unconfirmed unless words or a verified quote confirm it; directives removed) | `assistant-hardening.test.js`: genuine concern urgent, injection not, unconfirmed label recorded | PASS; word lists are a floor, a real emergency in unusual words relies on the second check |
+| One ticket per report under concurrency | unique `dedupeKey` index, `ticket.create` | `assistant-hardening.test.js` (two simultaneous identical requests, one ticket) | PASS (two-minute window; later repeats are handled by the planner) |
 | RBAC, other people's data refused | `scopeRefusal`, skills' scope, `ticket.status` ownership | `assistant-security.test.js` (11), `access-matrix.test.js`; chats "someone else's ticket cannot be touched" | PASS |
 | Prompt-injection safety | model output validated; facts from the database | `assistant-security.test.js` | PASS |
 | Provider failure handled | `llm.js`, keyword fallback | `assistant-model.test.js`, "provider failure" tests | PASS; fallback answers a complaint as a question |

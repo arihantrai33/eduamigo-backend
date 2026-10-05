@@ -78,7 +78,7 @@ describe('Hinglish answers', () => {
 });
 
 // Answers each kind of call the assistant makes, by what the call asks for.
-function mockModel({ understand, general, rewrite, compose } = {}) {
+function mockModel({ understand, general, rewrite, compose, verify } = {}) {
   global.fetch.mockImplementation(async (url, opts) => {
     const system = JSON.parse(opts.body).messages[0].content;
     if (system.includes('split it into the separate questions')) return azureReply(JSON.stringify({ questions: understand }));
@@ -86,6 +86,8 @@ function mockModel({ understand, general, rewrite, compose } = {}) {
       const { items } = JSON.parse(JSON.parse(opts.body).messages[1].content);
       return azureReply(JSON.stringify({ replies: items.map((i) => ({ id: i.id, ...(typeof compose === 'function' ? compose(i) : compose || { answered: true, text: i.standardAnswer }) })) }));
     }
+    // The separate check that must quote the person's own words before a model-asserted safety label can raise priority.
+    if (system.includes('You check one safety label')) return azureReply(JSON.stringify(verify || { confirmed: false, quote: '' }));
     if (system.includes('reword answers')) return azureReply(JSON.stringify(rewrite || { replies: [] }));
     return azureReply(general || 'ok');
   });
@@ -107,7 +109,7 @@ describe('the model reads the message first', () => {
   });
 
   test('an urgent concern the safety words miss is still handed off as urgent', async () => {
-    mockModel({ understand: [part({ text: 'conductor uncle ne galat tarike se pakda', topic: 'transport', safety: 'harassment' })] });
+    mockModel({ understand: [part({ text: 'conductor uncle ne galat tarike se pakda', topic: 'transport', safety: 'harassment' })], verify: { confirmed: true, quote: 'galat tarike se pakda' } });
     const res = await ask(A.parentUser, 'conductor uncle ne galat tarike se pakda');
     expect(res.body.data.replies[0].action).toBe('handoff');
     expect((await AssistantTicket.findOne({})).priority).toBe('high');

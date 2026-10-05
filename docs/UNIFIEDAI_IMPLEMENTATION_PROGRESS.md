@@ -23,7 +23,7 @@ is merged to `main`. Last verification: 2026-10-06, 570 backend tests pass, fron
 | 12 Action verification, no unconfirmed success | done | `actions/index.js`, `actions/messages.js` |
 | 13 Ticket lifecycle (dedupe, follow-up, escalate, reopen, resolve, status) | done | `planner.js`, `actions/ticketActions.js`, `controllers/assistantController.js` |
 | 14 Professional staff handoff, original preserved | done | `handoff.js`, `router.js` brief, `AssistantTicket` |
-| 15 Priority by policy | done | `policy.js` |
+| 15 Priority by policy | done; hardened 2026-10-06 (model label is unconfirmed unless the message confirms it) | `policy.js` |
 | 16 RBAC and injection safety | done, 11 injection tests + scope tests | `assistant-security.test.js` |
 | 17 Provider abstraction and error handling | done | `llm.js` |
 | 18 Short-term memory | done, bounded | `conversation.js` |
@@ -41,6 +41,17 @@ is merged to `main`. Last verification: 2026-10-06, 570 backend tests pass, fron
 * Evaluation script: no "0/0" line in batch mode; a partial run does not overwrite the saved full report.
 * Eight new fresh conversations (`final2`) added and run once: 8/8 on a fresh database (the first run showed 5/8, all three
   failures traced to tickets left in the demo database by earlier runs; the cases were not changed).
+
+## Hardening phase (audit steps 1-4, 2026-10-06; see the audit findings)
+* Ticket creation is idempotent (unique key; two simultaneous identical requests give one ticket).
+* A ticket number the person names is looked up directly by number and owner; someone else's and a missing one look the same; a
+  person with no tickets is told so.
+* Action results carry a state; replies never say "nothing was changed" unless that was confirmed; no retry button when the outcome
+  is unknown or unconfirmed; `ticket.repeat` refuses a resolved ticket (the planner reopens instead).
+* Priority: model safety label is unconfirmed; instructions to the assistant are removed before safety words are looked at.
+* Model-down fallback never creates or changes a ticket for a status question; explicit owned numbers are read through the owner-scoped lookup.
+* Unconfirmed actions are flagged on the ticket (`needsReview` for staff), recorded in the trace and action log, and cannot be repeated unknowingly.
+* Not done in this phase (audit steps 5-8): data retention, citation relevance on "no answer", eval harness reset, CSP/token/firebase/shared rate limit.
 
 ## Remaining
 
@@ -62,7 +73,7 @@ Engineering:
 
 ## Decisions
 * Model proposes, backend validates and executes; the reply is built from verified results.
-* Priority is a policy table keyed by safety category; the model only describes the situation.
+* Priority is decided by policy. The model's safety label is an untrusted signal: it raises priority only when the person's own words (or a verified quote) confirm it; otherwise it is recorded as model-asserted.
 * One model call for understanding, one for writing; facts always from the database.
 * BM25 over a school's own document sections instead of a vector store.
 * The conversation context is compact (6 turns, 5 people, 3 tickets, the person's own recent tickets); the current chat's ticket is separate.

@@ -9,6 +9,23 @@ const { redact } = require('../text');
 const { DOMAINS } = require('../domains');
 const { recipientsFor, teamLabel } = require('../handoff');
 const policy = require('../policy');
+const crypto = require('crypto');
+
+
+// One ticket per person, child and wording within a two-minute window, enforced by a unique index so that two requests that
+// arrive at the same moment (a double tap, a retry) cannot both create it. The previous window is checked too, so a request
+// straddling the boundary is still recognised.
+const WINDOW_MS = 2 * 60 * 1000;
+function dedupeKeys(ctx, p, now = Date.now()) {
+  const body = String(p.text || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const make = (bucket) => crypto.createHash('sha256').update(`${ctx.schoolId}|${ctx.user._id}|${p.student?._id || ''}|${body}|${bucket}`).digest('hex');
+  const bucket = Math.floor(now / WINDOW_MS);
+  return [make(bucket), make(bucket - 1)];
+}
+const textKeyOf = (ctx, p) => crypto.createHash('sha256').update(`${ctx.schoolId}|${ctx.user._id}|${p.student?._id || ''}|${String(p.text || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()}`).digest('hex');
+// A ticket of this person with these exact words whose creation could not be confirmed is still "the" ticket, however long ago: sending it again must not create another.
+const findUnconfirmed = (ctx, p) => AssistantTicket.findOne({ school: ctx.schoolId, raisedBy: ctx.user._id, textKey: textKeyOf(ctx, p), 'verification.state': 'unverified', status: { $ne: 'resolved' } });
+const findByKeys = (ctx, keys) => AssistantTicket.findOne({ school: ctx.schoolId, raisedBy: ctx.user._id, dedupeKey: { $in: keys } });
 
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 const isOwner = (ctx, ticket) => !!ticket && String(ticket.raisedBy) === String(ctx.user._id) && String(ticket.school) === String(ctx.schoolId);
@@ -47,7 +64,9 @@ async function tell(ctx, ticket, people, { title, message }) {
   return results;
 }
 
-const staffMessage = (ctx, ticket, lead) => clip(`${lead} ${ticket.summary || ''}${ticket.requestedAction ? ` Requested: ${ticket.requestedAction}` : ''} Raised by ${ctx.user.name} (${ctx.role}). Open EduAmigo Ask > Requests to reply.`, 1900);
+const flagLine = (ticket) => (ticket.modelSafety && !ticket.modelSafety.corroborated
+  ? ` Note: the assistant's reading suggested a possible ${String(ticket.modelSafety.category).replace('_', ' ')} concern, but nothing in the message confirmed it${ticket.modelSafety.injected ? ' and the message contained instructions aimed at the assistant (ignored)' : ''}. Please review.` : '');
+const staffMessage = (ctx, ticket, lead) => clip(`${lead} ${ticket.summary || ''}${ticket.requestedAction ? ` Requested: ${ticket.requestedAction}` : ''}${flagLine(ticket)} Raised by ${ctx.user.name} (${ctx.role}). Open EduAmigo Ask > Requests to reply.`, 1900);
 const titleOf = (ticket, prefix = '') => clip(`${ticket.priority === 'high' ? 'Urgent: ' : ''}${prefix}${ticket.number} ${ticket.title || 'EduAmigo Ask ticket'}`, 190);
 
 async function persistNotifications(ticket, results) {
@@ -64,19 +83,62 @@ module.exports = (register) => {
     authorize: (ctx) => ({ ok: !!ctx.user && !!ctx.schoolId }),
     validate: (p) => [!p.text && 'text', !p.reason && 'reason'].filter(Boolean),
     async execute(ctx, p) {
-      const { priority, reason: priorityReason } = policy.priorityFor({ safety: p.safety, severeWords: p.severeWords });
+      const keys = dedupeKeys(ctx, p);
+      // The same report a moment ago (or at the same moment): hand back that ticket, create nothing, notify nobody twice.
+      const already = (await findByKeys(ctx, keys)) || (await findUnconfirmed(ctx, p));
+      if (already) {
+        // An earlier attempt left this ticket with nobody to read it. If someone can be reached now, finish the job instead of leaving it stranded.
+        if (already.verification?.state === 'unverified' && !(already.assignees || []).length) {
+          const { people } = await recipientsFor({ school: ctx.schoolId, domain: already.domain, student: p.student, subject: p.subject, personName: p.personName, priority: already.priority });
+          const reachable = people.filter((x) => x.userId);
+          if (reachable.length) {
+            await AssistantTicket.updateOne({ _id: already._id }, { $set: { assignees: [...new Set(reachable.map((x) => x.userId))], contacts: people.map((x) => ({ name: x.name, title: x.title })), lastActivityAt: new Date() } });
+            const healed = await AssistantTicket.findById(already._id);
+            const notified = await tell(ctx, healed, reachable, { title: titleOf(healed), message: staffMessage(ctx, healed, `${REASON_TITLES[healed.reason] || 'Request'}.`) });
+            await persistNotifications(healed, notified);
+            return { ticket: healed, people, notified, deduped: true, healed: true, priority: healed.priority };
+          }
+        }
+        return { ticket: already, people: [], notified: [], deduped: true, priority: already.priority };
+      }
+
+      let decided = policy.priorityFor({ safety: p.safety, severeWords: p.severeWords, text: p.text });
+      // The model said "safety concern" but the words alone do not show it: one separate check that must quote the person's own words.
+      if (decided.modelAsserted && !decided.modelAsserted.corroborated && ctx.aiAllowed !== false) {
+        const check = await policy.confirmWithQuote(decided.modelAsserted.category, p.text);
+        if (check.ai) ctx.noteAi?.(check.ai);
+        if (check.quote) decided = policy.priorityFor({ safety: p.safety, severeWords: p.severeWords, text: p.text, quote: check.quote });
+      }
+      const { priority, reason: priorityReason, modelAsserted } = decided;
+      // A ticket that is not urgent by policy is not described as urgent, whatever the model's label said.
+      const reason = p.reason === 'sensitive' && priority !== 'high' ? 'complaint' : p.reason;
       const { team, people } = await recipientsFor({ school: ctx.schoolId, domain: p.domain, student: p.student, subject: p.subject, personName: p.personName, priority });
-      const b = brief(ctx, p);
+      const b = brief(ctx, { ...p, reason });
       const seq = await Counter.next(ctx.schoolId, 'assistantTicket');
-      const ticket = await AssistantTicket.create({
-        school: ctx.schoolId, number: `T-${1000 + seq}`, raisedBy: ctx.user._id, raisedRole: ctx.role, student: p.student?._id || null, domain: p.domain || null,
-        question: redact(p.text).slice(0, 1000), ...b, entities: { student: p.student ? { name: p.student.name, class: `${p.student.class}-${p.student.section}` } : null, subject: p.subject || null, person: p.personName || null, domain: p.domain || null },
-        reason: p.reason, priority, priorityReason, team, assignees: [...new Set(people.map((x) => x.userId).filter(Boolean))],
-        contacts: people.map((x) => ({ name: x.name, title: x.title })), lastActivityAt: new Date(),
-      });
-      const notified = await tell(ctx, ticket, people, { title: titleOf(ticket), message: staffMessage(ctx, ticket, `${REASON_TITLES[p.reason] || 'Request'}.`) });
+      let ticket;
+      try {
+        ticket = await AssistantTicket.create({
+          school: ctx.schoolId, number: `T-${1000 + seq}`, raisedBy: ctx.user._id, raisedRole: ctx.role, student: p.student?._id || null, domain: p.domain || null,
+          question: redact(p.text).slice(0, 1000), ...b, entities: { student: p.student ? { name: p.student.name, class: `${p.student.class}-${p.student.section}` } : null, subject: p.subject || null, person: p.personName || null, domain: p.domain || null },
+          reason, priority, priorityReason, modelSafety: modelAsserted, team, assignees: [...new Set(people.map((x) => x.userId).filter(Boolean))],
+          contacts: people.map((x) => ({ name: x.name, title: x.title })), lastActivityAt: new Date(), dedupeKey: keys[0], textKey: textKeyOf(ctx, p),
+        });
+      } catch (err) {
+        // Lost the race to an identical request: that request's ticket is the one.
+        if (err?.code === 11000) {
+          const winner = await findByKeys(ctx, keys);
+          if (winner) return { ticket: winner, people: [], notified: [], deduped: true, priority: winner.priority };
+        }
+        throw err;
+      }
+      const notified = await tell(ctx, ticket, people, { title: titleOf(ticket), message: staffMessage(ctx, ticket, `${REASON_TITLES[reason] || 'Request'}.`) });
       await persistNotifications(ticket, notified);
       return { ticket, people, notified, team: teamLabel(team), priority };
+    },
+    // If creating failed part-way, look for the ticket before saying anything: it may have been saved.
+    async recover(ctx, p) {
+      const found = (await findByKeys(ctx, dedupeKeys(ctx, p))) || (await findUnconfirmed(ctx, p));
+      return found ? { ticket: found, people: [], notified: [], priority: found.priority } : null;
     },
     // The ticket must be readable back from the database, with the assignees we claim, and every notification must be recorded.
     async verify(ctx, p, d) {
@@ -114,9 +176,10 @@ module.exports = (register) => {
   register({
     name: 'ticket.repeat',
     describe: 'The person reported the same open issue again: keep one ticket, record the repeat, and nudge staff if it has been waiting a day',
-    requires: 'the ticket was raised by this person',
+    requires: 'the ticket was raised by this person and is still open',
     params: { ticket: 'the existing ticket', text: 'the new message' },
-    authorize: (ctx, p) => (isOwner(ctx, p.ticket) ? { ok: true } : { ok: false, why: 'not_yours' }),
+    // A resolved ticket is not an active one: the same problem coming back is a reopening, not a repeat.
+    authorize: (ctx, p) => (isOwner(ctx, p.ticket) ? (p.ticket.status === 'resolved' ? { ok: false, why: 'resolved' } : { ok: true }) : { ok: false, why: 'not_yours' }),
     validate: (p) => [!p.text && 'text'].filter(Boolean),
     async execute(ctx, p) {
       await AssistantTicket.updateOne({ _id: p.ticket._id }, { $push: { notes: { by: ctx.user._id, kind: 'repeat', text: redact(clip(p.text, 400)) } } });

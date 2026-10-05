@@ -16,17 +16,27 @@ const TICKET_LOOKBACK_MS = 30 * 24 * 3600 * 1000;
 
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+const shape = (t) => ({
+  id: String(t._id), number: t.number, status: t.status, priority: t.priority, domain: t.domain, title: t.title || null,
+  summary: t.summary || null, question: t.question, student: t.student ? { name: t.student.name, class: `${t.student.class}-${t.student.section}` } : null,
+  sentTo: (t.contacts || []).map((c) => ({ name: c.name, title: c.title })), createdAt: t.createdAt, lastActivityAt: t.lastActivityAt || t.updatedAt,
+  resolvedAt: t.resolvedAt, assignees: (t.assignees || []).map(String), entities: t.entities || null, raw: t,
+});
+
 // The person's own tickets that a new message could be about: open ones, and ones resolved in the last 14 days (for reopening).
 async function recentTickets(user, schoolId, now = new Date(), limit = 5) {
   const since = new Date(now.getTime() - TICKET_LOOKBACK_MS);
   const rows = await AssistantTicket.find({ school: schoolId, raisedBy: user._id, createdAt: { $gte: since } })
     .sort({ lastActivityAt: -1 }).limit(limit).populate('student', 'name class section').lean();
-  return rows.map((t) => ({
-    id: String(t._id), number: t.number, status: t.status, priority: t.priority, domain: t.domain, title: t.title || null,
-    summary: t.summary || null, question: t.question, student: t.student ? { name: t.student.name, class: `${t.student.class}-${t.student.section}` } : null,
-    sentTo: (t.contacts || []).map((c) => ({ name: c.name, title: c.title })), createdAt: t.createdAt, lastActivityAt: t.lastActivityAt || t.updatedAt,
-    resolvedAt: t.resolvedAt, assignees: (t.assignees || []).map(String), entities: t.entities || null, raw: t,
-  }));
+  return rows.map(shape);
+}
+
+// One ticket by its number, only if it is this person's own in this school. Any age: a person who names an old ticket is
+// not limited to the few most recent. A number that does not exist and one that belongs to someone else look the same (null).
+async function ticketByNumber(user, schoolId, number) {
+  if (!/^T-\d{3,}$/i.test(String(number || ''))) return null;
+  const row = await AssistantTicket.findOne({ school: schoolId, raisedBy: user._id, number: String(number).toUpperCase() }).populate('student', 'name class section').lean();
+  return row ? shape(row) : null;
 }
 
 // What the model is told. Short on purpose.
@@ -73,4 +83,4 @@ function remember(conv, { userText, replies = [] }) {
   }
 }
 
-module.exports = { recentTickets, contextFor, remember, MAX_RECENT };
+module.exports = { recentTickets, ticketByNumber, contextFor, remember, MAX_RECENT };

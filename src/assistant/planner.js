@@ -62,7 +62,7 @@ function plan(part, { tickets = [], text, domain, student = null, personName = n
   if (named && claimed && claimed !== 'new' && claimOk) {
     if (claimed === 'status') return { action: 'ticket.status', ticket: named, relation: claimed, via: 'model' };
     if (claimed === 'escalate') return { action: 'ticket.escalate', ticket: named, relation: claimed, via: 'model' };
-    if (claimed === 'reopen' || (claimed === 'follow_up' && !isOpen(named))) return { action: 'ticket.reopen', ticket: named, relation: 'reopen', via: 'model' };
+    if (claimed === 'reopen' || (['follow_up', 'repeat'].includes(claimed) && !isOpen(named))) return { action: 'ticket.reopen', ticket: named, relation: 'reopen', via: 'model' };
     if (claimed === 'repeat') return { action: 'ticket.repeat', ticket: named, relation: claimed, via: 'model' };
     return { action: 'ticket.follow_up', ticket: named, relation: 'follow_up', via: 'model' };
   }

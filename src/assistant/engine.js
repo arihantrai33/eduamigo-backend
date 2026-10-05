@@ -26,7 +26,9 @@ const { parseClass, pickChildren, looksLikeFollowUp } = require('./entities');
 const { recipientsFor, teamLabel } = require('./handoff');
 const actions = require('./actions');
 const messages = require('./actions/messages');
+const AssistantTicket = require('../models/AssistantTicket');
 const planner = require('./planner');
+const policy = require('./policy');
 const conversation = require('./conversation');
 const { createTrace } = require('./trace');
 const writer = require('./writer');
@@ -126,24 +128,54 @@ function sentToText(ticket) {
 // (new ticket, follow-up on an open one, repeat of the same issue, escalate, reopen). The action is run through its contract
 // and the reply is built from what was VERIFIED, so it never claims a success that did not happen.
 async function ticketReply({ ctx, text, domain, reason, student, subject = null, personName = null, part = null, severeWords = false, brief = null }) {
-  const tickets = await ctx.tickets();
-  const plan = planner.plan(part || {}, { tickets, text, domain, student, personName, inChat: (ctx.conv.state.tickets || []).map((t) => t.number), now: ctx.now });
-  ctx.trace.step('plan', { modelRelation: part?.ticket?.relation || null, modelTicket: part?.ticket?.number || null, action: plan.action, ticket: plan.ticket?.number || null, via: plan.via || null, openTickets: tickets.length, personNamed: !!personName });
+  let tickets = await ctx.tickets();
+  // A ticket number the person typed (the one in their message, if it names exactly one) wins over the model's reading; a number only the model named is used only if it is theirs.
+  // Either way it is looked up directly by number and owner, so an old ticket is found and nobody else's ever is.
+  const numbersIn = (s) => [...new Set((String(s || '').match(/\bT-\d{3,}\b/gi) || []).map((n) => n.toUpperCase()))];
+  const inPart = numbersIn(text)[0];
+  const inMessage = numbersIn(ctx.redacted);   // a message that names exactly one ticket names it for every part
+  const explicit = inMessage.length === 1 ? inMessage[0] : inPart || null;
+  const wanted = explicit || part?.ticket?.number || null;
+  if (wanted && !tickets.some((t) => t.number.toLowerCase() === wanted.toLowerCase())) {
+    const own = await ctx.tickets.byNumber(wanted);
+    if (own) tickets = [...tickets, own];
+    else if (explicit) {
+      ctx.trace.step('plan', { action: 'none', lookup: 'not_found', explicit: true });
+      return reply({
+        domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'blocked', question: text,   // someone else's and a missing ticket look the same, and count as a refusal, not as an unresolved question
+        text: `I could not find a ticket ${explicit} among your requests. Please check the number under Requests, or tell me what it is about and I will help from there.`,
+      });
+    }
+  }
+  const planPart = explicit && part ? { ...part, ticket: { ...(part.ticket || {}), number: explicit } } : part;
+  const plan = planner.plan(planPart || {}, { tickets, text, domain, student, personName, inChat: (ctx.conv.state.tickets || []).map((t) => t.number), now: ctx.now });
+  ctx.trace.step('plan', { modelRelation: part?.ticket?.relation || null, modelTicket: part?.ticket?.number || null, action: plan.action, ticket: plan.ticket?.number || null, via: plan.via || null, openTickets: tickets.length, personNamed: !!personName, explicitNumber: !!explicit });
+  // Asking about a complaint when there is nothing to look up is a plain question, not a refusal.
+  if (plan.action === 'ticket.status' && !plan.ticket) {
+    return reply({
+      domain: domain || null, confidence: 1, method: 'rule', action: 'answer', question: text,
+      text: 'You have not raised any request through me yet, so there is nothing to check. If something is wrong, tell me what happened and I will pass it to the right person.',
+    });
+  }
   const params = {
     text, domain, reason, student, subject, personName, severeWords, brief: brief || part?.brief || null, safety: part?.safety || (severeWords ? 'safety' : 'none'),
     ticket: plan.ticket?.raw || null,
   };
   const result = await actions.run(plan.action, ctx, params);
   const said = messages.describe(plan, result, { reason, now: ctx.now });
-  ctx.actionLog.push({ name: plan.action, outcome: said.kind, ok: result.ok, verified: result.verified, ticket: result.data?.ticket?.number || plan.ticket?.number || null });
+  ctx.actionLog.push({ name: plan.action, state: result.state, failed: result.failed || [], outcome: said.kind, ok: result.ok, verified: result.verified, ticket: result.data?.ticket?.number || plan.ticket?.number || null });
+  await recordVerification(result);
   if (result.ok && plan.action === 'ticket.create') ctx.tickets.created(result.data.ticket.number);
-  if (result.ok && plan.action !== 'ticket.status') ctx.tickets.refresh();
+  // Whatever might have changed (even if it could not be confirmed) is read again next time.
+  if (['verified', 'unverified', 'error'].includes(result.state) && plan.action !== 'ticket.status') ctx.tickets.refresh();
 
+  // Only a confirmed "nothing happened" offers a retry. If it may have happened, the person is sent to Requests instead, so a retry cannot double it.
   const failed = said.kind === 'failed';
+  const uncertain = said.kind === 'uncertain';
   if (failed) ctx.setPending({ text, kind: 'handoff', domain, subject, person: personName, child: student?.name || null, summary: part?.english || null, options: [opt('Try again', 'office', 'handoff')] });
   return reply({
     domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule',
-    action: failed ? 'no_data' : said.kind === 'blocked' ? 'blocked' : said.kind === 'status' ? 'answer' : 'handoff',
+    action: failed || uncertain ? 'no_data' : said.kind === 'blocked' ? 'blocked' : said.kind === 'status' ? 'answer' : 'handoff',
     text: said.text, question: text, options: failed ? [opt('Try again', 'office', 'handoff')] : [],
     ticket: messages.ticketPayload(plan, result, said.kind),
     ...(said.kind === 'status' && result.data?.ticket ? {
@@ -151,6 +183,18 @@ async function ticketReply({ ctx, text, domain, reason, student, subject = null,
       sources: [{ type: 'ticket', label: `Request ${result.data.ticket.number}`, id: String(result.data.ticket._id), at: new Date(result.data.ticket.lastActivityAt || result.data.ticket.updatedAt).toISOString() }],
     } : {}),
   });
+}
+
+
+// An action that ran but could not be read back leaves a mark on the ticket for staff ("needs review"), so a person or operator does
+// not repeat it unknowingly; a later confirmed result clears the mark. Best effort: it must never break the reply.
+async function recordVerification(result) {
+  const t = result.data?.ticket;
+  if (!t?._id) return;
+  try {
+    if (result.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id }, { $set: { verification: { state: 'unverified', action: result.name, failed: result.failed || [], at: new Date() } } });
+    else if (result.state === 'verified' && t.verification?.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id }, { $unset: { verification: 1 } });
+  } catch { /* the trace and the action log still record the state */ }
 }
 
 // One message, one issue, one ticket. A model may split "the marks are wrong and I want to talk to the Maths teacher" into two parts.
@@ -463,9 +507,20 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   let ticketCache = null;
   const madeNow = new Set();
   ctx.tickets = async () => {
-    if (!ticketCache) ticketCache = (await conversation.recentTickets(user, schoolId, now)).map((t) => ({ ...t, freshInRequest: madeNow.has(t.number) }));
+    if (!ticketCache) {
+      const list = await conversation.recentTickets(user, schoolId, now);
+      // A ticket discussed in this chat stays in view even when newer ones push it out of the recent few.
+      for (const n of (conv.state.tickets || []).map((t) => t.number)) {
+        if (list.some((t) => t.number === n)) continue;
+        const own = await conversation.ticketByNumber(user, schoolId, n);
+        if (own) list.push(own);
+      }
+      ticketCache = list.map((t) => ({ ...t, freshInRequest: madeNow.has(t.number) }));
+    }
     return ticketCache;
   };
+  // A ticket the person names by number, of any age; only theirs. Null when it does not exist or is someone else's (the same answer).
+  ctx.tickets.byNumber = (number) => conversation.ticketByNumber(user, schoolId, number);
   ctx.tickets.refresh = () => { ticketCache = null; };
   ctx.tickets.created = (number) => madeNow.add(number);
   if (ctx.role === 'teacher') ctx.teacher = await ctx.profile.teacher();
@@ -509,7 +564,9 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     }
   } else {
     // Safety words always go to a person at once, whatever a model would say.
-    const severe = router.isSevere(text);
+    // Instructions aimed at the assistant are cut out first, so they can neither supply a safety word nor raise priority.
+    const scan = policy.withoutDirectives(text).text;
+    const severe = router.isSevere(scan);
     // Otherwise the model reads the message first; words are the fallback (no model, allowance used, call failed).
     const understood = !severe && ctx.aiAllowed
       ? await router.understand(text, {
@@ -533,10 +590,14 @@ async function ask({ user, school, entitlements, message, conversationId, choice
           }));
         } else replies.push(await answerQuestion(ctx, part.text, { nlu: part }));
       }
-    } else if (severe || router.isSensitive(text) || router.wantsHuman(text)) {
+    } else if (router.isTicketStatusQuestion(scan)) {
+      // No model reading, and the message asks about an existing complaint or ticket: read the person's own ticket (the one they named,
+      // else the one just discussed, else the newest). Weak words alone never create a ticket or add to one.
+      replies.push(await ticketReply({ ctx, text, domain: null, reason: 'requested', student: null, part: { kind: 'ticket_status', ticket: null } }));
+    } else if (severe || router.isSensitive(scan) || router.wantsHuman(scan)) {
       const scored = router.scoreKeywords(text, ctx.allowed);
       const domain = scored.domain && scored.domain !== 'general' ? scored.domain : (conv.state.lastDomain !== 'general' ? conv.state.lastDomain : null);
-      const reason = severe ? 'sensitive' : router.isSensitive(text) ? 'complaint' : 'requested';
+      const reason = severe ? 'sensitive' : router.isSensitive(scan) ? 'complaint' : 'requested';
       replies.push(await ticketReply({ ctx, text, domain, reason, student: await studentForHandoff(ctx, text), severeWords: !!severe }));
     } else {
       const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);

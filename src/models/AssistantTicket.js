@@ -35,9 +35,20 @@ const assistantTicketSchema = new mongoose.Schema({
     name: String, ok: Boolean, at: { type: Date, default: Date.now }, error: { type: String, maxlength: 200 }, _id: false,
   }],
   resolvedAt: { type: Date, default: null },
+  // What the model said about safety, kept apart from the priority: model-asserted, and whether the message's own words confirmed it.
+  modelSafety: { type: new mongoose.Schema({ category: String, corroborated: Boolean, by: String, injected: Boolean }, { _id: false }), default: null },
+  // Same person, same child, same words, same two-minute window: one ticket, even when two requests arrive at the same moment.
+  dedupeKey: { type: String, default: undefined },
+  // Same person, child and wording, with no time window: lets an unconfirmed ticket be recognised if the same message is sent again later.
+  textKey: { type: String, default: undefined },
+  // Set when an action ran but could not be read back. Staff see it as "needs review"; it is cleared when the action is later confirmed
+  // or a person handles the ticket, so nobody repeats the action unaware.
+  verification: { type: new mongoose.Schema({ state: String, action: String, failed: [String], at: Date }, { _id: false }), default: undefined },
 }, { timestamps: true });
 
 assistantTicketSchema.index({ school: 1, number: 1 }, { unique: true });
+assistantTicketSchema.index({ school: 1, raisedBy: 1, textKey: 1 });
+assistantTicketSchema.index({ school: 1, dedupeKey: 1 }, { unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } });
 assistantTicketSchema.index({ school: 1, status: 1, createdAt: -1 });
 assistantTicketSchema.index({ school: 1, assignees: 1, status: 1 });
 assistantTicketSchema.index({ school: 1, raisedBy: 1, createdAt: -1 });

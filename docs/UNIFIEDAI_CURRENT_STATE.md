@@ -49,7 +49,7 @@ same work. This degraded path is weaker, see the limitations.
 | Grounding / RAG | facts from the database; BM25 retrieval over the school's documents (sections, audience filter, version/date); composer checks numbers and names; sources and quoted evidence on every answer | `compose.js`, `services/knowledge.js`, `models/SchoolDocument.js` |
 | Action planner | maps the model's reading of how a message relates to the person's tickets (new, follow_up, repeat, escalate, reopen, status) to an action; validates ownership; overrules incompatible claims (other topic, child, person or subject); similarity fallback; "new" not trusted for a ticket just made in this request | `planner.js` |
 | Action contracts | `ticket.create / follow_up / repeat / escalate / reopen / status`: authorize, validate, execute, verify; `run()` never throws; reply is built only from the verified result | `actions/index.js`, `actions/ticketActions.js`, `actions/messages.js` |
-| Policy | priority is decided from safety category (not by the model, not by the word "urgent"); one escalation; reopen window 14 days | `policy.js` |
+| Policy | priority is decided by policy: safety words in the person's text (after instructions to the assistant are removed), the person's own escalation, or a model safety label that the message itself confirms (word list or a verified quote); an unconfirmed label is recorded as model-asserted and changes nothing; one escalation; reopen window 14 days | `policy.js` |
 | Handoff | recipients: named person > subject teacher (timetable) > class teacher > accountants > office; admins added when priority is high; professional English brief (title, summary, request) for staff; the person's original text kept for audit | `handoff.js`, `models/AssistantTicket.js` |
 | Safety | prompt-injection tests, model output validated (unknown topic, nonsense confidence ignored), no secrets in logs, redaction of phone/email/ID | `assistant-security.test.js`, `text.js` |
 | Provider layer | Azure OpenAI first, Gemini fallback, timeout (10 s default), capped 429 retry, 60 s cool-off after 3 failures, answer cache | `llm.js` |
@@ -63,8 +63,7 @@ New report -> `ticket.create`. The same issue told again, or a nudge ("still not
 on the existing ticket, with a clear message ("added to your existing ticket T-1002"), no second ticket. "Take it higher" ->
 `ticket.escalate` once (priority high, admins added), a second request is told it is already urgent. Resolved within 14 days and
 the problem is back -> `ticket.reopen`; older -> a new ticket. "What happened to my complaint" -> `ticket.status`, which prefers
-the ticket discussed in this chat. A ticket number that is not the person's own is refused (`not_yours`). If the database write
-or the notification fails, the reply says so and offers "Try again"; success is never claimed unverified.
+the ticket discussed in this chat. A ticket number the person types is looked up directly (any age); someone else's number and a missing one get the same "could not find" answer. A person with no tickets who asks about their complaint is told they have none. Each action reports a state (denied, invalid, not executed, unknown, unverified, verified) and the reply follows it: "nothing was changed" only when that was confirmed, "could not confirm" when it ran but was not read back, no Try again unless nothing exists. Creation is idempotent (unique key per person, child, wording and two-minute window).
 
 ## 5. What was verified (and how)
 

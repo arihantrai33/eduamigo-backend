@@ -54,6 +54,25 @@ const isComplaintInquiry = (text) => hasPhrase(text, COMPLAINT_WORDS) && hasPhra
 // would turn a marks question into an urgent ticket. A misspelt emergency is still caught by the model ("urgent").
 const isSevere = (text) => matchPhrases(text, SENSITIVE.map((p) => ({ key: 'x', phrase: p, weight: 1 }))).some((h) => h.exact);
 
+// Without a model, a short message that asks how an existing complaint or ticket is going ("meri complaint ka kya hua", "T-1004 ka
+// status", "complaint pe abhi tak kuch nahi hua") is a question about a ticket, not a new complaint. It is only ever answered by
+// reading the person's own ticket; it never creates one. Exact words only, and short messages only: a long message that describes
+// a problem is a new report.
+const TICKET_REFS = ['complaint', 'complaints', 'shikayat', 'shikayatein', 'ticket', 'request', 'application'];
+const STATUS_CUES = ['kya hua', 'hua kya', 'status', 'update', 'abhi tak', 'abhi bhi', 'still', 'koi reply', 'reply aaya', 'reply nahi', 'jawab', 'kab tak', 'what happened', 'any news', 'progress',
+  'nahi hua', 'solve nahi', 'fix nahi', 'not fixed', 'no reply', 'kuch hua'];
+const TICKET_NUMBER = /\bT-\d{3,}\b/i;
+function containsExact(text, phrases) {
+  const words = tokenize(text);
+  const joined = ` ${words.join(' ')} `;
+  return phrases.some((p) => joined.includes(` ${tokenize(p).join(' ')} `));
+}
+const isTicketStatusQuestion = (text) => {
+  if (tokenize(text).length > 10) return false;
+  if (TICKET_NUMBER.test(String(text || ''))) return true;
+  return containsExact(text, TICKET_REFS) && containsExact(text, STATUS_CUES);
+};
+
 const isSensitive = (text) => hasPhrase(text, SENSITIVE) || (hasPhrase(text, COMPLAINT_WORDS) && !isComplaintInquiry(text));
 const wantsHuman = (text) => hasPhrase(text, HUMAN);
 
@@ -356,6 +375,6 @@ function splitQuestions(text, allowed) {
 }
 
 module.exports = {
-  route, understand, reconcile, wordsNameTopic, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, isSevere, isComplaintInquiry, wantsHuman,
+  route, understand, reconcile, wordsNameTopic, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, isSevere, isTicketStatusQuestion, isComplaintInquiry, wantsHuman,
   ANSWER_AT, CLARIFY_AT, SENSITIVE, HUMAN, normalize,
 };

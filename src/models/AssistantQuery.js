@@ -28,7 +28,7 @@ const assistantQuerySchema = new mongoose.Schema({
   requestId:    { type: String, default: null },
   // What the request did, step by step (no message text): [{ step, ms, ok, ...small details }]. For debugging and the dashboard.
   trace:        { type: [mongoose.Schema.Types.Mixed], default: [] },
-  actions:      { type: [{ name: String, outcome: String, ok: Boolean, verified: Boolean, ticket: String, _id: false }], default: [] },
+  actions:      { type: [{ name: String, state: String, failed: [String], outcome: String, ok: Boolean, verified: Boolean, ticket: String, _id: false }], default: [] },
   ai: {
     used:         { type: Boolean, default: false },
     provider:     { type: String, default: null },

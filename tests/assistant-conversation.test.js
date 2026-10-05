@@ -200,7 +200,11 @@ describe('a ticket is a lifecycle, not one ticket per message', () => {
     scriptedModel([part({ text: 'update', kind: 'complaint', ticket: { relation: 'follow_up', number: 'T-1001' } })]);
     const other = await makeUser(A.school, 'parent', { name: 'Other Parent' });
     const res = await ask(other, 'T-1001 pe update do');
-    expect(res.body.data.replies[0].ticket.number).toBe('T-1002');   // a new ticket of their own, not a note on someone else's
+    // Someone else's ticket looks exactly like one that does not exist: nothing is attached to it and nothing is revealed about it.
+    // (Before the lookup by number, this created a new ticket of their own that quoted the other number; now they are asked to check it.)
+    expect(res.body.data.replies[0].ticket).toBeNull();
+    expect(res.body.data.replies[0].text).toMatch(/could not find a ticket T-1001/i);
+    expect(await AssistantTicket.countDocuments({})).toBe(1);
     expect((await AssistantTicket.findOne({ number: 'T-1001' })).notes).toHaveLength(0);
     const direct = await actions.run('ticket.follow_up', { user: other, schoolId: A.school._id }, { ticket: await AssistantTicket.findOne({ number: 'T-1001' }), text: 'hi' });
     expect(direct).toMatchObject({ ok: false, denied: true, error: 'not_yours' });

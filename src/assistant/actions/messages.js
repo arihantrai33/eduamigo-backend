@@ -32,24 +32,46 @@ function describe(plan, result, { reason = null, now = new Date() } = {}) {
   const d = delivery(result.data?.notified);
 
   if (!result.ok) {
-    if (result.denied) {
+    if (result.state === 'denied' || result.denied) {
       const tn = plan.ticket?.number || 'that ticket';
       if (result.error === 'already_urgent') return { kind: 'blocked', text: `${tn} is already marked urgent and the school management can see it, so there is nothing more to escalate. I can add a note for them if you like.` };
+      if (result.error === 'resolved' && plan.action === 'ticket.repeat') return { kind: 'blocked', text: `${tn} has been resolved. If the problem is back, tell me and I will reopen it.` };
       if (result.error === 'resolved') return { kind: 'blocked', text: `${tn} has been resolved. If the problem is back, tell me and I will reopen it.` };
       if (result.error === 'too_old') return { kind: 'blocked', text: `${tn} was resolved more than 14 days ago, so it cannot be reopened. I can raise a new ticket instead.` };
       if (result.error === 'not_resolved') return { kind: 'blocked', text: `${tn} is still open, so there is nothing to reopen.` };
       if (result.error === 'not_yours') return { kind: 'blocked', text: 'I can only look at or update tickets that you raised yourself.' };
       return { kind: 'blocked', text: 'I cannot do that on this ticket.' };
     }
+    // It ran, but reading the result back did not confirm it: it may well have happened, so never say nothing changed and never invite a resend.
+    if (result.state === 'unverified') {
+      const tn = t?.number ? ` (ticket ${t.number})` : '';
+      const did = { 'ticket.create': 'raise this with the school', 'ticket.follow_up': 'add your update', 'ticket.repeat': 'note that you asked again', 'ticket.escalate': 'escalate it', 'ticket.reopen': 'reopen it' }[plan.action] || 'do that';
+      return { kind: 'uncertain', text: `I tried to ${did}${tn}, but I could not confirm the final result. It may have gone through. Please open Requests to check before sending it again, so it is not done twice. The school office can also see it.` };
+    }
+    // Failed part-way and nobody can tell whether anything was saved.
+    if (result.state === 'error') {
+      return { kind: 'uncertain', text: 'Something went wrong while I was doing that, and I cannot tell whether it went through. Please open Requests to check before asking again, so it is not done twice.' };
+    }
+    // invalid / not_executed: it did not change anything, and that is confirmed.
     return { kind: 'failed', text: 'I could not complete that just now, and nothing was changed. Your message is not lost: tap the button below to try again, or contact the school office directly.' };
   }
+
+  // A ticket from a moment ago was found for the same report: nothing new was created and nobody was told again.
+  if (plan.action === 'ticket.create' && result.data?.healed) {
+    return { kind: 'repeat', text: `I had saved this earlier but it had not reached anyone. I have now passed it to ${withWhom(t)} (ticket ${t.number}).${deliveryLine(d)}` };
+  }
+  if (plan.action === 'ticket.create' && result.data?.deduped) {
+    return { kind: 'repeat', text: `I have already raised this with ${withWhom(t)} a moment ago (ticket ${t.number}), so I have not opened a second one.` };
+  }
+  const recoveredNote = result.data?.recovered ? ' I could not confirm that anyone was notified, but the ticket is saved and the school office can see it.' : '';
 
   switch (plan.action) {
     case 'ticket.create': {
       const to = withWhom(t);
-      if (reason === 'sensitive') return { kind: 'created', text: `I am sorry this happened. I have raised it as urgent with ${to} and the school management (ticket ${t.number}).${deliveryLine(d)} Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.` };
-      if (reason === 'complaint') return { kind: 'created', text: `Thank you for telling us. I have raised your complaint with ${to} (ticket ${t.number}).${deliveryLine(d)} Their reply will come here in the app.` };
-      return { kind: 'created', text: `I have raised this with ${to} (ticket ${t.number}), with a short summary so you will not have to explain it again.${deliveryLine(d)} Their reply will come here in the app.` };
+      const eff = t.reason || reason; // the stored reason: a ticket that is not urgent by policy is not described as urgent
+      if (eff === 'sensitive' && t.priority === 'high') return { kind: 'created', text: `I am sorry this happened. I have raised it as urgent with ${to} and the school management (ticket ${t.number}).${recoveredNote || deliveryLine(d)} Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.` };
+      if (eff === 'complaint' || eff === 'sensitive') return { kind: 'created', text: `Thank you for telling us. I have raised your complaint with ${to} (ticket ${t.number}).${recoveredNote || deliveryLine(d)} Their reply will come here in the app.` };
+      return { kind: 'created', text: `I have raised this with ${to} (ticket ${t.number}), with a short summary so you will not have to explain it again.${recoveredNote || deliveryLine(d)} Their reply will come here in the app.` };
     }
     case 'ticket.follow_up':
       return { kind: 'followed_up', text: `I have added your update to your existing ticket ${t.number} with ${withWhom(t)}, so you do not need a new one.${deliveryLine(d)}` };

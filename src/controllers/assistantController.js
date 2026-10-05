@@ -56,7 +56,7 @@ const intro = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { topics, suggestions: suggestionsFor(req.user.role), school: req.school?.name } });
 });
 
-const ticketView = (t) => ({
+const ticketView = (t, viewerId = null) => ({
   id: String(t._id), number: t.number, status: t.status, priority: t.priority, priorityReason: t.priorityReason || null, reason: t.reason, domain: t.domain,
   domainLabel: DOMAINS[t.domain]?.label || null, team: t.team,
   // What staff read first: a professional title, summary and the requested action. The person's own words stay available as `original`.
@@ -67,6 +67,8 @@ const ticketView = (t) => ({
   // Everything after the first message, in order: staff notes and the person's follow-ups, repeats, escalations and reopenings.
   notes: (t.notes || []).map((n) => ({ text: n.text, at: n.at, by: n.by?.name || null, kind: n.kind || 'note' })),
   delivery: (t.notifications || []).map((n) => ({ name: n.name, ok: n.ok, at: n.at })),
+  // Staff only: an action on this ticket ran but could not be confirmed, so check before repeating it. The person who raised it is not shown this.
+  needsReview: t.verification?.state === 'unverified' && viewerId && String(t.raisedBy?._id || t.raisedBy) !== String(viewerId) ? { action: t.verification.action, at: t.verification.at } : null,
   reopenedCount: t.reopenedCount || 0, lastActivityAt: t.lastActivityAt || t.updatedAt,
   createdAt: t.createdAt, resolvedAt: t.resolvedAt,
 });
@@ -90,7 +92,7 @@ const listTickets = asyncHandler(async (req, res) => {
   }
   const tickets = await AssistantTicket.find(q).sort({ status: 1, priority: 1, createdAt: -1 }).limit(200)
     .populate('raisedBy', 'name').populate('student', 'name class section').populate('notes.by', 'name').lean();
-  res.json({ success: true, data: tickets.map(ticketView) });
+  res.json({ success: true, data: tickets.map((t) => ticketView(t, req.user._id)) });
 });
 
 // PATCH /api/assistant/tickets/:id  { status?, note? } - assignees and admins
@@ -109,6 +111,7 @@ const updateTicket = asyncHandler(async (req, res) => {
   if (status) { t.status = status; t.resolvedAt = status === 'resolved' ? new Date() : null; }
   if (text) t.notes.push({ by: req.user._id, kind: 'note', text });
   t.lastActivityAt = new Date();
+  t.verification = undefined;   // a person has looked at it
   await t.save();
 
   if (t.status === 'resolved' && !wasResolved) {
@@ -122,7 +125,7 @@ const updateTicket = asyncHandler(async (req, res) => {
   }
   audit(req, 'assistant.ticket_updated', { targetType: 'assistant_ticket', targetId: t._id, details: { number: t.number, status: t.status, noted: !!text } });
   const fresh = await AssistantTicket.findById(t._id).populate('raisedBy', 'name').populate('student', 'name class section').populate('notes.by', 'name').lean();
-  res.json({ success: true, data: ticketView(fresh) });
+  res.json({ success: true, data: ticketView(fresh, req.user._id) });
 });
 
 // GET /api/assistant/metrics?days=30

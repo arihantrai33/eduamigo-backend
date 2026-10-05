@@ -125,33 +125,67 @@ question about someone else's salary. Tapped choices are re-validated server-sid
 A message that needs a person (complaint, request to speak to staff, a question only a person can answer, a safety concern) does
 not blindly open a ticket.
 
-1. **Planner** (`planner.js`). The model says how the message relates to the person's tickets: `new`, `follow_up`, `repeat`,
+1. **Finding the ticket.** The person's recent tickets (30 days, five at most) plus the ones discussed in this chat are given to the
+   model and the planner. A ticket number the person types is looked up directly by number, school and owner, whatever its age
+   (`conversation.ticketByNumber`); a number only the model named is used only if it is the person's own. Someone else's ticket
+   and a number that does not exist give the same answer ("I could not find a ticket T-... among your requests"), so nothing is
+   revealed, and nothing is created or attached. Someone who has raised nothing and asks "what happened to my complaint" is told
+   that plainly.
+2. **Planner** (`planner.js`). The model says how the message relates to the person's tickets: `new`, `follow_up`, `repeat`,
    `escalate`, `reopen` or `status`, and may name a ticket. The planner checks the claim against the real tickets: the ticket
    must be the person's own, and must not contradict the message (another topic, child, named person or subject). An
    incompatible claim is overruled. With no usable claim a similarity rule applies (same topic, child, subject, person, at least
    40% shared words, open, within 14 days). "New" is not believed for a ticket that was just created in the same request. With
-   no ticket named, a status question is about the ticket discussed in this chat.
-2. **Action contract** (`actions/`). Each action (`ticket.create`, `follow_up`, `repeat`, `escalate`, `reopen`, `status`) has
-   authorize, validate, execute and verify steps. `run()` never throws; it returns `{ ok, verified, data, denied }`. The language
-   model only proposes; the backend decides and does.
-3. **Verification and honest replies** (`actions/messages.js`). The reply is built from the verified result: "added to your
-   existing ticket T-1002", "sent to Anita Verma (Maths teacher), ticket T-1004". If a write fails, the person is told and offered
-   "Try again"; if only the notification fails, that is reported, not hidden. Someone else's ticket number gives a refusal.
-4. **Policy** (`policy.js`). Priority comes from a table keyed by the safety category (bullying, harm, safety, payment problems and
-   so on). The model only describes the situation; the word "urgent" alone changes nothing. A ticket is escalated once, and a
-   resolved ticket can be reopened for 14 days.
-5. **Handoff** (`handoff.js`, router brief). Recipients: a teacher the person named, else the subject's teacher for the child's
+   no ticket named, a status question is about the ticket discussed in this chat. A repeat or follow-up on a resolved ticket is a
+   reopening (within 14 days), never an "open ticket".
+3. **Action contract** (`actions/`). Each action (`ticket.create`, `follow_up`, `repeat`, `escalate`, `reopen`, `status`) has
+   authorize, validate, execute and verify steps (and, for create, `recover`). `run()` never throws and returns a `state`:
+   `denied` and `invalid` (nothing ran), `not_executed` (failed before changing anything, confirmed by looking), `error` (failed
+   part-way and nobody can tell whether it was saved), `unverified` (it ran, the read-back did not confirm it) and `verified`.
+   The language model only proposes; the backend decides and does.
+4. **Idempotent creation.** A ticket carries a key made from school, person, child, normalised wording and a two-minute window
+   (the previous window is checked too), backed by a unique index. Two requests that arrive at the same moment create one ticket;
+   the second gets the first back, creates nothing and notifies nobody again. If creating fails after the ticket was saved, the
+   ticket is found again and reported instead of being created a second time.
+5. **Verification and honest replies** (`actions/messages.js`). The reply is chosen from the state. Verified: "added to your
+   existing ticket T-1002", "sent to Anita Verma (Maths teacher), ticket T-1004". Not executed or invalid: "nothing was changed",
+   with a Try again button (safe, because nothing exists and creation is idempotent). Unverified or unknown: "I could not confirm
+   that it was recorded completely / I cannot tell whether it went through; check Requests before asking again", no button, so a
+   retry cannot double it. A failed notification is reported as such. Someone else's ticket number gets a refusal.
+6. **Policy** (`policy.js`). Priority is not the model's to give. The model's safety label (`harassment`, `medical`, `safety`,
+   `payment_dispute`) is an unconfirmed signal that the person's text can try to steer. High priority comes from (a) safety words
+   the person really wrote, found after instructions aimed at the assistant ("SYSTEM NOTE", "ignore previous instructions",
+   "classify this as ...") are cut out of the text, (b) the person escalating their own ticket once, or (c) a model label that
+   the message itself confirms: its own words match that category's word list, or a separate check quotes the person's words and
+   the quote is verified to be in the message. A label nothing confirms stays on the ticket as "model-asserted, unconfirmed"
+   (staff see it in the priority reason and the notification), the priority stays normal and the admins are not brought in. A
+   ticket that is not urgent by policy is not described as urgent to the person. Limits: the word lists are a floor, not a
+   classifier; a real emergency worded outside them and missed by the second check is under-prioritised (staff still see the
+   flag); and a person can still escalate their own ticket by asking, which is intended. A resolved ticket can be reopened for 14 days.
+7. **Handoff** (`handoff.js`, router brief). Recipients: a teacher the person named, else the subject's teacher for the child's
    class (timetable), else the class teacher, accountants for fees, otherwise the school office; admins are added when priority is
-   high. Staff see a short professional English brief (title, summary, request) and the person's original words (kept for
-   audit); Hinglish or Devanagari is not pasted into the staff view. The assignees are notified; the sender is notified when it
-   is resolved. Tickets are listed under Requests in the chat and in the admin dashboard.
+   high. Staff see a short professional English brief (title, summary, request) and the person's own words (kept for audit, with
+   phone numbers, e-mails and ID numbers replaced by placeholders); the language of the brief is asked of the model, not
+   enforced by code. The assignees are notified; the sender is notified when it is resolved. Tickets are listed under Requests
+   in the chat and in the admin dashboard.
+
+**Without a model** (provider down, allowance used) a short message that asks about an existing complaint or ticket ("meri
+complaint ka kya hua", "T-1004 ka status", "complaint pe abhi tak kuch nahi hua") only reads the person's own ticket (the one
+named, else the one just discussed, else the newest); it never creates a ticket or adds a note. A clearly new complaint and safety
+words still become tickets. A bare "abhi tak kuch nahi hua" with no ticket reference is not treated as a complaint at all.
+
+**Unconfirmed actions.** When an action ran but could not be read back, the person is told it was attempted and the final result
+could not be confirmed (no internals, no retry button, ticket card labelled "not confirmed"). The ticket is marked
+`verification: unverified` (shown to staff as `needsReview`, never to the person who raised it; cleared when a person handles it
+or the action is later confirmed), the trace and the action log record the state and the failed checks, and sending the same
+message again finds that ticket however much later (and, if someone can be reached by then, finishes the job) instead of creating another.
 
 "Has the school sent a complaint about me?" is a question about records, not a complaint: it is answered, and a ticket is only
 made if the person agrees.
 
 ## Observability
 
-Every question is logged (`AssistantQuery`, text redacted of phone numbers, emails and ID numbers): topic, confidence,
+Every request that completes is logged (`AssistantQuery`; a request that throws before the end is not, see the audit findings), text redacted of phone numbers, emails and ID numbers): topic, confidence,
 runner-up, method, action, number of sources, whether the answer was grounded, composition outcome, latency, model, token
 use, feedback. `GET /api/assistant/metrics` and the admin dashboard show: questions, answered / clarified / handed-off
 rates, **end-to-end resolution** (see `EVALUATION.md`), source coverage, share of model-written answers that failed the
