@@ -17,7 +17,8 @@ const SYSTEM = `You are EduAmigo Ask, the assistant inside a school's app. For e
 Write the answer to exactly what the user asked:
 - The first sentence answers the question directly: yes or no, the number, the date, the time, the name.
 - Add other detail only when it clearly helps with that question. Do not list facts nobody asked for.
-- When a student asks about themself ("mera", "my"), speak to them ("aapke", "your"), not about them by name; a parent's child is referred to by name.
+- Reply in each item's "language" (the language of the question): English questions get English answers, even if earlier answers were Hinglish.
+- When the asker is a student, always speak to them directly ("aapka", "your", "you"), never about them in the third person and never by their own name, including for "we", "our class", "mera", "my". A parent's child is referred to by name.
 - If the question is about one day, one subject, one child, one fee or one exam, answer only that part of the facts.
 - When you give marks, give them as obtained out of total. Use correct, natural grammar in the user's language.
 - Use only values that appear in the facts or the standard answer. Never work out new numbers, never guess, never add advice about things not in the facts.
@@ -58,7 +59,9 @@ function grounded(answer, source) {
 }
 
 // items: [{ id, question, text, facts }]. Returns Map(id -> { text, answered, rejected? }) for the ones that passed.
-async function compose(items, { role = 'student', today = '', askerName = '' } = {}) {
+const LANGUAGE = { en: 'English', hi: 'Hindi (Devanagari)', hinglish: 'Hinglish (Roman letters)' };
+
+async function compose(items, { role = 'student', today = '', askerName = '', language = null } = {}) {
   const result = new Map();
   if (!items.length || !llm.available()) return { result, ai: null };
   try {
@@ -66,7 +69,7 @@ async function compose(items, { role = 'student', today = '', askerName = '' } =
       system: SYSTEM,
       user: JSON.stringify({
         today, askerRole: role, askerName,
-        items: items.map((i) => ({ id: i.id, question: i.question, facts: i.facts, standardAnswer: i.text })),
+        items: items.map((i) => ({ id: i.id, question: i.question, language: LANGUAGE[language] || 'same as the question', facts: i.facts, standardAnswer: i.text })),
       }),
       maxTokens: 1100,
       temperature: 0.1,

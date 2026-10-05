@@ -53,13 +53,26 @@ async function results(ctx, student) {
   const all = await ExamResult.find({ school: ctx.schoolId, student: student._id }).sort({ examDate: -1, createdAt: -1 }).lean();
   if (!all.length) return { text: `No results have been published for ${label} yet.`, facts: { student: label, results: 0 }, sources: [], screen: 'results' };
 
-  const subject = subjectFilter(ctx.text, [...new Set(all.map((r) => r.subject))]);
+  const subjects = [...new Set(all.map((r) => r.subject))];
+  // The subject the model found must match a published subject as a whole ("Computer Science" is not "Science");
+  // without a model, a word of the question that names one is used.
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+  const sameSubject = (a, b) => norm(a) === norm(b) || (norm(a).length >= 4 && norm(a).slice(0, 4) === norm(b).slice(0, 4) && Math.abs(norm(a).length - norm(b).length) <= 5);
+  const subject = ctx.subject ? subjects.find((x) => sameSubject(x, ctx.subject)) || null : subjectFilter(ctx.text, subjects);
+  if (ctx.subject && !subject) {
+    return {
+      text: `No ${ctx.subject} result has been published for ${label}. Published subjects: ${subjects.join(', ')}.`,
+      facts: { student: label, requestedSubject: ctx.subject, publishedSubjects: subjects },
+      sources: [source('result', `Published results · ${label}`)],
+      screen: 'results',
+    };
+  }
   if (subject) {
     const rows = all.filter((r) => r.subject === subject).slice(0, 3);
     return {
       text: `${label}, ${subject}:\n${rows.map((r) => `- ${r.examName}: ${r.absent ? 'absent' : `${r.marksObtained}/${r.totalMarks}${r.grade ? `, grade ${r.grade}` : ''}`}`).join('\n')}`,
       facts: { student: label, subject, results: rows.map((r) => ({ exam: r.examName, marks: r.marksObtained, total: r.totalMarks, grade: r.grade || null, absent: !!r.absent })) },
-      sources: rows.map((r) => source('result', `Result · ${r.examName} · ${r.subject}`, r._id)),
+      sources: rows.map((r) => source('result', `Result · ${String(r.examName).replace(/[.\s]+$/, '')} · ${r.subject}`, r._id)),
       screen: 'results',
     };
   }

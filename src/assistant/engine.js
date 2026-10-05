@@ -445,7 +445,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   if (ctx.aiAllowed && composable.length) {
     const { result, ai } = await compose(
       composable.map(({ id, r }) => ({ id, question: r.question, text: r.text, facts: r.facts })),
-      { role: ctx.role, askerName: ctx.user?.name || '', today: `${dayText(dayKey(now), { weekday: true })}` },
+      { role: ctx.role, askerName: ctx.user?.name || '', language, today: `${dayText(dayKey(now), { weekday: true })}` },
     );
     if (ai) ctx.noteAi(ai);
     for (const { id, r } of composable) {
