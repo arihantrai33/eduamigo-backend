@@ -23,7 +23,12 @@ const { DOMAINS, domainsForRole } = require('./domains');
 const router = require('./router');
 const { redact, detectLanguage, tokenize, normalize, closeEnough } = require('./text');
 const { parseClass, pickChildren, looksLikeFollowUp } = require('./entities');
-const { createTicket, recipientsFor, teamLabel } = require('./handoff');
+const { recipientsFor, teamLabel } = require('./handoff');
+const actions = require('./actions');
+const messages = require('./actions/messages');
+const planner = require('./planner');
+const conversation = require('./conversation');
+const { createTrace } = require('./trace');
 const writer = require('./writer');
 const { compose } = require('./compose');
 const { today: dayKey, day: dayText } = require('./skills/util');
@@ -116,18 +121,33 @@ function sentToText(ticket) {
   return people.join(' and ');
 }
 
-async function handoffReply({ ctx, text, domain, reason, student, subject = null, personName = null, summary = null }) {
-  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student, subject, personName, summary: summary ? redact(summary) : null });
-  const team = teamLabel(ticket.team);
-  const to = sentToText(ticket);
-  const msg = reason === 'complaint'
-    ? `Thank you for telling us. I have passed your complaint to ${to} (ticket ${ticket.number}), and you will get a reply here in the app.`
-    : reason === 'sensitive'
-    ? `I am really sorry to hear this. It is important, so I have sent it to ${to} and the school management right away (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
-    : `I have sent this to ${to} (ticket ${ticket.number}) with a short summary, so you will not have to explain it again. Their reply will come here in the app, and you are welcome to meet them at school too.`;
+// A message that needs a person (complaint, request to speak with staff, a question only a person can answer, a safety concern).
+// UnifiedAI does not blindly open a ticket: the planner checks the person's existing tickets and picks the action that fits
+// (new ticket, follow-up on an open one, repeat of the same issue, escalate, reopen). The action is run through its contract
+// and the reply is built from what was VERIFIED, so it never claims a success that did not happen.
+async function ticketReply({ ctx, text, domain, reason, student, subject = null, personName = null, part = null, severeWords = false, brief = null }) {
+  const tickets = await ctx.tickets();
+  const plan = planner.plan(part || {}, { tickets, text, domain, student, personName, now: ctx.now });
+  const params = {
+    text, domain, reason, student, subject, personName, severeWords, brief: brief || part?.brief || null, safety: part?.safety || (severeWords ? 'safety' : 'none'),
+    ticket: plan.ticket?.raw || null,
+  };
+  const result = await actions.run(plan.action, ctx, params);
+  const said = messages.describe(plan, result, { reason, now: ctx.now });
+  ctx.actionLog.push({ name: plan.action, outcome: said.kind, ok: result.ok, verified: result.verified, ticket: result.data?.ticket?.number || plan.ticket?.number || null });
+  if (result.ok && plan.action !== 'ticket.status') ctx.tickets.refresh();
+
+  const failed = said.kind === 'failed';
+  if (failed) ctx.setPending({ text, kind: 'handoff', domain, subject, person: personName, child: student?.name || null, summary: part?.english || null, options: [opt('Try again', 'office', 'handoff')] });
   return reply({
-    domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text,
-    ticket: { id: String(ticket._id), number: ticket.number, team, sentTo: (ticket.contacts || []).map((c) => ({ name: c.name, title: c.title })) },
+    domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule',
+    action: failed ? 'no_data' : said.kind === 'blocked' ? 'blocked' : said.kind === 'status' ? 'answer' : 'handoff',
+    text: said.text, question: text, options: failed ? [opt('Try again', 'office', 'handoff')] : [],
+    ticket: messages.ticketPayload(plan, result, said.kind),
+    ...(said.kind === 'status' && result.data?.ticket ? {
+      facts: { ticket: { number: result.data.ticket.number, status: result.data.ticket.status, priority: result.data.ticket.priority, sentTo: (result.data.ticket.contacts || []).map((c) => c.name) } },
+      sources: [{ type: 'ticket', label: `Request ${result.data.ticket.number}`, id: String(result.data.ticket._id), at: new Date(result.data.ticket.lastActivityAt || result.data.ticket.updatedAt).toISOString() }],
+    } : {}),
   });
 }
 
@@ -231,7 +251,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   }
 
   // Safety flagged by the model.
-  if (r.sensitive) return handoffReply({ ctx, text, domain: r.domain === 'school_other' ? null : r.domain, reason: 'sensitive' });
+  if (r.sensitive) return ticketReply({ ctx, text, domain: r.domain === 'school_other' ? null : r.domain, reason: 'sensitive', student: await studentForHandoff(ctx, text), part: forced.nlu || null });
 
   // A school question no topic covers: offer the office.
   if (r.domain === 'school_other') {
@@ -255,7 +275,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   // Confidence gate.
   if (r.confidence < router.ANSWER_AT) {
     const attempts = (state.pending?.text ? state.pending.attempts : 0) + 1;
-    if (attempts > 2) return handoffReply({ ctx, text, domain: r.domain, reason: 'unclear' });
+    if (attempts > 2) return ticketReply({ ctx, text, domain: r.domain, reason: 'unclear', student: await studentForHandoff(ctx, text) });
     let options;
     let question;
     if (r.confidence >= router.CLARIFY_AT && r.runnerUp && ctx.allowed.includes(r.runnerUp)) {
@@ -275,6 +295,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   }
 
   const d = r.domain;
+  ctx.trace.step('route', { domain: d, confidence: r.confidence, method: r.method, runnerUp: r.runnerUp || null });
   const base = { domain: d, label: DOMAINS[d].label, confidence: r.confidence, method: r.method, runnerUp: r.runnerUp || null };
 
   // Access: role, then plan.
@@ -384,6 +405,7 @@ function matchOption(text, options) {
 async function ask({ user, school, entitlements, message, conversationId, choice, now = new Date() }) {
   const started = Date.now();
   const schoolId = school._id;
+  const trace = createTrace({ role: user.role });
   const conv = await loadConversation(user, schoolId, conversationId);
   const pending = conv.state?.pending?.text ? JSON.parse(JSON.stringify(conv.state.pending)) : null;
   let text = String(message || '').trim().slice(0, MAX_MESSAGE);
@@ -402,7 +424,13 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     },
     setPending(p) { this.newPending = { ...emptyPending(), ...p }; },
     newPending: null,
+    trace,
+    actionLog: [],
   };
+  // The person's own recent tickets, loaded once per request and again after an action changed them.
+  let ticketCache = null;
+  ctx.tickets = async () => { if (!ticketCache) ticketCache = await conversation.recentTickets(user, schoolId, now); return ticketCache; };
+  ctx.tickets.refresh = () => { ticketCache = null; };
   if (ctx.role === 'teacher') ctx.teacher = await ctx.profile.teacher();
 
   // A suggestion chip is just a question.
@@ -426,9 +454,10 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   if (tapped && pending) {
     const forced = {};
     if (tapped.type === 'handoff') {
-      replies.push(await handoffReply({
+      replies.push(await ticketReply({
         ctx, text: pending.text, domain: pending.domain, reason: pending.kind === 'handoff' ? (pending.subject || pending.person ? 'forwarded' : 'not_covered') : 'unclear',
-        student: await studentForHandoff(ctx, pending.text, pending.child), subject: pending.subject, personName: pending.person, summary: pending.summary,
+        student: await studentForHandoff(ctx, pending.text, pending.child), subject: pending.subject, personName: pending.person,
+        brief: pending.summary ? { title: null, summary: `${ctx.user.name} (${ctx.role}) asks: ${pending.summary}`, request: null } : null,
       }));
     } else {
       if (tapped.type === 'domain') forced.domain = tapped.value;
@@ -447,20 +476,23 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     // Otherwise the model reads the message first; words are the fallback (no model, allowance used, call failed).
     const understood = !severe && ctx.aiAllowed
       ? await router.understand(text, {
-        role: ctx.role, allowed: ctx.allowed, previousTopic: conv.state.lastDomain,
+        role: ctx.role, allowed: ctx.allowed, previousTopic: conv.state.lastDomain, context: conversation.contextFor(conv, await ctx.tickets(), now),
         children: ctx.role === 'parent' ? (await ctx.profile.children()).map(childSummary) : [],
       })
       : null;
+    ctx.trace.step('understand', { provider: understood?.model?.provider || null, cached: !!understood?.model?.cached, parts: understood?.parts.length || 0, fallback: !understood && !severe, severeWords: !!severe }, !!understood || !!severe || !ctx.aiAllowed);
     if (understood) {
       ctx.noteAi(understood.model);
       // The model's reading of the language is better than word counts (short Hinglish looks like English).
       if (understood.language && language !== 'hi') { language = understood.language; ctx.language = language; }
       for (const part of understood.parts) {
         const topicDomain = DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null;
-        if (part.urgent || ['complaint', 'human', 'forward'].includes(part.kind)) {
+        if (part.kind === 'ticket_status') {
+          replies.push(await ticketReply({ ctx, text: part.text, domain: null, reason: 'requested', student: null, part }));
+        } else if (part.urgent || ['complaint', 'human', 'forward'].includes(part.kind)) {
           const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : part.kind === 'forward' ? 'forwarded' : 'requested';
-          replies.push(await handoffReply({
-            ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person, summary: part.english,
+          replies.push(await ticketReply({
+            ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person, part,
           }));
         } else replies.push(await answerQuestion(ctx, part.text, { nlu: part }));
       }
@@ -468,7 +500,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
       const scored = router.scoreKeywords(text, ctx.allowed);
       const domain = scored.domain && scored.domain !== 'general' ? scored.domain : (conv.state.lastDomain !== 'general' ? conv.state.lastDomain : null);
       const reason = severe ? 'sensitive' : router.isSensitive(text) ? 'complaint' : 'requested';
-      replies.push(await handoffReply({ ctx, text, domain, reason, student: await studentForHandoff(ctx, text) }));
+      replies.push(await ticketReply({ ctx, text, domain, reason, student: await studentForHandoff(ctx, text), severeWords: !!severe }));
     } else {
       const questions = router.splitQuestions(text, ctx.allowed).slice(0, MAX_QUESTIONS);
       for (const q of questions) replies.push(await answerQuestion(ctx, q));
@@ -516,7 +548,10 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     }
   }
 
+  ctx.trace.step('respond', { replies: replies.length, actions: ctx.actionLog.map((a) => a.name) });
+
   // Conversation memory.
+  conversation.remember(conv, { userText: shown, replies });
   conv.state.pending = ctx.newPending || emptyPending();
   conv.turns += 1;
   conv.lastActiveAt = new Date();
@@ -536,11 +571,14 @@ async function ask({ user, school, entitlements, message, conversationId, choice
       sources: r.sources.length, grounded: r.action !== 'answer' || r.sources.length > 0, composition: r.composition || 'standard', ticket: r.ticket?.id || null,
     })),
     action: overall, latencyMs: Date.now() - started, ai: aiInfo,
+    requestId: trace.requestId, trace: trace.steps.slice(0, 24), actions: ctx.actionLog,
   });
+  trace.finish({ conversationId: String(conv._id), action: overall, provider: aiInfo.provider, language });
 
   return {
     conversationId: String(conv._id),
     queryId: String(log._id),
+    requestId: trace.requestId,
     language,
     replies: replies.map(({ generated, groundedCheck, composition, runnerUp, question, facts, subject, person, child, summary, ...r }) => r),
     ai: { used: aiInfo.used, provider: aiInfo.provider },

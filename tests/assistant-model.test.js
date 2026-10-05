@@ -107,7 +107,7 @@ describe('the model reads the message first', () => {
   });
 
   test('an urgent concern the safety words miss is still handed off as urgent', async () => {
-    mockModel({ understand: [part({ text: 'conductor uncle ne galat tarike se pakda', topic: 'transport', urgent: true })] });
+    mockModel({ understand: [part({ text: 'conductor uncle ne galat tarike se pakda', topic: 'transport', safety: 'harassment' })] });
     const res = await ask(A.parentUser, 'conductor uncle ne galat tarike se pakda');
     expect(res.body.data.replies[0].action).toBe('handoff');
     expect((await AssistantTicket.findOne({})).priority).toBe('high');

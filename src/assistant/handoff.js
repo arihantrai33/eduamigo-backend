@@ -1,4 +1,4 @@
-// Hand-offs: EduAmigo Ask passes a question to the right person as a numbered ticket and notifies them.
+// Hand-off recipients: who a ticket goes to. (Creating, updating and notifying is done by the ticket actions, actions/ticketActions.js.)
 //
 // Who gets it (domains.js "owner"):
 //   accounts                       -> accountants, else admins
@@ -8,13 +8,10 @@
 //   transport / librarian / office -> admins
 // High-priority tickets (safety, complaints, payment disputes) always include the admins as well.
 
-const AssistantTicket = require('../models/AssistantTicket');
-const Counter = require('../models/Counter');
 const User = require('../models/User');
 const Teacher = require('../models/Teacher');
 const SchoolClass = require('../models/SchoolClass');
 const Timetable = require('../models/Timetable');
-const { notifyUser } = require('../services/notify');
 const { teacherCoversClass } = require('../utils/classes');
 const { DOMAINS, OWNERS } = require('./domains');
 
@@ -93,36 +90,6 @@ async function recipientsFor({ school, domain, student = null, subject = null, p
   return { team, people };
 }
 
-const REASON_TITLES = {
-  sensitive: 'Needs attention',
-  complaint: 'Complaint',
-  requested: 'Asked for a person',
-  forwarded: 'Question for you',
-  unclear: 'Could not understand',
-  not_covered: 'Question for the school',
-};
-
-// Creates the ticket and notifies the assignees. Returns the ticket.
-async function createTicket({ school, user, domain, question, reason, student = null, subject = null, personName = null, summary = null }) {
-  const priority = reason === 'sensitive' ? 'high' : 'normal';
-  const { team, people } = await recipientsFor({ school, domain, student, subject, personName, priority });
-  const assignees = [...new Set(people.map((p) => p.userId).filter(Boolean))];
-  const seq = await Counter.next(school, 'assistantTicket');
-  const ticket = await AssistantTicket.create({
-    school, number: `T-${1000 + seq}`, raisedBy: user._id, raisedRole: user.role, student: student?._id || null,
-    domain: domain || null, question: String(question).slice(0, 1000), summary: summary ? String(summary).slice(0, 400) : null, reason, priority, team, assignees,
-    contacts: people.map((p) => ({ name: p.name, title: p.title })),
-  });
-
-  const who = student ? `${user.name} (${user.role}, about ${student.name} ${student.class}-${student.section})` : `${user.name} (${user.role})`;
-  await Promise.all(assignees.map((id) => notifyUser(school, id, {
-    title: `${priority === 'high' ? 'Urgent: ' : ''}EduAmigo Ask ticket ${ticket.number}`,
-    message: `${REASON_TITLES[reason]}. ${who} wrote: "${ticket.question.slice(0, 300)}"${ticket.summary ? ` (In short: ${ticket.summary})` : ''}`,
-    type: 'General',
-  }).catch(() => null)));
-  return ticket;
-}
-
 const teamLabel = (team) => OWNERS[team] || 'School office';
 
-module.exports = { createTicket, recipientsFor, teamLabel, REASON_TITLES };
+module.exports = { recipientsFor, teamLabel };

@@ -57,12 +57,17 @@ const intro = asyncHandler(async (req, res) => {
 });
 
 const ticketView = (t) => ({
-  id: String(t._id), number: t.number, status: t.status, priority: t.priority, reason: t.reason, domain: t.domain,
-  domainLabel: DOMAINS[t.domain]?.label || null, team: t.team, question: t.question, summary: t.summary || null,
+  id: String(t._id), number: t.number, status: t.status, priority: t.priority, priorityReason: t.priorityReason || null, reason: t.reason, domain: t.domain,
+  domainLabel: DOMAINS[t.domain]?.label || null, team: t.team,
+  // What staff read first: a professional title, summary and the requested action. The person's own words stay available as `original`.
+  title: t.title || null, summary: t.summary || null, requestedAction: t.requestedAction || null, original: t.question, question: t.question,
   sentTo: (t.contacts || []).map((c) => ({ name: c.name, title: c.title })),
   raisedBy: t.raisedBy ? { id: String(t.raisedBy._id || t.raisedBy), name: t.raisedBy.name, role: t.raisedRole } : null,
   student: t.student ? { id: String(t.student._id || t.student), name: t.student.name, class: t.student.class ? `${t.student.class}-${t.student.section}` : null } : null,
-  notes: (t.notes || []).map((n) => ({ text: n.text, at: n.at, by: n.by?.name || null })),
+  // Everything after the first message, in order: staff notes and the person's follow-ups, repeats, escalations and reopenings.
+  notes: (t.notes || []).map((n) => ({ text: n.text, at: n.at, by: n.by?.name || null, kind: n.kind || 'note' })),
+  delivery: (t.notifications || []).map((n) => ({ name: n.name, ok: n.ok, at: n.at })),
+  reopenedCount: t.reopenedCount || 0, lastActivityAt: t.lastActivityAt || t.updatedAt,
   createdAt: t.createdAt, resolvedAt: t.resolvedAt,
 });
 
@@ -102,7 +107,8 @@ const updateTicket = asyncHandler(async (req, res) => {
   if (!status && !text) throw new HttpError(400, 'Nothing to update');
   const wasResolved = t.status === 'resolved';
   if (status) { t.status = status; t.resolvedAt = status === 'resolved' ? new Date() : null; }
-  if (text) t.notes.push({ by: req.user._id, text });
+  if (text) t.notes.push({ by: req.user._id, kind: 'note', text });
+  t.lastActivityAt = new Date();
   await t.save();
 
   if (t.status === 'resolved' && !wasResolved) {

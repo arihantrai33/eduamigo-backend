@@ -25,6 +25,10 @@ const assistantQuerySchema = new mongoose.Schema({
   parts:        { type: [partSchema], default: [] },
   action:       { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data'], required: true },
   latencyMs:    { type: Number, default: 0 },
+  requestId:    { type: String, default: null },
+  // What the request did, step by step (no message text): [{ step, ms, ok, ...small details }]. For debugging and the dashboard.
+  trace:        { type: [mongoose.Schema.Types.Mixed], default: [] },
+  actions:      { type: [{ name: String, outcome: String, ok: Boolean, verified: Boolean, ticket: String, _id: false }], default: [] },
   ai: {
     used:         { type: Boolean, default: false },
     provider:     { type: String, default: null },

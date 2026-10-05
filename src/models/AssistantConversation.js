@@ -9,6 +9,11 @@ const assistantConversationSchema = new mongoose.Schema({
     lastDomain:    { type: String, default: null },
     lastStudentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', default: null },
     lastClass:     { type: String, default: null },
+    // What the conversation is about right now, kept short on purpose (the model is never sent the whole transcript):
+    // the last few turns, and the people and tickets just mentioned, so "him", "that issue" and "still not fixed" can be resolved.
+    recent: { type: [{ role: { type: String, enum: ['user', 'assistant'] }, text: { type: String, maxlength: 300 }, domain: { type: String, default: null }, at: { type: Date, default: Date.now }, _id: false }], default: [] },
+    people: { type: [{ name: String, title: String, _id: false }], default: [] },
+    tickets: { type: [{ number: String, domain: String, title: String, _id: false }], default: [] },
     // A question waiting for the user's choice: which topic, which child, which class, or a hand-off.
     pending: {
       text:     { type: String, default: null },
