@@ -1,6 +1,6 @@
 # EduAmigo Ask
 
-> The current architecture, security, grounding and evaluation are in `UNIFIEDAI_ARCHITECTURE.md`, `SECURITY.md`,
+> The current architecture, security, grounding and evaluation are in `UNIFIEDAI_CURRENT_STATE.md`, `UNIFIEDAI_IMPLEMENTATION_PROGRESS.md`, `UNIFIEDAI_ARCHITECTURE.md`, `SECURITY.md`,
 > `AI_GROUNDING.md` and `EVALUATION.md`. This file keeps the setup notes (Azure OpenAI), the API and the demo walkthrough.
 
 One assistant for everything in a school (Microsoft Innovate 2026, Problem Statement 18, "One Front Door

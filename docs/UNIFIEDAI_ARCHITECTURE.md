@@ -7,21 +7,30 @@ from the school's own records and documents, asks when unsure, or hands the matt
 
 ```
 person -> Ask button (every screen) -> POST /api/assistant/ask
-  guard        signed in, plan has ai_assistant, per-user rate limit, monthly AI allowance
+  Gateway      signed in, plan has ai_assistant, per-user rate limit, monthly AI allowance, school scope (RBAC)
+  Trace        request id; each step below records its time and outcome (never the message text)
   choice       a tapped button resumes the question that was waiting
   safety       unambiguous safety words (exact spelling) go to a person at once, whatever the model says
-  understand   ONE model call reads the whole message: separate questions, topic, kind, child, class, subject,
-               person, "about whom", exam view, language, restatement in plain English, confidence
+  Conversation Manager
+               recent turns (6, redacted), people and tickets just mentioned, last topic/child/class, the person's own recent tickets
+               -> a compact context for the model (never the whole transcript)
+  AI Orchestrator (understand)
+               ONE model call reads the message with that context: separate parts, topic, kind, child, class, subject, person,
+               "about whom", exam view, language, plain-English restatement, safety category, how the message relates to the
+               person's tickets, a staff brief, confidence
   reconcile    the model's reading is checked against weighted keywords; ties are asked, never guessed
   gate         confidence >= 0.75 answer | 0.45-0.75 clarify between two topics | below: topic menu + office
   scope        the asker may only see their own / their children's / their classes' records (server decides)
   access       role may use the topic, school plan includes it
-  details      which child, student, class, teacher (asked when missing)
-  skill        reads the school's records or documents, returns facts, sources, screen link
-  compose      the model writes the answer to the exact question from the facts; numbers and names are checked
-  forward      a question only a person can answer becomes a ticket for the named teacher / office
-  log          redacted question, topic, confidence, action, sources, composition, latency, model use
-person <- reply (typed out word by word) + source cards + buttons
+  per part:
+    question   Domain skill reads records or the school's documents -> facts + sources (Knowledge / RAG)
+               -> compose: the model writes the answer from the facts; numbers and names are checked
+    needs a person
+               Action Planner -> action contract (authorize, validate, execute) -> Action Verifier -> reply from the VERIFIED result
+               Safety/Policy decides priority and escalation; Handoff chooses the recipients and writes the staff brief
+  Response     put into the person's language (writer), name and number guards
+  log          redacted question, topic, confidence, action, sources, trace steps, action log, latency, model use
+person <- reply (typed out word by word) + source cards + ticket card + buttons
 ```
 
 Without a model (not configured, allowance used, failure, timeout) the keyword router and the standard English answers do
@@ -79,11 +88,17 @@ question the documents do not answer is told so and offered to the office; it is
 * **Gate.** answer / clarify between two topics / topic menu with "ask the school office". A third unclear attempt in a row
   becomes a ticket.
 
-## Context across a conversation
+## Conversation Manager (`conversation.js`)
 
-`AssistantConversation.state` keeps only what is needed: last topic, last child, last class, and the one pending question
-(with its options). The model is told only the previous topic and the asker's children, never the transcript. "Aur Riya
-ki?" and "uski attendance?" resolve through that state. A new chat clears it. Conversations expire after 7 days.
+Short-term state only, in `AssistantConversation.state`: the last six turns (phone numbers, e-mails and ID numbers redacted, 240
+characters each), up to five people and three tickets just talked about, the last topic, child and class, and the one pending
+question with its options. Nothing permanent about the person is kept; the state expires with the chat (7 days).
+
+What the model sees is built by `contextFor`: the recent turns, the people just mentioned, and the person's own recent tickets
+(30 days, five at most). The ticket raised or discussed in this chat is listed on its own ("THIS chat"), apart from the other
+tickets, because mixed together it gets lost and the model picks another ticket of the same teacher. The model uses this to resolve
+"him", "that issue", "same as before", "still not fixed"; a ticket number or a name not in the context must never be invented, and
+the server also rejects any ticket that is not the person's own.
 
 ## Grounding, in order of strength
 
@@ -105,15 +120,34 @@ assigned classes (`teacherCoversClass`); named students are checked with `canAcc
 refuses, with a clear message, a question about another student or "everyone" for personal records, and a teacher's
 question about someone else's salary. Tapped choices are re-validated server-side. See `SECURITY.md`.
 
-## Hand-off
+## Actions: planner, contracts, verification, policy
 
-Reasons: `sensitive` (urgent, always includes admins), `complaint`, `requested` (asked for a person), `forwarded` (only a
-person can answer), `unclear`, `not_covered`. Recipient: a teacher the person named, else the subject's teacher for the
-child's class (from the timetable), else the child's class teacher, accountants for fees, otherwise the school office.
-The reply names the person ("sent to Anita Verma (Maths teacher), ticket T-1004"), the ticket carries a short summary so
-nobody has to explain twice, the assignees are notified, and the sender is notified when it is resolved. Tickets are
-listed under Requests in the chat and in the admin dashboard. "Has the school sent a complaint about me?" is a question
-about records, not a complaint: it is answered, and a ticket is only made if the person agrees.
+A message that needs a person (complaint, request to speak to staff, a question only a person can answer, a safety concern) does
+not blindly open a ticket.
+
+1. **Planner** (`planner.js`). The model says how the message relates to the person's tickets: `new`, `follow_up`, `repeat`,
+   `escalate`, `reopen` or `status`, and may name a ticket. The planner checks the claim against the real tickets: the ticket
+   must be the person's own, and must not contradict the message (another topic, child, named person or subject). An
+   incompatible claim is overruled. With no usable claim a similarity rule applies (same topic, child, subject, person, at least
+   40% shared words, open, within 14 days). "New" is not believed for a ticket that was just created in the same request. With
+   no ticket named, a status question is about the ticket discussed in this chat.
+2. **Action contract** (`actions/`). Each action (`ticket.create`, `follow_up`, `repeat`, `escalate`, `reopen`, `status`) has
+   authorize, validate, execute and verify steps. `run()` never throws; it returns `{ ok, verified, data, denied }`. The language
+   model only proposes; the backend decides and does.
+3. **Verification and honest replies** (`actions/messages.js`). The reply is built from the verified result: "added to your
+   existing ticket T-1002", "sent to Anita Verma (Maths teacher), ticket T-1004". If a write fails, the person is told and offered
+   "Try again"; if only the notification fails, that is reported, not hidden. Someone else's ticket number gives a refusal.
+4. **Policy** (`policy.js`). Priority comes from a table keyed by the safety category (bullying, harm, safety, payment problems and
+   so on). The model only describes the situation; the word "urgent" alone changes nothing. A ticket is escalated once, and a
+   resolved ticket can be reopened for 14 days.
+5. **Handoff** (`handoff.js`, router brief). Recipients: a teacher the person named, else the subject's teacher for the child's
+   class (timetable), else the class teacher, accountants for fees, otherwise the school office; admins are added when priority is
+   high. Staff see a short professional English brief (title, summary, request) and the person's original words (kept for
+   audit); Hinglish or Devanagari is not pasted into the staff view. The assignees are notified; the sender is notified when it
+   is resolved. Tickets are listed under Requests in the chat and in the admin dashboard.
+
+"Has the school sent a complaint about me?" is a question about records, not a complaint: it is answered, and a ticket is only
+made if the person agrees.
 
 ## Observability
 
@@ -124,13 +158,18 @@ rates, **end-to-end resolution** (see `EVALUATION.md`), source coverage, share o
 fact check, speed (p50, p95), model use, topics, and what needs attention. Nothing sensitive beyond the redacted question
 text is logged, and API keys are never logged.
 
+Each request has a request id (`trace.js`, returned in the response and stored on the query) and a list of steps with milliseconds
+and outcome: `understand` (provider, cached, number and kinds of parts, fallback), `route`, `plan` (the model's relation and
+ticket, the planner's action, how it decided, how many tickets), `action:*` (executed, verified, denied and why) and `respond`.
+`ASSISTANT_LOG=json` prints one JSON line per request with these steps, without the message text.
+
 ## Reliability
 
-* Model calls: 6 s timeout, one retry on rate limit, provider fallback (Azure then Gemini), a 60 s cool-off after three
+* Model calls: 10 s timeout (`ASSISTANT_TIMEOUT_MS`), one retry on rate limit (capped at 4 s), provider fallback (Azure then Gemini), a 60 s cool-off after three
   failures, 10-minute answer cache. Any failure falls back to keywords and templates.
 * Rate limit: 120 questions per user per hour; per-school monthly allowance for model-assisted questions.
 * Malformed model JSON, unknown topics and nonsense confidence are ignored (tested).
-* Understand and compose/reword calls run in parallel where possible; typical latency 2 to 3 s with the model.
+* Understand and compose/reword calls run in parallel where possible; typical latency 3 to 5 s with the model (understanding is about 2 s, writing about 1.5 s).
 
 ## Interface
 
