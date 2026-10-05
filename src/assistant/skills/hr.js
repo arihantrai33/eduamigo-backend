@@ -25,7 +25,7 @@ async function leaveSummary(ctx, teacher) {
   return {
     text: `Leave this session: ${plural(taken, 'day')} taken${Object.keys(byType).length ? ` (${Object.entries(byType).map(([t, d]) => `${t} ${d}`).join(', ')})` : ''}${pending.length ? `; ${plural(pending.length, 'request')} pending` : ''}.`,
     facts: { taken, byType, pending: pending.length },
-    sources: rows.length ? [source('staff_leave', 'Staff leave records', rows[0]._id)] : [source('staff_leave', 'Staff leave records')],
+    sources: rows.length ? [source('staff_leave', 'Staff leave records', rows[0]._id, rows[0])] : [source('staff_leave', 'Staff leave records')],
   };
 }
 
@@ -35,7 +35,7 @@ async function salarySummary(ctx, teacher) {
   return {
     text: `Salary for ${MONTHS[s.month - 1]} ${s.year}: net ${money(s.netSalary)} (basic ${money(s.basicSalary)}${s.allowances ? `, allowances ${money(s.allowances)}` : ''}${s.deductions ? `, deductions ${money(s.deductions)}` : ''}), ${s.status === 'Paid' ? `paid${s.paidOn ? ` on ${day(s.paidOn)}` : ''}` : 'not paid yet'}.`,
     facts: { month: `${MONTHS[s.month - 1]} ${s.year}`, net: s.netSalary, basic: s.basicSalary, allowances: s.allowances, deductions: s.deductions, status: s.status },
-    sources: [source('salary', `Salary slip · ${MONTHS[s.month - 1]} ${s.year}`, s._id)],
+    sources: [source('salary', `Salary slip · ${MONTHS[s.month - 1]} ${s.year}`, s._id, s)],
   };
 }
 

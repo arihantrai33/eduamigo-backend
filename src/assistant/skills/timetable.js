@@ -62,22 +62,22 @@ async function forClass(ctx, cls, section, who) {
       return {
         text: `${who.owner} next period today is ${line(next, periods.indexOf(next))}.`,
         facts: { class: name, day: t.weekday, next: { no: periodNo(next, 0), subject: next.subject, time: periodTime(next) } },
-        sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id)],
+        sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id, tt)],
       };
     }
-    return { text: `There are no more periods today for ${who.title}.`, facts: { class: name, day: t.weekday }, sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id)] };
+    return { text: `There are no more periods today for ${who.title}.`, facts: { class: name, day: t.weekday }, sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id, tt)] };
   }
   if (hasPhrase(ctx.text, FIRST_WORDS)) {
     return {
       text: `${t.note}${who.owner} first period on ${t.weekday} (${day(t.d, { short: true })}) is ${line(periods[0], 0)}.`,
       facts: { class: name, day: t.weekday, first: { subject: periods[0].subject, time: periodTime(periods[0]) } },
-      sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id)],
+      sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id, tt)],
     };
   }
   return {
     text: `${t.note}Timetable for ${who.title} on ${t.weekday} (${day(t.d, { short: true })}):\n${periods.map((p, i) => `- ${line(p, i)}`).join('\n')}`,
     facts: { class: name, day: t.weekday, periods: periods.map((p, i) => ({ no: periodNo(p, i), subject: p.subject, time: periodTime(p) })) },
-    sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id)],
+    sources: [source('timetable', `Timetable · ${name} · ${t.weekday}`, tt._id, tt)],
   };
 }
 

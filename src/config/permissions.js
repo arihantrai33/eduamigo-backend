@@ -38,6 +38,7 @@ const PERMISSIONS = {
   'academics.manage':     'Academic sessions, classes, sections, subjects and class teachers',
   'chat.directory':       'Message anyone in the school from one inbox',
   'audit.read':           'See the school activity log (who changed marks, fees, students, settings)',
+  'assistant.knowledge':  'EduAmigo Ask: add, update and remove the school documents it answers from',
   'assistant.insights':   'EduAmigo Ask: routing accuracy and resolution metrics, and every hand-off ticket in the school',
 };
 

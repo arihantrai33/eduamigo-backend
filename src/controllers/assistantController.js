@@ -126,12 +126,17 @@ const metrics = asyncHandler(async (req, res) => {
 });
 
 // GET /api/assistant/evaluation - routing accuracy on the labelled question set (last saved model run, else keywords only)
+// Saved reports are read from disk on every request, so a fresh run shows up without restarting the server.
+const readReport = (name) => {
+  try { return JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '../assistant/eval', name), 'utf8')); } catch { return null; }
+};
+
 const evaluation = asyncHandler(async (req, res) => {
   // The last saved run with the language model (how the live assistant works), else the free keyword-only run.
-  let saved = null;
-  try { saved = require('../assistant/eval/last-model-report.json'); } catch { /* no saved run yet */ }
+  const saved = readReport('last-model-report.json');
   const report = saved || { ...(await evaluate({ useModel: false })), savedAt: null };
-  res.json({ success: true, data: report });
+  // Answer quality (did people get the right answer, not just the right topic), from `npm run assistant:answers -- --save`.
+  res.json({ success: true, data: { ...report, answers: readReport('last-answers-report.json') } });
 });
 
 module.exports = { ask, feedback, intro, listTickets, updateTicket, metrics, evaluation };

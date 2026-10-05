@@ -50,7 +50,7 @@ async function seed({ skipCodes = [] } = {}) {
   await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
   rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
 
-  const { seedActivity } = require('./demoActivity');
+  const { seedActivity, seedKnowledge } = require('./demoActivity');
 
   async function demoSchool({ name, code, city, plan, color, accent, logoUrl, appName, tagline, heroStyle, subscription, classes, teacher, principal, students, stops }) {
     if (skipCodes.includes(code)) return null;
@@ -87,6 +87,7 @@ async function seed({ skipCodes = [] } = {}) {
     }
     // A month of fees, attendance, exams, buses, notices and more, so EduAmigo Ask has data to answer from.
     await seedActivity({ _id: school._id, code }, stops ? { stops } : {});
+    await seedKnowledge({ _id: school._id, code });
     return school;
   }
 

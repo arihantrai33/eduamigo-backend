@@ -62,6 +62,11 @@ function link(screen, role) {
   return path ? { label: LINK_LABELS[screen], path } : null;
 }
 
-const source = (type, label, id) => ({ type, label, ...(id ? { id: String(id) } : {}) });
+// A real record or document an answer was read from. `record` (when given) supplies the "last updated" time so the person
+// can see how fresh the evidence is.
+const source = (type, label, id, record) => {
+  const at = record?.updatedAt || record?.createdAt;
+  return { type, label, ...(id ? { id: String(id) } : {}), ...(at ? { at: new Date(at).toISOString() } : {}) };
+};
 
 module.exports = { money, day, today, addDays, sessionStart, plural, studentLabel, escapeRegex, listText, link, source, MONTHS, DAY };

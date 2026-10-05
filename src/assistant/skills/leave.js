@@ -21,7 +21,7 @@ async function mine(ctx) {
     return {
       text: `You can apply for leave on the Apply Leave screen: choose the dates and reason, and the class teacher will review it.${rows[0] ? `\nYour latest request: ${line(rows[0])}.` : ''}`,
       facts: { latest: rows[0] ? { type: rows[0].leaveType, from: day(rows[0].fromDate), to: day(rows[0].toDate), status: rows[0].status } : null },
-      sources: rows[0] ? [source('leave', 'Leave request', rows[0]._id)] : [],
+      sources: rows[0] ? [source('leave', 'Leave request', rows[0]._id, rows[0])] : [],
       link: applyLink,
     };
   }
@@ -29,7 +29,7 @@ async function mine(ctx) {
   return {
     text: `Your leave requests:\n${rows.map((r) => `- ${r.name && ctx.role === 'parent' ? `${r.name}: ` : ''}${line(r)}`).join('\n')}`,
     facts: { requests: rows.map((r) => ({ for: r.name, type: r.leaveType, from: day(r.fromDate), to: day(r.toDate), days: r.days, status: r.status })) },
-    sources: rows.map((r) => source('leave', `Leave request · ${day(r.fromDate, { short: true })}`, r._id)),
+    sources: rows.map((r) => source('leave', `Leave request · ${day(r.fromDate, { short: true })}`, r._id, r)),
     link: applyLink,
   };
 }

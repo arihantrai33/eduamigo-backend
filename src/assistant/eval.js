@@ -24,6 +24,7 @@ async function predictWithModel(item, allowed) {
   const domains = [];
   let action = 'answer';
   let minConfidence = 1;
+  let signals = null;
   for (const part of u.parts) {
     if (part.urgent || part.kind === 'complaint' || part.kind === 'human') {
       return { domains: [DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null], action: 'handoff', confidence: part.confidence };
@@ -34,12 +35,13 @@ async function predictWithModel(item, allowed) {
     const topic = DOMAINS[r.domain] && r.domain !== 'general' && !allowed.includes(r.domain) && r.method === 'model' && !router.wordsNameTopic(part.text, r.domain) ? 'school_other' : r.domain;
     domains.push(topic);
     minConfidence = Math.min(minConfidence, r.confidence);
+    signals = signals || r.signals;
     if (DOMAINS[topic] && topic !== 'general' && r.confidence < router.ANSWER_AT) {
       action = 'clarify';
       if (r.runnerUp && r.confidence >= router.CLARIFY_AT) domains.push(r.runnerUp);
     }
   }
-  return { domains: [...new Set(domains)], action, confidence: minConfidence };
+  return { domains: [...new Set(domains)], action, confidence: minConfidence, signals };
 }
 
 async function predict(item, { useModel = false } = {}) {
@@ -103,6 +105,32 @@ function prf(rows) {
 const round = (n) => Math.round(n * 1000) / 1000;
 const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
 
+
+// Is the confidence worth anything? Questions grouped by the confidence the assistant reported, with the share it
+// actually got right in each group. A trustworthy score rises with accuracy; ECE is the average gap between the two
+// (0 = perfectly calibrated). Hand-offs are left out (they are rule-based, not scored).
+const BUCKETS = [[0, 0.45], [0.45, 0.75], [0.75, 0.9], [0.9, 1.0001]];
+function calibration(rows) {
+  const scored = rows.filter((r) => r.item.action !== 'handoff' && typeof r.pred.confidence === 'number');
+  const buckets = BUCKETS.map(([lo, hi]) => {
+    const inB = scored.filter((r) => r.pred.confidence >= lo && r.pred.confidence < hi);
+    const correct = inB.filter((r) => r.domainOk && r.actionOk).length;
+    const mean = inB.length ? inB.reduce((s, r) => s + r.pred.confidence, 0) / inB.length : 0;
+    return { from: lo, to: Math.min(1, hi), questions: inB.length, accuracy: pct(correct, inB.length), meanConfidence: round(mean) };
+  });
+  const ece = scored.length ? buckets.reduce((s, b) => s + (b.questions / scored.length) * Math.abs(b.accuracy / 100 - b.meanConfidence), 0) : 0;
+  // Does agreement between the model and the words add information?
+  const withSignals = scored.filter((r) => r.pred.signals);
+  const group = (agree) => { const g = withSignals.filter((r) => !!r.pred.signals.agree === agree); return { questions: g.length, accuracy: pct(g.filter((r) => r.domainOk && r.actionOk).length, g.length) }; };
+  const answered = scored.filter((r) => r.pred.action === 'answer');
+  return {
+    buckets, ece: round(ece),
+    agreement: withSignals.length ? { modelAndWordsAgree: group(true), disagree: group(false) } : null,
+    // What the answer threshold buys: of everything answered straight away, the share that was right.
+    answeredDirectly: { questions: answered.length, accuracy: pct(answered.filter((r) => r.domainOk && r.actionOk).length, answered.length) },
+  };
+}
+
 function summarize(rows) {
   const routed = rows.filter((r) => r.domainOk).length;
   const acted = rows.filter((r) => r.actionOk).length;
@@ -121,6 +149,7 @@ function summarize(rows) {
     actionAccuracy: pct(acted, rows.length),
     fullyCorrect: pct(both, rows.length),
     perTopic: prf(rows),
+    calibration: calibration(rows),
     confusion,
     mistakes: rows.filter((r) => !r.domainOk || !r.actionOk).map(({ item, pred }) => ({
       id: item.id, role: item.role, q: item.q, expected: item.expect, expectedAction: item.action, got: pred.domains, gotAction: pred.action, confidence: pred.confidence,

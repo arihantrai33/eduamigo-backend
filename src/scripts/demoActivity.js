@@ -199,4 +199,53 @@ async function seedActivity(school, { stops = ['School Gate', 'Main Market', 'Ra
   }
 }
 
-module.exports = { seedActivity };
+// Sample written documents so EduAmigo Ask can be tried on school rules and policies. These are demo texts for the
+// demo schools only; a real school adds its own handbook and policies from the Ask screen.
+async function seedKnowledge(school) {
+  const SchoolDocument = require('../models/SchoolDocument');
+  const { splitSections } = require('../services/knowledge');
+  const admin = await User.findOne({ school: school._id, role: 'admin' });
+  const docs = [
+    ['Parent and student handbook', 'handbook', [], `SCHOOL TIMINGS
+Classes run from 8:00 AM to 2:30 PM, Monday to Saturday. The school gate opens at 7:30 AM and closes at 8:10 AM. Students who arrive after 8:10 AM must be signed in at the office.
+
+UNIFORM
+Boys wear a sky blue shirt with navy trousers. Girls wear a sky blue shirt with a navy skirt or trousers. Black shoes and the school tie are compulsory on Mondays and on days of assembly. Sports uniform is worn on Wednesdays.
+
+HOLIDAYS AND ABSENCE
+A parent must inform the class teacher through the app before 9:00 AM on the day a student is absent. For an absence of more than three days a leave application is required. Absence on the day of an examination needs a medical certificate.
+
+EXAMINATION RULES
+A student needs at least 75 percent attendance to appear in the term examinations. Mobile phones are not allowed in the examination hall. Report cards are shared on the app within seven days of the last paper.
+
+MOBILE PHONES
+Students may not bring mobile phones to school. A phone found in school is kept at the office and returned to a parent.
+
+SCHOOL CONTACT
+The school office is open from 8:00 AM to 3:00 PM on working days. Visitors must carry a photo ID and sign in at the gate.`],
+    ['Fee payment and refund policy', 'policy', ['parent', 'accountant'], `FEE PAYMENT
+Tuition is paid in two terms. Term 1 is due by 10 April and Term 2 by 10 October. Fees can be paid online through the app, or at the school counter between 9:00 AM and 1:00 PM.
+
+LATE FEE
+A late fee of Rs 50 per week is charged after the due date. The late fee is waived once in an academic year on request to the accounts office.
+
+REFUNDS
+Admission and annual fees are not refundable. Tuition paid for a term is refundable only if the student leaves within 15 days of the start of the term. Transport fees are refunded for the months the bus is not used, if the school is told in writing before the 25th of the previous month.
+
+SIBLING CONCESSION
+A concession of 10 percent on tuition is given for the second child studying in the same school.`],
+    ['Staff conduct and leave policy', 'policy', ['teacher'], `CASUAL LEAVE
+Teachers get 12 days of casual leave in an academic year. Apply on the app at least two days before, except in an emergency.
+
+DRESS CODE
+Teachers wear formal clothes and carry the school ID card every day.
+
+SUBSTITUTION
+A teacher on leave informs the vice principal before 7:30 AM so that a substitute can be arranged for every period.`],
+  ];
+  for (const [title, category, audience, text] of docs) {
+    await SchoolDocument.create({ school: school._id, title, category, audience, sections: splitSections(text), uploadedBy: admin?._id || null });
+  }
+}
+
+module.exports = { seedActivity, seedKnowledge };

@@ -30,7 +30,7 @@ async function forStudent(ctx, student) {
   return {
     text: `${label} travels on bus ${bus.busNumber} (${routeName(bus)}, driver ${bus.driverName}). The bus ${st.text}.`,
     facts: { student: label, bus: bus.busNumber, route: bus.routeName, driver: bus.driverName, status: bus.busStatus, currentStop: st.live, nextStop: st.next },
-    sources: [source('bus', `Bus ${bus.busNumber} · ${bus.routeName}`, bus._id)],
+    sources: [source('bus', `Bus ${bus.busNumber} · ${bus.routeName}`, bus._id, bus)],
   };
 }
 
@@ -50,7 +50,7 @@ async function forAdmin(ctx) {
           return `Bus ${b.busNumber} (${routeName(b)})${stop ? ` stops at ${stop.name}` : ''}`;
         }).join('\n')}`,
         facts: { place: words.join(' '), buses: hits.map((b) => ({ bus: b.busNumber, route: b.routeName })) },
-        sources: hits.slice(0, 3).map((b) => source('bus', `Route · ${b.routeName}`, b._id)),
+        sources: hits.slice(0, 3).map((b) => source('bus', `Route · ${b.routeName}`, b._id, b)),
       };
     }
   }

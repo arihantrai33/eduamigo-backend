@@ -54,7 +54,7 @@ async function forStudent(ctx, student) {
       dues: open.slice(0, 4).map((f) => ({ feeType: f.feeType, balance: balanceOf(f), dueDate: day(f.dueDate), overdue: new Date(f.dueDate) < now })),
       lastPayment: last ? { amount: last.amount, date: day(last.paidAt), receiptNo: last.receiptNo, feeType: last.feeType } : null,
     },
-    sources: (open.length ? open : fees).slice(0, 3).map((f) => source('fee', `Fee record · ${f.feeType}`, f._id)),
+    sources: (open.length ? open : fees).slice(0, 3).map((f) => source('fee', `Fee record · ${f.feeType}`, f._id, f)),
     actions: totalDue > 0 && ctx.role === 'parent' && ctx.entitlements?.features?.includes('online_payments') ? [{ label: 'Pay now', path: '/parent/fee' }] : [],
   };
 }

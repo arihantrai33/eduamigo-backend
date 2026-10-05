@@ -26,7 +26,7 @@ async function run(ctx) {
       return {
         text: `${ranked.map((b) => `- ${b.title}${b.author ? ` by ${b.author}` : ''}: ${b.available > 0 ? `${b.available} of ${b.totalCopies} available` : 'all copies are issued'}`).join('\n')}`,
         facts: { search: words.join(' '), books: ranked.map((b) => ({ title: b.title, author: b.author || null, available: b.available, total: b.totalCopies })) },
-        sources: ranked.slice(0, 3).map((b) => source('book', `Library · ${b.title}`, b._id)),
+        sources: ranked.slice(0, 3).map((b) => source('book', `Library · ${b.title}`, b._id, b)),
         link: link('library', ctx.role),
       };
     }

@@ -162,6 +162,38 @@ async function studentForHandoff(ctx, text, child = null) {
   return null;
 }
 
+// Records that belong to one person: asking for someone else's (another student, a whole school) is refused, never answered
+// from the asker's own record.
+const PERSONAL_RECORDS = ['fees', 'attendance', 'exams', 'leave'];
+
+// Does the question name a student of this school who is not the asker's own (or child)?
+async function namesOtherStudent(ctx, text, own) {
+  const words = [...new Set(tokenize(text).filter((w) => w.length >= 3 && /^[a-z]+$/.test(w) && !NOT_NAMES.has(w)))];
+  if (!words.length) return false;
+  const found = await Student.find({ school: ctx.schoolId, isActive: true, name: { $regex: `(^|\\s)(${words.map(escapeRegex).join('|')})(\\s|$)`, $options: 'i' } }).select('_id').limit(6).lean();
+  const ownIds = new Set(own.map((s) => String(s._id)));
+  return found.length > 0 && !found.some((s) => ownIds.has(String(s._id)));
+}
+
+// Returns the refusal text, or null when the question stays within what the asker may see.
+async function scopeRefusal(ctx, d, text, nlu, forced) {
+  if (forced.studentIds) return null; // a tapped choice; the options were the asker's own
+  if (['student', 'parent'].includes(ctx.role) && PERSONAL_RECORDS.includes(d)) {
+    const own = ctx.role === 'student' ? [await ctx.profile.student()].filter(Boolean) : await ctx.profile.children();
+    const namesOwn = ctx.role === 'parent' && pickChildren(text, own, ctx.conv.state.lastStudentId).length > 0;
+    const aboutOthers = ['other', 'everyone'].includes(nlu?.about) && !namesOwn;
+    if (aboutOthers || await namesOtherStudent(ctx, text, own)) {
+      return ctx.role === 'parent'
+        ? 'I can only share details about your own children here, so I cannot help with another student or with the whole school. If you need something about your children, just ask.'
+        : 'I can only share your own records here, so I cannot help with another student or with the whole school. If you need something about yourself, just ask.';
+    }
+  }
+  if (ctx.role === 'teacher' && d === 'hr' && ['other', 'everyone'].includes(nlu?.about)) {
+    return 'I can only share your own salary and leave details here. For anyone else, please speak to the school office.';
+  }
+  return null;
+}
+
 // One question -> one reply. `forced` comes from a tapped choice: { domain, studentIds, cls, staffId }.
 async function answerQuestion(ctx, text, forced = {}) {
   const out = await answerQuestionInner(ctx, text, forced);
@@ -259,6 +291,8 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     ...ctx, text: understood, question: text, cls: forced.cls || parseClass(text) || nluClass, staffId: forced.staffId || null,
     personName: forced.nlu?.person || null, subject: forced.nlu?.subject || null, child: forced.nlu?.child || null, view: forced.nlu?.view || null, students: [],
   };
+  const refusal = await scopeRefusal(ctx, d, text, forced.nlu, forced);
+  if (refusal) return reply({ ...base, action: 'blocked', text: refusal });
   if (d === 'general') {
     const out = await skill.run(sctx);
     if (out.ai) ctx.noteAi(out.ai);
@@ -458,8 +492,8 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     if (composed.ai) ctx.noteAi(composed.ai);
     for (const { id, r } of composable) {
       const w = composed.result.get(id);
-      if (!w || w.rejected) { if (w?.rejected) r.groundedCheck = 'kept_original'; continue; }
-      if (w.text !== r.text) { r.text = w.text; aiInfo.composed = true; }
+      if (!w || w.rejected) { if (w?.rejected) { r.groundedCheck = 'kept_original'; r.composition = 'kept_original'; } continue; }
+      if (w.text !== r.text) { r.text = w.text; r.composition = 'composed'; aiInfo.composed = true; }
       // The records do not hold what was asked: say what they do hold and offer to ask the right person.
       if (!w.answered) {
         const offer = await handoffOffer(ctx, { text: r.question, domain: r.domain, subject: r.subject, person: r.person, child: r.child });
@@ -495,7 +529,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     parts: replies.map((r, i) => ({
       text: redact(r.question || shown).slice(0, 600),
       domain: r.domain, confidence: r.confidence, runnerUp: r.runnerUp || null, method: r.method, action: r.action,
-      sources: r.sources.length, grounded: true, ticket: r.ticket?.id || null,
+      sources: r.sources.length, grounded: r.action !== 'answer' || r.sources.length > 0, composition: r.composition || 'standard', ticket: r.ticket?.id || null,
     })),
     action: overall, latencyMs: Date.now() - started, ai: aiInfo,
   });
@@ -504,7 +538,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     conversationId: String(conv._id),
     queryId: String(log._id),
     language,
-    replies: replies.map(({ generated, groundedCheck, runnerUp, question, facts, subject, person, child, summary, ...r }) => r),
+    replies: replies.map(({ generated, groundedCheck, composition, runnerUp, question, facts, subject, person, child, summary, ...r }) => r),
     ai: { used: aiInfo.used, provider: aiInfo.provider },
   };
 }

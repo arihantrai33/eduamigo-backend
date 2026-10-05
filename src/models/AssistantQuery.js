@@ -10,7 +10,8 @@ const partSchema = new mongoose.Schema({
   method:     { type: String, enum: ['keywords', 'model', 'context', 'choice', 'rule'], default: 'keywords' },
   action:     { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data'], required: true },
   sources:    { type: Number, default: 0 },
-  grounded:   { type: Boolean, default: true }, // every number in the answer came from the records
+  grounded:   { type: Boolean, default: true }, // an answer: at least one real record or document was read for it
+  composition: { type: String, enum: ['standard', 'composed', 'kept_original'], default: 'standard' }, // model-written answer accepted, or thrown away by the number and name check
   ticket:     { type: mongoose.Schema.Types.ObjectId, ref: 'AssistantTicket', default: null },
 }, { _id: false });
 

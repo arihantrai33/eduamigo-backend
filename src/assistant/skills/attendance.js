@@ -30,7 +30,7 @@ async function forStudent(ctx, student) {
     return {
       text: `${label} was ${rec.status.toLowerCase()} on ${day(when.day, { weekday: true })}${rec.remarks ? ` (${rec.remarks})` : ''}.`,
       facts: { student: label, date: day(when.day), status: rec.status },
-      sources: [source('attendance', `Attendance · ${day(when.day)}`, rec._id)],
+      sources: [source('attendance', `Attendance · ${day(when.day)}`, rec._id, rec)],
     };
   }
 

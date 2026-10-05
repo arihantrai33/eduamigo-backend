@@ -28,7 +28,7 @@ async function forClass(ctx, student) {
     return {
       text: `${due.length ? `${what}Homework due for ${who}` : `No pending ${what}homework for ${who}. Latest assignments`}:\n${recent.map((n) => `- ${n.subject}: ${n.title}${n.dueDate ? `, due ${day(n.dueDate, { weekday: true })}` : ''}${n.teacherName ? ` (${n.teacherName})` : ''}`).join('\n')}`,
       facts: { for: who, pending: due.length, items: recent.map((n) => ({ subject: n.subject, title: n.title, due: n.dueDate ? day(n.dueDate) : null })) },
-      sources: recent.slice(0, 3).map((n) => source('note', `Assignment · ${n.title}`, n._id)),
+      sources: recent.slice(0, 3).map((n) => source('note', `Assignment · ${n.title}`, n._id, n)),
     };
   }
   const notes = await Note.find({ school: ctx.schoolId, ...filter }).sort({ createdAt: -1 }).limit(5).lean();
@@ -36,7 +36,7 @@ async function forClass(ctx, student) {
   return {
     text: `Latest ${what}study material for ${who}:\n${notes.map((n) => `- ${n.subject}: ${n.title} (${n.type}, ${day(n.createdAt, { short: true })})`).join('\n')}`,
     facts: { for: who, items: notes.map((n) => ({ subject: n.subject, title: n.title, type: n.type, uploaded: day(n.createdAt) })) },
-    sources: notes.slice(0, 3).map((n) => source('note', `${n.type} · ${n.title}`, n._id)),
+    sources: notes.slice(0, 3).map((n) => source('note', `${n.type} · ${n.title}`, n._id, n)),
   };
 }
 
@@ -49,7 +49,7 @@ async function run(ctx) {
   } else if (ctx.role === 'teacher') {
     const mine = await Note.find({ school: ctx.schoolId, uploadedBy: ctx.user._id }).sort({ createdAt: -1 }).limit(5).lean();
     out = mine.length
-      ? { text: `Your latest uploads:\n${mine.map((n) => `- ${n.subject}, ${n.class}${n.section ? `-${n.section}` : ''}: ${n.title} (${day(n.createdAt, { short: true })})`).join('\n')}`, facts: { items: mine.map((n) => ({ subject: n.subject, title: n.title, class: n.class })) }, sources: mine.slice(0, 3).map((n) => source('note', n.title, n._id)) }
+      ? { text: `Your latest uploads:\n${mine.map((n) => `- ${n.subject}, ${n.class}${n.section ? `-${n.section}` : ''}: ${n.title} (${day(n.createdAt, { short: true })})`).join('\n')}`, facts: { items: mine.map((n) => ({ subject: n.subject, title: n.title, class: n.class })) }, sources: mine.slice(0, 3).map((n) => source('note', n.title, n._id, n)) }
       : { text: 'You have not uploaded any study material yet.', facts: { uploads: 0 }, sources: [] };
   } else if (ctx.role === 'admin') {
     const since = addDays(ctx.now, -6);

@@ -38,7 +38,7 @@ async function schedule(ctx, filter, title) {
   return {
     text: `Exams ${w.label} for ${title}:\n${exams.slice(0, 8).map((e) => `- ${examLine({ ...e, _showClass: showClass })}`).join('\n')}${exams.length > 8 ? `\n- and ${plural(exams.length - 8, 'more exam')}` : ''}`,
     facts: { for: title, exams: exams.slice(0, 8).map((e) => ({ date: day(e.date), subject: e.subject, title: e.title, start: e.startTime || null, end: e.endTime || null, class: `${e.class}${e.section ? `-${e.section}` : ''}` })) },
-    sources: exams.slice(0, 3).map((e) => source('exam', `Exam schedule · ${e.subject} · ${day(e.date, { short: true })}`, e._id)),
+    sources: exams.slice(0, 3).map((e) => source('exam', `Exam schedule · ${e.subject} · ${day(e.date, { short: true })}`, e._id, e)),
     screen: 'exams',
   };
 }
@@ -72,7 +72,7 @@ async function results(ctx, student) {
     return {
       text: `${label}, ${subject}:\n${rows.map((r) => `- ${r.examName}: ${r.absent ? 'absent' : `${r.marksObtained}/${r.totalMarks}${r.grade ? `, grade ${r.grade}` : ''}`}`).join('\n')}`,
       facts: { student: label, subject, results: rows.map((r) => ({ exam: r.examName, marks: r.marksObtained, total: r.totalMarks, grade: r.grade || null, absent: !!r.absent })) },
-      sources: rows.map((r) => source('result', `Result · ${String(r.examName).replace(/[.\s]+$/, '')} · ${r.subject}`, r._id)),
+      sources: rows.map((r) => source('result', `Result · ${String(r.examName).replace(/[.\s]+$/, '')} · ${r.subject}`, r._id, r)),
       screen: 'results',
     };
   }

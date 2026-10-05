@@ -306,3 +306,13 @@ describe('logging, feedback and metrics', () => {
     expect(fb.status).toBe(404);
   });
 });
+
+describe('evidence', () => {
+  test('every source is a record that was really read, with the time it was last updated', async () => {
+    const fee = await Fee.create({ school: A.school._id, studentId: A.student._id, feeType: 'Tuition', amount: 4500, dueDate: today() });
+    const res = await ask(A.parentUser, 'fees kitni baki hai');
+    const src = res.body.data.replies[0].sources[0];
+    expect(src).toMatchObject({ type: 'fee', id: String(fee._id) });
+    expect(new Date(src.at).getTime()).toBeGreaterThan(Date.now() - 60000);
+  });
+});

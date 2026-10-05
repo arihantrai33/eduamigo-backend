@@ -160,6 +160,19 @@ const DOMAINS = {
       ['leave', 3], ['leaves', 3], ['leave requests', 3], ['leave request', 3], ['sir ki leave', 4], ['madam ki leave', 4], ['mam ki leave', 4], ['sir ki chhutti', 4], ['madam ki chhutti', 4], ['staff', 1], ['teachers leave', 3], ['teacher leave', 3], ['appraisal', 2],
     ],
   },
+  policies: {
+    about: "the school's written rules and information: handbook, policies (fee and refund policy, leave policy, uniform, school timings, exam and promotion rules, code of conduct, admission process, holidays rules, contact and address)",
+    ask: "school rules and policies",
+    label: 'School information',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin', 'accountant'],
+    owner: 'office',
+    terms: [
+      ['policy', 3], ['policies', 3], ['handbook', 3], ['rules', 2], ['rule', 2], ['regulations', 2], ['code of conduct', 3], ['guidelines', 2],
+      ['uniform', 3], ['timing', 2], ['timings', 2], ['school timing', 3], ['school hours', 3], ['niyam', 3], ['नियम', 3], ['vardi', 3], ['वर्दी', 3],
+      ['refund policy', 7], ['fee policy', 7], ['fees policy', 7], ['leave policy', 4], ['promotion rules', 3], ['dress code', 3], ['admission process', 3], ['procedure', 2], ['kaise karte', 1],
+    ],
+  },
   general: {
     about: "greetings, thanks, what the assistant can do",
     ask: "something general",

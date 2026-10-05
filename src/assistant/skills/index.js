@@ -15,5 +15,6 @@ module.exports = {
   library: require('./library'),
   admissions: require('./admissions'),
   hr: require('./hr'),
+  policies: require('./policies'),
   general: require('./general'),
 };

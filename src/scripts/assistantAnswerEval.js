@@ -2,13 +2,13 @@
 // Answer-quality check for EduAmigo Ask, run against a running demo (npm run demo, default school GVPS).
 //
 //   npm run demo                       (terminal 1; add PORT=8300 to use another port)
-//   npm run assistant:answers          (terminal 2; BASE=http://localhost:8300 to match)
+//   npm run assistant:answers          (terminal 2; BASE=http://localhost:8300 to match; add -- --save to keep the result for the dashboard)
 //
 // Each case in src/assistant/eval/answers.json asks one question as one person (parent, student, teacher, admin) and checks
 // the reply: the action (answer / hand-off / no data), the facts it must contain, the facts it must not contain (another
 // child's data), and for hand-offs the person the ticket was sent to. The routing evaluation (assistant:eval) measures
 // whether the right topic was found; this one measures whether the person got the right answer.
-const { cases } = require('../assistant/eval/answers.json');
+const { cases, conversations = [] } = require('../assistant/eval/answers.json');
 
 const BASE = (process.env.BASE || 'http://localhost:8000').replace(/\/$/, '');
 const SCHOOL = process.env.SCHOOL || 'GVPS';
@@ -30,6 +30,7 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     tokens[who] = r.token;
   }
   const only = process.argv[2];
+  const byConv = [];
   let pass = 0; let total = 0; let freshPass = 0; let freshTotal = 0; const failed = [];
   for (const [i, c] of cases.entries()) {
     if (only && !c.q.toLowerCase().includes(only.toLowerCase())) continue;
@@ -56,6 +57,21 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     for (const p of problems) console.log(`      - ${p}`);
   }
   console.log(`\n${pass}/${total} answers correct (${Math.round((pass / Math.max(1, total)) * 1000) / 10}%)`);
+  // --save keeps the result for the admin dashboard (the numbers shown there come from this file, never typed in).
+  if (process.argv.includes('--save') && !only) {
+    const file = require('path').join(__dirname, '../assistant/eval/last-answers-report.json');
+    const byRole = {};
+    for (const c of cases) byRole[c.who] = byRole[c.who] || { questions: 0, correct: 0 };
+    cases.forEach((c, i) => { byRole[c.who].questions += 1; if (!failed.some((f) => f.n === i + 1)) byRole[c.who].correct += 1; });
+    if (byConv.length) byRole['multi-turn chats'] = { questions: byConv.length, correct: byConv.filter((x) => x.ok).length };
+    require('fs').writeFileSync(file, JSON.stringify({
+      savedAt: new Date().toISOString(), questions: total, correct: pass, accuracy: Math.round((pass / Math.max(1, total)) * 1000) / 10,
+      fresh: { questions: freshTotal, correct: freshPass }, byRole,
+      conversations: { questions: byConv.length, correct: byConv.filter((x) => x.ok).length },
+      failures: failed.map((f) => ({ q: f.c.q, who: f.c.who, reply: f.text.slice(0, 300), problems: f.problems })),
+    }, null, 2));
+    console.log(`Saved ${file}`);
+  }
   if (freshTotal) console.log(`${freshPass}/${freshTotal} on fresh questions written after the fixes (${Math.round((freshPass / freshTotal) * 1000) / 10}%)`);
   process.exit(failed.length ? 1 : 0);
 })().catch((e) => { console.error(e.message); process.exit(2); });

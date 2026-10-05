@@ -26,6 +26,13 @@ const { evaluate } = require('../assistant/eval');
   line('Holdout', report.holdout);
   if (report.unseen.questions) line('Unseen', report.unseen);
   if (report.fresh.questions) line('Fresh', report.fresh);
+  const cal = report.overall.calibration;
+  if (cal) {
+    console.log(`\nConfidence calibration (ECE ${cal.ece}; 0 = perfect). Reported confidence -> share actually right:`);
+    for (const b of cal.buckets) console.log(`  ${b.from.toFixed(2)}-${b.to.toFixed(2)}  ${String(b.questions).padStart(4)} questions  accuracy ${String(b.accuracy).padStart(5)}%  (mean confidence ${b.meanConfidence})`);
+    console.log(`  answered without asking: ${cal.answeredDirectly.questions} questions, ${cal.answeredDirectly.accuracy}% right`);
+    if (cal.agreement) console.log(`  model and words agree: ${cal.agreement.modelAndWordsAgree.accuracy}% right (${cal.agreement.modelAndWordsAgree.questions}); disagree: ${cal.agreement.disagree.accuracy}% right (${cal.agreement.disagree.questions})`);
+  }
   console.log('\nPer topic (all questions):');
   for (const [k, v] of Object.entries(report.overall.perTopic)) {
     console.log(`  ${k.padEnd(13)} precision ${v.precision.toFixed(2)}  recall ${v.recall.toFixed(2)}  F1 ${v.f1.toFixed(2)}  (${v.support})`);

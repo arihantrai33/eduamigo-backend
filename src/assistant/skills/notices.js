@@ -25,7 +25,7 @@ async function notices(ctx) {
   return {
     text: lines.join('\n'),
     facts: { notices: rows.map((r) => ({ title: r.title, date: day(r.createdAt), priority: r.priority, pinned: r.isPinned, message: clip(r.message) })) },
-    sources: rows.map((r) => source('notice', `Notice · ${r.title}`, r._id)),
+    sources: rows.map((r) => source('notice', `Notice · ${r.title}`, r._id, r)),
     screen: 'notices',
   };
 }
@@ -49,7 +49,7 @@ async function events(ctx) {
     return {
       text: `${dayText}: ${onDay.map((e) => `${e.title}${e.type === 'holiday' ? ' (holiday)' : ''}`).join(', ')}.`,
       facts: { date: day(when.day), events: onDay.map((e) => ({ title: e.title, type: e.type })) },
-      sources: onDay.slice(0, 3).map((e) => source('event', `Calendar · ${e.title}`, e._id)),
+      sources: onDay.slice(0, 3).map((e) => source('event', `Calendar · ${e.title}`, e._id, e)),
       screen: 'events',
     };
   }
@@ -62,7 +62,7 @@ async function events(ctx) {
   return {
     text: `Upcoming ${what}:\n${rows.map((e) => `- ${day(e.date, { weekday: true })}${e.endDate && day(e.endDate) !== day(e.date) ? ` to ${day(e.endDate, { short: true })}` : ''}: ${e.title}${!holidaysOnly && e.type !== 'event' ? ` (${e.type})` : ''}`).join('\n')}`,
     facts: { [what]: rows.map((e) => ({ title: e.title, type: e.type, date: day(e.date), endDate: e.endDate ? day(e.endDate) : null })) },
-    sources: rows.slice(0, 3).map((e) => source('event', `Calendar · ${e.title}`, e._id)),
+    sources: rows.slice(0, 3).map((e) => source('event', `Calendar · ${e.title}`, e._id, e)),
     screen: 'events',
   };
 }
