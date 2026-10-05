@@ -127,7 +127,8 @@ function sentToText(ticket) {
 // and the reply is built from what was VERIFIED, so it never claims a success that did not happen.
 async function ticketReply({ ctx, text, domain, reason, student, subject = null, personName = null, part = null, severeWords = false, brief = null }) {
   const tickets = await ctx.tickets();
-  const plan = planner.plan(part || {}, { tickets, text, domain, student, personName, now: ctx.now });
+  const plan = planner.plan(part || {}, { tickets, text, domain, student, personName, inChat: (ctx.conv.state.tickets || []).map((t) => t.number), now: ctx.now });
+  ctx.trace.step('plan', { modelRelation: part?.ticket?.relation || null, modelTicket: part?.ticket?.number || null, action: plan.action, ticket: plan.ticket?.number || null, via: plan.via || null, openTickets: tickets.length, personNamed: !!personName });
   const params = {
     text, domain, reason, student, subject, personName, severeWords, brief: brief || part?.brief || null, safety: part?.safety || (severeWords ? 'safety' : 'none'),
     ticket: plan.ticket?.raw || null,
@@ -135,6 +136,7 @@ async function ticketReply({ ctx, text, domain, reason, student, subject = null,
   const result = await actions.run(plan.action, ctx, params);
   const said = messages.describe(plan, result, { reason, now: ctx.now });
   ctx.actionLog.push({ name: plan.action, outcome: said.kind, ok: result.ok, verified: result.verified, ticket: result.data?.ticket?.number || plan.ticket?.number || null });
+  if (result.ok && plan.action === 'ticket.create') ctx.tickets.created(result.data.ticket.number);
   if (result.ok && plan.action !== 'ticket.status') ctx.tickets.refresh();
 
   const failed = said.kind === 'failed';
@@ -149,6 +151,36 @@ async function ticketReply({ ctx, text, domain, reason, student, subject = null,
       sources: [{ type: 'ticket', label: `Request ${result.data.ticket.number}`, id: String(result.data.ticket._id), at: new Date(result.data.ticket.lastActivityAt || result.data.ticket.updatedAt).toISOString() }],
     } : {}),
   });
+}
+
+// One message, one issue, one ticket. A model may split "the marks are wrong and I want to talk to the Maths teacher" into two parts.
+// Parts that need a person and are about the same topic, child and teacher are merged into one (the strongest reason and safety win).
+const REASON_RANK = ['sensitive', 'complaint', 'requested', 'forwarded'];
+const SAFETY_RANK = ['none', 'payment_dispute', 'medical', 'safety', 'harassment'];
+const needsPerson = (p) => p.urgent || ['complaint', 'human', 'forward'].includes(p.kind);
+const reasonOf = (p) => (p.urgent ? 'sensitive' : p.kind === 'complaint' ? 'complaint' : p.kind === 'forward' ? 'forwarded' : 'requested');
+
+// Two parts are the same issue when nothing about them conflicts: the same topic (or one has none), the same child (or one is not
+// named), the same teacher or subject (or one is not named).
+const sameOrMissing = (a, b) => !a || !b || String(a).toLowerCase() === String(b).toLowerCase();
+const topicOf = (p) => (DOMAINS[p.topic] && p.topic !== 'general' ? p.topic : null);
+const sameIssue = (a, b) => sameOrMissing(topicOf(a), topicOf(b)) && sameOrMissing(a.child, b.child) && sameOrMissing(a.person, b.person) && sameOrMissing(a.subject, b.subject);
+
+function mergePersonParts(parts) {
+  const out = [];
+  for (const part of parts) {
+    if (!needsPerson(part)) { out.push(part); continue; }
+    const first = out.find((o) => o._reason && sameIssue(o, part));
+    if (!first) { out.push({ ...part, _reason: reasonOf(part) }); continue; }
+    first.text = `${first.text}. ${part.text}`.slice(0, 400);
+    if (REASON_RANK.indexOf(reasonOf(part)) < REASON_RANK.indexOf(first._reason)) first._reason = reasonOf(part);
+    if (SAFETY_RANK.indexOf(part.safety) > SAFETY_RANK.indexOf(first.safety)) { first.safety = part.safety; first.urgent = part.urgent; }
+    first.brief = first.brief || part.brief;
+    first.ticket = first.ticket || part.ticket;
+    first.topic = topicOf(first) ? first.topic : part.topic;
+    first.person = first.person || part.person; first.subject = first.subject || part.subject; first.child = first.child || part.child;
+  }
+  return out;
 }
 
 // The hand-off button, naming the person when one is known ("Ask Mrs. Sunita Sharma").
@@ -429,8 +461,13 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   };
   // The person's own recent tickets, loaded once per request and again after an action changed them.
   let ticketCache = null;
-  ctx.tickets = async () => { if (!ticketCache) ticketCache = await conversation.recentTickets(user, schoolId, now); return ticketCache; };
+  const madeNow = new Set();
+  ctx.tickets = async () => {
+    if (!ticketCache) ticketCache = (await conversation.recentTickets(user, schoolId, now)).map((t) => ({ ...t, freshInRequest: madeNow.has(t.number) }));
+    return ticketCache;
+  };
   ctx.tickets.refresh = () => { ticketCache = null; };
+  ctx.tickets.created = (number) => madeNow.add(number);
   if (ctx.role === 'teacher') ctx.teacher = await ctx.profile.teacher();
 
   // A suggestion chip is just a question.
@@ -480,17 +517,17 @@ async function ask({ user, school, entitlements, message, conversationId, choice
         children: ctx.role === 'parent' ? (await ctx.profile.children()).map(childSummary) : [],
       })
       : null;
-    ctx.trace.step('understand', { provider: understood?.model?.provider || null, cached: !!understood?.model?.cached, parts: understood?.parts.length || 0, fallback: !understood && !severe, severeWords: !!severe }, !!understood || !!severe || !ctx.aiAllowed);
+    ctx.trace.step('understand', { provider: understood?.model?.provider || null, cached: !!understood?.model?.cached, parts: understood?.parts.length || 0, kinds: (understood?.parts || []).map((x) => x.kind), fallback: !understood && !severe, severeWords: !!severe }, !!understood || !!severe || !ctx.aiAllowed);
     if (understood) {
       ctx.noteAi(understood.model);
       // The model's reading of the language is better than word counts (short Hinglish looks like English).
       if (understood.language && language !== 'hi') { language = understood.language; ctx.language = language; }
-      for (const part of understood.parts) {
+      for (const part of mergePersonParts(understood.parts)) {
         const topicDomain = DOMAINS[part.topic] && part.topic !== 'general' ? part.topic : null;
         if (part.kind === 'ticket_status') {
           replies.push(await ticketReply({ ctx, text: part.text, domain: null, reason: 'requested', student: null, part }));
         } else if (part.urgent || ['complaint', 'human', 'forward'].includes(part.kind)) {
-          const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : part.kind === 'forward' ? 'forwarded' : 'requested';
+          const reason = part._reason || reasonOf(part);
           replies.push(await ticketReply({
             ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person, part,
           }));
@@ -530,6 +567,11 @@ async function ask({ user, school, entitlements, message, conversationId, choice
       const w = composed.result.get(id);
       if (!w || w.rejected) { if (w?.rejected) { r.groundedCheck = 'kept_original'; r.composition = 'kept_original'; } continue; }
       if (w.text !== r.text) { r.text = w.text; r.composition = 'composed'; aiInfo.composed = true; }
+      // Document answers cite only the passages the answer relied on.
+      if (r.sources.some((x) => x.n)) {
+        const used = r.sources.filter((x) => w.used?.includes(x.n));
+        r.sources = (used.length ? used : r.sources.slice(0, 2)).map(({ n, ...x }) => x);
+      }
       // The records do not hold what was asked: say what they do hold and offer to ask the right person.
       if (!w.answered) {
         const offer = await handoffOffer(ctx, { text: r.question, domain: r.domain, subject: r.subject, person: r.person, child: r.child });

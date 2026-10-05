@@ -7,9 +7,9 @@
   "skipped": 0,
   "overall": {
     "questions": 290,
-    "routingAccuracy": 96.2,
-    "actionAccuracy": 97.9,
-    "fullyCorrect": 95.5,
+    "routingAccuracy": 95.5,
+    "actionAccuracy": 97.6,
+    "fullyCorrect": 95.2,
     "perTopic": {
       "fees": {
         "precision": 1,
@@ -18,9 +18,9 @@
         "support": 36
       },
       "attendance": {
-        "precision": 0.968,
-        "recall": 0.968,
-        "f1": 0.968,
+        "precision": 0.967,
+        "recall": 0.935,
+        "f1": 0.951,
         "support": 31
       },
       "timetable": {
@@ -30,15 +30,15 @@
         "support": 27
       },
       "exams": {
-        "precision": 0.967,
-        "recall": 1,
-        "f1": 0.983,
+        "precision": 0.966,
+        "recall": 0.966,
+        "f1": 0.966,
         "support": 29
       },
       "notes": {
-        "precision": 0.895,
+        "precision": 0.944,
         "recall": 0.944,
-        "f1": 0.919,
+        "f1": 0.944,
         "support": 18
       },
       "transport": {
@@ -48,9 +48,9 @@
         "support": 22
       },
       "notices": {
-        "precision": 1,
+        "precision": 0.957,
         "recall": 1,
-        "f1": 1,
+        "f1": 0.978,
         "support": 22
       },
       "leave": {
@@ -84,9 +84,9 @@
         "support": 16
       },
       "general": {
-        "precision": 0.741,
+        "precision": 0.714,
         "recall": 1,
-        "f1": 0.851,
+        "f1": 0.833,
         "support": 20
       },
       "school_other": {
@@ -108,26 +108,26 @@
         {
           "from": 0.45,
           "to": 0.75,
-          "questions": 18,
-          "accuracy": 66.7,
-          "meanConfidence": 0.649
+          "questions": 17,
+          "accuracy": 64.7,
+          "meanConfidence": 0.652
         },
         {
           "from": 0.75,
           "to": 0.9,
-          "questions": 1,
-          "accuracy": 0,
+          "questions": 2,
+          "accuracy": 50,
           "meanConfidence": 0.8
         },
         {
           "from": 0.9,
           "to": 1,
           "questions": 246,
-          "accuracy": 97.6,
+          "accuracy": 97.2,
           "meanConfidence": 0.991
         }
       ],
-      "ece": 0.018,
+      "ece": 0.02,
       "agreement": {
         "modelAndWordsAgree": {
           "questions": 227,
@@ -135,12 +135,12 @@
         },
         "disagree": {
           "questions": 34,
-          "accuracy": 73.5
+          "accuracy": 70.6
         }
       },
       "answeredDirectly": {
-        "questions": 253,
-        "accuracy": 96
+        "questions": 254,
+        "accuracy": 95.7
       }
     },
     "confusion": {
@@ -187,7 +187,8 @@
       },
       "policies": {
         "policies": 14,
-        "general": 2
+        "notices+general": 1,
+        "general": 1
       },
       "school_other": {
         "attendance": 1
@@ -217,6 +218,18 @@
         ],
         "gotAction": "answer",
         "confidence": 0.95
+      },
+      {
+        "id": 131,
+        "role": "parent",
+        "q": "paper",
+        "expected": "exams",
+        "expectedAction": "clarify",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 0.6
       },
       {
         "id": 133,
@@ -249,9 +262,10 @@
         "expected": "policies",
         "expectedAction": "answer",
         "got": [
+          "notices",
           "general"
         ],
-        "gotAction": "answer",
+        "gotAction": "clarify",
         "confidence": 0.7
       },
       {
@@ -289,11 +303,10 @@
         ],
         "expectedAction": "answer",
         "got": [
-          "exams",
-          "attendance"
+          "exams"
         ],
-        "gotAction": "clarify",
-        "confidence": 0.5
+        "gotAction": "answer",
+        "confidence": 0.9
       },
       {
         "id": 193,
@@ -360,9 +373,9 @@
   },
   "dev": {
     "questions": 165,
-    "routingAccuracy": 96.4,
-    "actionAccuracy": 98.8,
-    "fullyCorrect": 96.4,
+    "routingAccuracy": 95.8,
+    "actionAccuracy": 97.6,
+    "fullyCorrect": 95.8,
     "perTopic": {
       "fees": {
         "precision": 1,
@@ -384,14 +397,14 @@
       },
       "exams": {
         "precision": 1,
-        "recall": 1,
-        "f1": 1,
+        "recall": 0.944,
+        "f1": 0.971,
         "support": 18
       },
       "notes": {
-        "precision": 0.917,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.957,
+        "f1": 1,
         "support": 11
       },
       "transport": {
@@ -401,9 +414,9 @@
         "support": 12
       },
       "notices": {
-        "precision": 1,
+        "precision": 0.929,
         "recall": 1,
-        "f1": 1,
+        "f1": 0.963,
         "support": 13
       },
       "leave": {
@@ -437,9 +450,9 @@
         "support": 3
       },
       "general": {
-        "precision": 0.688,
+        "precision": 0.647,
         "recall": 1,
-        "f1": 0.815,
+        "f1": 0.786,
         "support": 11
       },
       "school_other": {
@@ -462,8 +475,8 @@
           "from": 0.45,
           "to": 0.75,
           "questions": 13,
-          "accuracy": 76.9,
-          "meanConfidence": 0.657
+          "accuracy": 69.2,
+          "meanConfidence": 0.649
         },
         {
           "from": 0.75,
@@ -480,7 +493,7 @@
           "meanConfidence": 0.996
         }
       ],
-      "ece": 0.025,
+      "ece": 0.019,
       "agreement": {
         "modelAndWordsAgree": {
           "questions": 137,
@@ -488,7 +501,7 @@
         },
         "disagree": {
           "questions": 12,
-          "accuracy": 50
+          "accuracy": 41.7
         }
       },
       "answeredDirectly": {
@@ -537,7 +550,7 @@
       },
       "policies": {
         "policies": 2,
-        "general": 1
+        "notices+general": 1
       },
       "school_other": {
         "attendance": 1
@@ -567,6 +580,18 @@
         ],
         "gotAction": "answer",
         "confidence": 0.95
+      },
+      {
+        "id": 131,
+        "role": "parent",
+        "q": "paper",
+        "expected": "exams",
+        "expectedAction": "clarify",
+        "got": [
+          "general"
+        ],
+        "gotAction": "answer",
+        "confidence": 0.6
       },
       {
         "id": 133,
@@ -599,9 +624,10 @@
         "expected": "policies",
         "expectedAction": "answer",
         "got": [
+          "notices",
           "general"
         ],
-        "gotAction": "answer",
+        "gotAction": "clarify",
         "confidence": 0.7
       },
       {
@@ -620,8 +646,8 @@
   },
   "holdout": {
     "questions": 40,
-    "routingAccuracy": 97.5,
-    "actionAccuracy": 92.5,
+    "routingAccuracy": 95,
+    "actionAccuracy": 95,
     "fullyCorrect": 92.5,
     "perTopic": {
       "fees": {
@@ -632,8 +658,8 @@
       },
       "attendance": {
         "precision": 1,
-        "recall": 1,
-        "f1": 1,
+        "recall": 0.8,
+        "f1": 0.889,
         "support": 5
       },
       "timetable": {
@@ -715,26 +741,26 @@
         {
           "from": 0.45,
           "to": 0.75,
-          "questions": 3,
-          "accuracy": 33.3,
-          "meanConfidence": 0.567
+          "questions": 2,
+          "accuracy": 50,
+          "meanConfidence": 0.6
         },
         {
           "from": 0.75,
           "to": 0.9,
-          "questions": 0,
-          "accuracy": 0,
-          "meanConfidence": 0
+          "questions": 1,
+          "accuracy": 100,
+          "meanConfidence": 0.8
         },
         {
           "from": 0.9,
           "to": 1,
           "questions": 33,
-          "accuracy": 97,
+          "accuracy": 93.9,
           "meanConfidence": 0.991
         }
       ],
-      "ece": 0.039,
+      "ece": 0.059,
       "agreement": {
         "modelAndWordsAgree": {
           "questions": 33,
@@ -746,8 +772,8 @@
         }
       },
       "answeredDirectly": {
-        "questions": 33,
-        "accuracy": 97
+        "questions": 34,
+        "accuracy": 94.1
       }
     },
     "confusion": {
@@ -816,11 +842,10 @@
         ],
         "expectedAction": "answer",
         "got": [
-          "exams",
-          "attendance"
+          "exams"
         ],
-        "gotAction": "clarify",
-        "confidence": 0.5
+        "gotAction": "answer",
+        "confidence": 0.9
       },
       {
         "id": 193,
@@ -1241,5 +1266,5 @@
       }
     ]
   },
-  "savedAt": "2026-10-05T17:53:53.147Z"
+  "savedAt": "2026-10-05T20:59:12.001Z"
 }

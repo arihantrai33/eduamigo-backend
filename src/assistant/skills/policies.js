@@ -9,7 +9,7 @@ const excerpt = (text, n = 220) => (text.length > n ? `${text.slice(0, n).replac
 
 async function run(ctx) {
   // The person's words, the model's English restatement and the search words (with synonyms) the model suggested.
-  const found = await knowledge.search({ school: ctx.schoolId, role: ctx.role, queries: [ctx.question, ctx.text], expand: [ctx.search], limit: 3 });
+  const found = await knowledge.search({ school: ctx.schoolId, role: ctx.role, queries: [ctx.question, ctx.text], expand: [ctx.search], limit: 5 });
   if (process.env.ASSISTANT_DEBUG) console.warn('[policies]', JSON.stringify({ question: ctx.question, text: ctx.text, search: ctx.search, found: found.length }));
   if (!found.length) {
     return {
@@ -21,10 +21,11 @@ async function run(ctx) {
   return {
     text: `${best.title}${best.heading ? ` (${best.heading})` : ''}:\n${best.text}`,
     // The passages the answer may use; the composer writes the reply from these and nothing else.
-    facts: { passages: found.map((f) => ({ document: f.title, section: f.heading || null, lastUpdated: day(f.updatedAt), text: f.text })) },
-    sources: found.map((f) => ({
+    facts: { passages: found.map((f, i) => ({ n: i + 1, document: f.title, section: f.heading || null, lastUpdated: day(f.updatedAt), text: f.text })) },
+    // Up to five passages are offered to the composer; only the ones it says it used are cited (engine.js), the first two otherwise.
+    sources: found.map((f, i) => ({
       ...source('document', `${f.title}${f.heading ? ` · ${f.heading}` : ''}`, f.documentId, { updatedAt: f.updatedAt }),
-      evidence: excerpt(f.text),
+      evidence: excerpt(f.text), n: i + 1,
     })),
   };
 }

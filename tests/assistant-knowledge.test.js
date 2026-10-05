@@ -50,6 +50,16 @@ Admission fees are not refundable. Tuition is refundable only if the student lea
     const late = await search({ school: A.school._id, role: 'parent', queries: ['how much is the late fee'] });
     expect(late[0].heading).toBe('LATE FEE');
   });
+
+  test('"time" finds a section about "timings", and a stray word like "start" does not outrank it', async () => {
+    await add(A.admin, { title: 'Parent handbook', text: `SCHOOL TIMINGS
+Classes run from 8:00 AM to 2:30 PM, Monday to Saturday. The gate opens at 7:30 AM.
+
+REFUNDS
+Tuition is refundable only if the student leaves within 15 days of the start of the term.` });
+    const hit = await search({ school: A.school._id, role: 'parent', queries: ['what time does school start in the morning'], expand: ['school start time morning opening hours schedule'] });
+    expect(hit[0].heading).toBe('SCHOOL TIMINGS');
+  });
 });
 
 describe('managing documents', () => {

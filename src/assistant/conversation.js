@@ -25,7 +25,7 @@ async function recentTickets(user, schoolId, now = new Date(), limit = 5) {
     id: String(t._id), number: t.number, status: t.status, priority: t.priority, domain: t.domain, title: t.title || null,
     summary: t.summary || null, question: t.question, student: t.student ? { name: t.student.name, class: `${t.student.class}-${t.student.section}` } : null,
     sentTo: (t.contacts || []).map((c) => ({ name: c.name, title: c.title })), createdAt: t.createdAt, lastActivityAt: t.lastActivityAt || t.updatedAt,
-    resolvedAt: t.resolvedAt, assignees: (t.assignees || []).map(String), raw: t,
+    resolvedAt: t.resolvedAt, assignees: (t.assignees || []).map(String), entities: t.entities || null, raw: t,
   }));
 }
 
@@ -37,10 +37,17 @@ function contextFor(conv, tickets = [], now = new Date()) {
   if (recent.length) lines.push(`Recent messages (oldest first):\n${recent.map((r) => `${r.role === 'user' ? 'Person' : 'Assistant'}: ${r.text}`).join('\n')}`);
   if (s.people?.length) lines.push(`People just mentioned: ${s.people.map((p) => (p.title ? `${p.name} (${p.title})` : p.name)).join('; ')}`);
   if (tickets.length) {
-    lines.push(`The person's own tickets (newest activity first):\n${tickets.map((t) => {
+    // The ticket raised or discussed in this chat is listed on its own: "unko bhi", "that issue", "still nothing" refer to it unless the
+    // message names something else. Mixed into the person's other open tickets it gets lost, and a model picks another ticket of the same teacher.
+    const here = (s.tickets || []).map((t) => t.number);
+    const line = (t) => {
       const ageH = Math.max(0, Math.round((now - new Date(t.createdAt)) / 3600000));
       return `${t.number}: ${t.status}${t.priority === 'high' ? ', urgent' : ''}, raised ${ageH < 48 ? `${ageH}h` : `${Math.round(ageH / 24)}d`} ago, ${t.title || clip(t.summary || t.question, 90)}${t.student ? `, about ${t.student.name}` : ''}${t.sentTo.length ? `, with ${t.sentTo.map((x) => x.name).join(' and ')}` : ''}`;
-    }).join('\n')}`);
+    };
+    const current = here.map((n) => tickets.find((t) => t.number === n)).filter(Boolean);
+    const others = tickets.filter((t) => !current.includes(t));
+    if (current.length) lines.push(`Ticket raised or discussed in THIS chat just now:\n${current.map(line).join('\n')}`);
+    if (others.length) lines.push(`The person's other tickets (newest activity first):\n${others.map(line).join('\n')}`);
   }
   return lines.join('\n');
 }

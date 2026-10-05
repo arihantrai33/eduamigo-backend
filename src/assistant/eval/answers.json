@@ -1230,6 +1230,280 @@
      ]
     }
    ]
+  },
+  {
+   "who": "parent",
+   "name": "ticket lifecycle: complaint, status, escalation",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "Riya ke science ke project marks nahi mile, science teacher se baat karwa do",
+     "action": "handoff",
+     "ticketOutcome": "created",
+     "all": [
+      "T-10"
+     ]
+    },
+    {
+     "q": "meri complaint ka kya hua",
+     "all": [
+      "open|waiting|reply|intezar|abhi"
+     ],
+     "ticketOutcome": "status"
+    },
+    {
+     "q": "koi sun nahi raha, isse upar escalate karo",
+     "ticketOutcome": "escalated"
+    }
+   ],
+   "staffCheck": {
+    "who": "teacher",
+    "none": [
+     "\\b(hai|nahi|kya|mera|mere|plz)\\b",
+     "[\\u0900-\\u097F]"
+    ],
+    "all": [
+     "Riya|science|Science"
+    ]
+   }
+  },
+  {
+   "who": "parent",
+   "name": "\"him\" and \"that issue\" resolve to the ticket just raised",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "Kabir ke maths ke number galat chadhe hai, maths teacher ko batao",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "unko bhi bol do ki main kal school aaunga milne",
+     "ticketOutcome": "followed_up|repeat"
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "name": "the same complaint again is not a second ticket",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "bus roz late aati hai Kabir ki, transport wale ko batao",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "bus phir late aayi aaj, yeh problem abhi tak solve nahi hui",
+     "ticketOutcome": "followed_up|repeat|status"
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "name": "one message, one issue, one ticket",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "Riya ke english marks galat hai aur english teacher se baat karni hai",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    }
+   ]
+  },
+  {
+   "who": "student",
+   "name": "a student complaint becomes professional English for staff",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "bhai mere dost ko class me sab tang karte hai, kuch karo",
+     "action": "handoff",
+     "ticketOutcome": "created",
+     "all": [
+      "T-10"
+     ]
+    }
+   ],
+   "staffCheck": {
+    "who": "admin",
+    "none": [
+     "\\b(bhai|karo|hai|mere|dost)\\b",
+     "[\\u0900-\\u097F]"
+    ]
+   }
+  },
+  {
+   "who": "parent2",
+   "name": "someone else's ticket cannot be touched",
+   "newTickets": 0,
+   "turns": [
+    {
+     "q": "T-1001 pe update do ki ab bhi problem hai",
+     "action": "handoff|blocked|answer",
+     "all": [],
+     "none": [
+      "Riya",
+      "science",
+      "Science",
+      "Anita"
+     ]
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "batch": "final2",
+   "name": "Devanagari complaint, then status in Hinglish",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "मेरे बेटे कबीर की गणित की कॉपी में नंबर गलत जोड़े गए हैं, कृपया गणित के टीचर को बताइए",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "uska kya hua",
+     "ticketOutcome": "status",
+     "all": [
+      "T-10"
+     ]
+    }
+   ],
+   "staffCheck": {
+    "who": "teacher",
+    "none": [
+     "[\\u0900-\\u097F]",
+     "\\b(hai|nahi|kya|mere|bete)\\b"
+    ]
+   }
+  },
+  {
+   "who": "parent",
+   "batch": "final2",
+   "name": "a question and a complaint in one message: the answer is not lost",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "Riya ki fees kitni baaki hai, aur uski bus ka driver bahut tez chalata hai isse transport wale ko batao",
+     "all": [
+      "Riya",
+      "10,500|1,500|9,000"
+     ],
+     "ticketOutcome": "created"
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "batch": "final2",
+   "name": "typo-heavy follow-up still lands on the ticket",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "kabir ki attendnce galat lagi hai class teacher se bat krni h",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "pls jldi dkho abhi tk nhi hua",
+     "ticketOutcome": "followed_up|repeat|status"
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "batch": "final2",
+   "name": "a quick thanks after an action is just a thanks",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "Riya ke hindi ke marks kam aaye hai uski hindi teacher se baat karwa do",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "thank you",
+     "none": [
+      "T-10",
+      "ticket"
+     ]
+    }
+   ]
+  },
+  {
+   "who": "student",
+   "batch": "final2",
+   "name": "student asks the status of their own request",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "mujhe class teacher se milna hai, mere science ke project ke baare me",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    },
+    {
+     "q": "class teacher ne kuch bola kya",
+     "ticketOutcome": "status"
+    }
+   ]
+  },
+  {
+   "who": "teacher",
+   "batch": "final2",
+   "name": "a teacher is not given another person's salary",
+   "newTickets": 0,
+   "turns": [
+    {
+     "q": "principal sir ki salary kitni hai",
+     "action": "blocked",
+     "none": [
+      "₹"
+     ]
+    }
+   ]
+  },
+  {
+   "who": "parent",
+   "batch": "final2",
+   "name": "a payment problem is urgent by policy",
+   "newTickets": 1,
+   "turns": [
+    {
+     "q": "meri fees do baar kat gayi hai account se, ek baar paisa wapas dilwao",
+     "action": "handoff",
+     "ticketOutcome": "created"
+    }
+   ],
+   "staffCheck": {
+    "who": "admin",
+    "none": [
+     "\\b(hai|mere|kat|gayi)\\b"
+    ],
+    "all": [
+     "pay|fee|charge|Fee"
+    ]
+   }
+  },
+  {
+   "who": "admin",
+   "batch": "final2",
+   "name": "staff ask about requests and tickets without breaking",
+   "newTickets": 0,
+   "turns": [
+    {
+     "q": "aaj kitne bacche absent hain",
+     "all": [
+      "absent|Absent|0"
+     ]
+    },
+    {
+     "q": "Anita Verma ka kal ka schedule",
+     "all": [
+      "Anita"
+     ]
+    }
+   ]
   }
  ]
 }

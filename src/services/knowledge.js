@@ -29,7 +29,9 @@ const stem = (t) => {
   if (/ies$/.test(w) && w.length > 4) w = `${w.slice(0, -3)}y`;
   else if (/(ses|xes|zes|ches|shes)$/.test(w)) w = w.slice(0, -2);
   else if (/s$/.test(w) && !/(ss|us|is)$/.test(w)) w = w.slice(0, -1);
-  for (const end of ['able', 'ible', 'ing', 'ed', 'ly']) if (w.endsWith(end) && w.length - end.length >= 4) { w = w.slice(0, -end.length); break; }
+  for (const end of ['able', 'ible', 'ing', 'ed', 'ly']) if (w.endsWith(end) && w.length - end.length >= (end === 'ing' ? 3 : 4)) { w = w.slice(0, -end.length); break; }
+  // "time", "timing" and "timings" are one word: a final silent "e" is dropped on both sides of the match.
+  if (w.length > 3 && w.endsWith('e')) w = w.slice(0, -1);
   return w;
 };
 const terms = (text) => tokenize(text).filter((t) => t.length >= 2 && !STOP.has(t)).map(stem);

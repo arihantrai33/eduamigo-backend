@@ -94,6 +94,28 @@ describe('professional hand-off', () => {
   });
 });
 
+describe('one message, one issue, one ticket', () => {
+  test('a message the model splits into a complaint and a request to talk about the same thing becomes one ticket', async () => {
+    scriptedModel([
+      part({ text: 'maths me number galat hai', kind: 'complaint', subject: 'Maths', brief: BRIEF }),
+      part({ text: 'maths teacher se baat karni hai', kind: 'human', subject: 'Maths' }),
+    ]);
+    const res = await ask(A.parentUser, 'maths me number galat hai, maths teacher se baat karni hai');
+    expect(await AssistantTicket.countDocuments({})).toBe(1);
+    expect(res.body.data.replies).toHaveLength(1);
+    expect((await AssistantTicket.findOne({})).reason).toBe('complaint');
+  });
+
+  test('two different issues in one message stay two tickets', async () => {
+    scriptedModel([
+      part({ text: 'maths marks galat', kind: 'complaint', subject: 'Maths', brief: BRIEF }),
+      part({ text: 'bus late aati hai', kind: 'complaint', topic: 'transport' }),
+    ]);
+    await ask(A.parentUser, 'maths marks galat hai aur bus late aati hai');
+    expect(await AssistantTicket.countDocuments({})).toBe(2);
+  });
+});
+
 describe('a ticket is a lifecycle, not one ticket per message', () => {
   beforeEach(async () => {
     scriptedModel([part({ text: 'maths marks galat', kind: 'complaint', subject: 'Maths', brief: BRIEF })]);
@@ -118,6 +140,13 @@ describe('a ticket is a lifecycle, not one ticket per message', () => {
     expect((await AssistantTicket.findOne({})).notes.at(-1).kind).toBe('repeat');
     expect(res.body.data.replies[0].ticket.outcome).toBe('repeat');
     expect(res.body.data.replies[0].text).toMatch(/already have an open ticket/);
+  });
+
+  test('a model that attaches an unrelated issue to an existing ticket is overruled: different topic means a new ticket, not a note to the wrong teacher', async () => {
+    scriptedModel([part({ text: 'bus roz late aati hai', kind: 'complaint', topic: 'transport', ticket: { relation: 'follow_up', number: 'T-1001' } })]);
+    const res = await ask(A.parentUser, 'bus roz late aati hai');
+    expect(res.body.data.replies[0].ticket).toMatchObject({ number: 'T-1002', outcome: 'created' });
+    expect((await AssistantTicket.findOne({ number: 'T-1001' })).notes).toHaveLength(0);
   });
 
   test('a different issue is a new ticket', async () => {
@@ -203,6 +232,33 @@ describe('the conversation is remembered, in a bounded way', () => {
     const conv = await Conv.findById(conversationId);
     expect(conv.state.recent.length).toBeLessThanOrEqual(6);
     expect(seen.at(-1)).not.toContain('hello 0');
+  });
+});
+
+describe('the context handed to the model', () => {
+  test('the ticket raised in this chat is listed on its own, apart from the person\'s other tickets', () => {
+    const conversation = require('../src/assistant/conversation');
+    const mk = (number, title) => ({ number, status: 'open', title, createdAt: new Date(), sentTo: [{ name: 'Anita Verma' }] });
+    const tickets = [mk('T-1014', 'English marks'), mk('T-1012', 'Maths marks'), mk('T-1009', 'Leave')];
+    const text = conversation.contextFor({ state: { recent: [], people: [], tickets: [{ number: 'T-1012' }] } }, tickets, new Date());
+    const [here, others] = text.split("The person's other tickets");
+    expect(here).toContain('THIS chat');
+    expect(here).toContain('T-1012');
+    expect(here).not.toContain('T-1014');
+    expect(others).toContain('T-1014');
+    expect(others).not.toContain('T-1012');
+  });
+});
+
+describe('the planner without a named ticket', () => {
+  test('"what happened to my complaint" is about the ticket discussed in this chat, not just the newest one', () => {
+    const planner = require('../src/assistant/planner');
+    const mk = (number, createdAt) => ({ number, status: 'open', domain: 'exams', sentTo: [], createdAt });
+    const tickets = [mk('T-1010'), mk('T-1002')];
+    const chat = planner.plan({ kind: 'ticket_status' }, { tickets, text: 'meri complaint ka kya hua', inChat: ['T-1002'] });
+    expect(chat.ticket.number).toBe('T-1002');
+    const none = planner.plan({ kind: 'ticket_status' }, { tickets, text: 'meri complaint ka kya hua' });
+    expect(none.ticket.number).toBe('T-1010');
   });
 });
 

@@ -1,41 +1,51 @@
 {
-  "savedAt": "2026-10-05T18:01:28.705Z",
-  "questions": 111,
-  "correct": 111,
-  "accuracy": 100,
+  "savedAt": "2026-10-05T20:48:27.714Z",
+  "questions": 137,
+  "correct": 136,
+  "accuracy": 99.3,
   "fresh": {
     "questions": 30,
     "correct": 30
   },
   "byRole": {
     "parent": {
-      "questions": 46,
-      "correct": 46
+      "questions": 56,
+      "correct": 56
     },
     "parent2": {
       "questions": 4,
       "correct": 4
     },
     "student": {
+      "questions": 26,
+      "correct": 26
+    },
+    "teacher": {
+      "questions": 17,
+      "correct": 17
+    },
+    "admin": {
       "questions": 22,
       "correct": 22
     },
-    "teacher": {
-      "questions": 14,
-      "correct": 14
-    },
-    "admin": {
-      "questions": 19,
-      "correct": 19
-    },
     "multi-turn chats": {
-      "questions": 6,
-      "correct": 6
+      "questions": 12,
+      "correct": 11
     }
   },
   "conversations": {
-    "questions": 6,
-    "correct": 6
+    "questions": 12,
+    "correct": 11
   },
-  "failures": []
+  "failures": [
+    {
+      "q": "ticket lifecycle: complaint, status, escalation",
+      "who": "parent",
+      "reply": "Riya ke science ke project marks nahi mile, science teacher se baat karwa do -> Aapka update maine aapke existing ticket T-1002 mein add kar diya hai, jo Anita Verma (Science teacher) ke paas hai. Naya ticket banane ki zarurat nahi hai. Unh\nmeri complaint ka kya hua -> Aapki complaint (ticket number",
+      "problems": [
+        "turn 1: ticket outcome followed_up instead of created",
+        "created 0 tickets instead of 1"
+      ]
+    }
+  ]
 }

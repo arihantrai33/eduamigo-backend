@@ -37,6 +37,7 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
   for (const [i, c] of cases.entries()) {
     if (only && !c.q.toLowerCase().includes(only.toLowerCase())) continue;
     if (batch && c.batch !== batch) continue;
+    if (process.argv.includes('--conversations')) continue;
     total += 1;
     const started = Date.now();
     const res = await post('/assistant/ask', { message: c.q }, tokens[c.who]);
@@ -59,15 +60,18 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     if (problems.length || process.env.VERBOSE) console.log(`      ${text.replace(/\n/g, ' | ').slice(0, 300)}`);
     for (const p of problems) console.log(`      - ${p}`);
   }
-  console.log(`\n${pass}/${total} answers correct (${Math.round((pass / Math.max(1, total)) * 1000) / 10}%)`);
+  if (total) console.log(`\n${pass}/${total} answers correct (${Math.round((pass / Math.max(1, total)) * 1000) / 10}%)`);
   // Conversations: several turns in one chat (follow-ups, topic switches, a clarifying question answered by the next turn).
   for (const conv of conversations) {
-    if (batch) continue;
+    if (batch && conv.batch !== batch) continue;
+    if (!batch && conv.batch) continue; // fresh batches run only when asked for
     if (only && !conv.name.toLowerCase().includes(only.toLowerCase())) continue;
     total += 1;
     let conversationId = null;
     const problems = [];
     const shownTurns = [];
+    const mine = async () => ((await (await fetch(`${BASE}/api/assistant/tickets?scope=mine`, { headers: { Authorization: `Bearer ${tokens[conv.who]}` } })).json()).data || []);
+    const before = conv.newTickets !== undefined ? (await mine()).length : 0;
     for (const [t, turn] of conv.turns.entries()) {
       const res = await post('/assistant/ask', { message: turn.q, ...(conversationId ? { conversationId } : {}) }, tokens[conv.who]);
       conversationId = res.data?.conversationId || conversationId;
@@ -78,7 +82,22 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
       if (turn.action && !replies.some((r) => turn.action.split('|').includes(r.action))) problems.push(`turn ${t + 1}: action ${replies.map((r) => r.action).join('+')} instead of ${turn.action}`);
       for (const p of turn.all || []) if (!matches(text, p)) problems.push(`turn ${t + 1}: missing /${p}/`);
       for (const p of turn.none || []) if (matches(text, p)) problems.push(`turn ${t + 1}: must not contain /${p}/`);
+      if (turn.ticketOutcome && !replies.some((r) => turn.ticketOutcome.split('|').includes(r.ticket?.outcome))) problems.push(`turn ${t + 1}: ticket outcome ${replies.map((r) => r.ticket?.outcome || 'none').join('+')} instead of ${turn.ticketOutcome}`);
       for (const o of turn.options || []) if (!replies.some((r) => (r.options || []).some((x) => matches(x.label, o)))) problems.push(`turn ${t + 1}: no option /${o}/`);
+    }
+    // How many tickets this chat created: a lifecycle reuses tickets instead of opening a new one per message.
+    if (conv.newTickets !== undefined) {
+      const made = (await mine()).length - before;
+      if (made !== conv.newTickets) problems.push(`created ${made} tickets instead of ${conv.newTickets}`);
+    }
+    // What staff read: the newest ticket they were sent, without the person's own words (no Hinglish, no Devanagari).
+    if (conv.staffCheck) {
+      const list = ((await (await fetch(`${BASE}/api/assistant/tickets?scope=${conv.staffCheck.who === 'admin' ? 'all' : 'assigned'}`, { headers: { Authorization: `Bearer ${tokens[conv.staffCheck.who]}` } })).json()).data || []);
+      const newest = list.sort((x, y) => new Date(y.createdAt) - new Date(x.createdAt))[0];
+      const brief = newest ? `${newest.title || ''} ${newest.summary || ''} ${newest.requestedAction || ''}` : '';
+      if (!newest) problems.push('staff received no ticket');
+      for (const p of conv.staffCheck.none || []) if (new RegExp(p, 'i').test(brief)) problems.push(`staff brief contains /${p}/: "${brief.slice(0, 120)}"`);
+      for (const p of conv.staffCheck.all || []) if (!matches(brief, p)) problems.push(`staff brief missing /${p}/`);
     }
     if (!problems.length) pass += 1; else failed.push({ n: `conversation ${conv.name}`, c: { q: conv.name, who: conv.who }, text: shownTurns.join('\n'), problems });
     byConv.push({ name: conv.name, ok: !problems.length });
@@ -88,7 +107,7 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
   }
 
   // --save keeps the result for the admin dashboard (the numbers shown there come from this file, never typed in).
-  if (process.argv.includes('--save') && !only) {
+  if (process.argv.includes('--save') && !only && !batch) { // a partial run never overwrites the full report
     const file = require('path').join(__dirname, '../assistant/eval/last-answers-report.json');
     const byRole = {};
     for (const c of cases) byRole[c.who] = byRole[c.who] || { questions: 0, correct: 0 };
@@ -102,6 +121,7 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     }, null, 2));
     console.log(`Saved ${file}`);
   }
+  if (byConv.length) console.log(`${byConv.filter((x) => x.ok).length}/${byConv.length} conversations passed`);
   if (freshTotal) console.log(`${freshPass}/${freshTotal} on fresh questions written after the fixes (${Math.round((freshPass / freshTotal) * 1000) / 10}%)`);
   process.exit(failed.length ? 1 : 0);
 })().catch((e) => { console.error(e.message); process.exit(2); });

@@ -38,6 +38,7 @@ function describe(plan, result, { reason = null, now = new Date() } = {}) {
       if (result.error === 'resolved') return { kind: 'blocked', text: `${tn} has been resolved. If the problem is back, tell me and I will reopen it.` };
       if (result.error === 'too_old') return { kind: 'blocked', text: `${tn} was resolved more than 14 days ago, so it cannot be reopened. I can raise a new ticket instead.` };
       if (result.error === 'not_resolved') return { kind: 'blocked', text: `${tn} is still open, so there is nothing to reopen.` };
+      if (result.error === 'not_yours') return { kind: 'blocked', text: 'I can only look at or update tickets that you raised yourself.' };
       return { kind: 'blocked', text: 'I cannot do that on this ticket.' };
     }
     return { kind: 'failed', text: 'I could not complete that just now, and nothing was changed. Your message is not lost: tap the button below to try again, or contact the school office directly.' };
