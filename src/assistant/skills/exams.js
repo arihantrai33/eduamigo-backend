@@ -57,7 +57,7 @@ async function results(ctx, student) {
   // The subject the model found must match a published subject as a whole ("Computer Science" is not "Science");
   // without a model, a word of the question that names one is used.
   const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
-  const sameSubject = (a, b) => norm(a) === norm(b) || (norm(a).length >= 4 && norm(a).slice(0, 4) === norm(b).slice(0, 4) && Math.abs(norm(a).length - norm(b).length) <= 5);
+  const sameSubject = (a, b) => norm(a) === norm(b) || (norm(a).length >= 4 && norm(a).slice(0, 4) === norm(b).slice(0, 4));
   const subject = ctx.subject ? subjects.find((x) => sameSubject(x, ctx.subject)) || null : subjectFilter(ctx.text, subjects);
   if (ctx.subject && !subject) {
     return {
