@@ -13,7 +13,7 @@
 const llm = require('./llm');
 const { numbers } = require('./writer');
 
-const SYSTEM = `You are EduAmigo Ask, the assistant inside a school's app. For each item you get the user's question, the facts read from the school's records, and a standard answer.
+const SYSTEM = `You are the friendly front-desk person of a school, helping a parent, student or staff member through the school's app. For each item you get the user's question, the facts read from the school's records, and a standard answer.
 Write the answer to exactly what the user asked:
 - The first sentence answers the question directly: yes or no, the number, the date, the time, the name.
 - Add other detail only when it clearly helps with that question. Do not list facts nobody asked for.
@@ -21,6 +21,7 @@ Write the answer to exactly what the user asked:
 - When the asker is a student, always speak to them directly ("aapka", "your", "you"), never about them in the third person and never by their own name, including for "we", "our class", "mera", "my". A parent's child is referred to by name.
 - If the question is about one day, one subject, one child, one fee or one exam, answer only that part of the facts.
 - When you give marks, give them as obtained out of total. Use correct, natural grammar in the user's language.
+- Sound like a helpful person, not a system: natural, warm, plain words. Never mention records, databases, the app's data, AI or being an assistant. Understand the full detail of the question (when, which day or period, from what time to what time, which subject, which child) and give those details when they were asked for. When it fits, end with one short, useful next step (for example offering to check something else) but do not pad.
 - Use only values that appear in the facts or the standard answer. Never work out new numbers, never guess, never add advice about things not in the facts.
 - Keep names, amounts (keep the ₹ sign), dates, times, classes and receipt numbers exactly as written; write digits as digits (0-9).
 - If the facts do not contain what was asked, set "answered" to false and say in one or two sentences what the records do show about it, without guessing.
@@ -36,6 +37,8 @@ const STARTERS = new Set(('aaj kal parso abhi aapki aapke aapka aapko aap haan n
   'records record sorry unfortunately i we he she they his her hers our there these those some any all both each every one two three no not nothing none only just still ' +
   'currently soon later early late name names date dates time times amount balance bill bills paid unpaid report reports list lists homework assignment assignments ' +
   'sunday monday tuesday wednesday thursday friday saturday notes class classes section sections will would can could may might should must please thanks thank').split(' '));
+const TITLES = new Set(['sir', 'madam', "ma'am", 'maam', 'mam', 'ji', 'miss', 'teacher', 'mrs', 'mr', 'dr']);
+const AFTER_NAME = new Set(['ki', 'ka', 'ke', 'ko', 'ne', 'se', 'has', 'had', 'have', 'is', 'was', 'will', 'did', 'does', 'scored', 'got', 'ne']);
 const WEEKDAYS_MONTHS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'eduamigo', 'ask'];
 
 // Capitalised words: names and labels (the common first word of a sentence is not one).
@@ -44,7 +47,14 @@ function capitalWords(text) {
   for (const line of String(text).split(/\n/)) {
     for (const sentence of line.replace(/^\s*[-•*]\s*/, '').split(/(?<=[.!?:])\s+/)) {
       const words = sentence.match(/[A-Za-z][A-Za-z'.-]*/g) || [];
-      words.forEach((w, i) => { if (/^[A-Z][a-z]{2,}$/.test(w) && (i > 0 || !STARTERS.has(w.toLowerCase()))) out.push(w.toLowerCase()); });
+      words.forEach((w, i) => {
+        if (!/^[A-Z][a-z]{2,}$/.test(w)) return;
+        // The first word of a sentence is capitalised anyway ("Isme", "Kal"); it counts as a name only when it looks like one:
+        // followed by a title ("Priya madam") or a particle ("Priya ki", "Priya ne", "Priya has"); a surname after it is checked on its own.
+        const next = words[i + 1] || '';
+        const looksLikeName = TITLES.has(next.toLowerCase()) || AFTER_NAME.has(next.toLowerCase());
+        if (i > 0 || (!STARTERS.has(w.toLowerCase()) && looksLikeName)) out.push(w.toLowerCase());
+      });
     }
   }
   return out;

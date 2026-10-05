@@ -121,10 +121,10 @@ async function handoffReply({ ctx, text, domain, reason, student, subject = null
   const team = teamLabel(ticket.team);
   const to = sentToText(ticket);
   const msg = reason === 'complaint'
-    ? `I have noted your complaint and passed it to ${to} (ticket ${ticket.number}). You will get a reply in the app.`
+    ? `Thank you for telling us. I have passed your complaint to ${to} (ticket ${ticket.number}), and you will get a reply here in the app.`
     : reason === 'sensitive'
-    ? `I am sorry to hear this. It is important, so I have passed it to ${to} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
-    : `I have sent your message to ${to} (ticket ${ticket.number}), with a short summary so you do not have to explain again. You will get their reply in the app, and you are welcome to meet them at school too.`;
+    ? `I am really sorry to hear this. It is important, so I have sent it to ${to} and the school management right away (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
+    : `I have sent this to ${to} (ticket ${ticket.number}) with a short summary, so you will not have to explain it again. Their reply will come here in the app, and you are welcome to meet them at school too.`;
   return reply({
     domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text,
     ticket: { id: String(ticket._id), number: ticket.number, team, sentTo: (ticket.contacts || []).map((c) => ({ name: c.name, title: c.title })) },
@@ -146,7 +146,7 @@ function complaintInquiryReply(ctx, text) {
   ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
   return reply({
     domain: 'general', label: DOMAINS.general.label, confidence: 1, method: 'rule', action: 'no_data', options: [HANDOFF_OPTION],
-    text: 'Complaints and remarks from the school are not recorded in the app, so I cannot check this. Shall I ask the school office whether anything has been sent for you?',
+    text: 'I cannot see any complaints or remarks from the school here. Would you like me to ask the school office if anything has been noted for you?',
   });
 }
 
@@ -202,7 +202,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   // A school question no topic covers: offer the office.
   if (r.domain === 'school_other') {
     ctx.setPending({ text, kind: 'handoff', domain: null, summary: forced.nlu?.english || null, options: [HANDOFF_OPTION] });
-    return reply({ confidence: r.confidence, method: r.method, action: 'no_data', text: 'I do not have that information in the app. Shall I ask the school office for you?', options: [HANDOFF_OPTION] });
+    return reply({ confidence: r.confidence, method: r.method, action: 'no_data', text: 'I do not have that detail with me. Would you like me to ask the school office for you?', options: [HANDOFF_OPTION] });
   }
 
   // Nothing recognised: a general answer from the model when one is available, otherwise say what the
@@ -226,14 +226,14 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     let question;
     if (r.confidence >= router.CLARIFY_AT && r.runnerUp && ctx.allowed.includes(r.runnerUp)) {
       options = [domainOpt(r.domain), domainOpt(r.runnerUp)];
-      question = `Do you mean ${DOMAINS[r.domain].ask} or ${DOMAINS[r.runnerUp].ask}?`;
+      question = `Just to be sure, is this about ${DOMAINS[r.domain].ask} or ${DOMAINS[r.runnerUp].ask}?`;
     } else if (r.confidence >= router.CLARIFY_AT) {
       options = [domainOpt(r.domain)];
       question = `Is this about ${DOMAINS[r.domain].ask}?`;
     } else {
       const likely = [r.domain, r.runnerUp, ...ctx.allowed].filter((d, i, a) => d && d !== 'general' && ctx.allowed.includes(d) && a.indexOf(d) === i).slice(0, 4);
       options = likely.map(domainOpt);
-      question = 'I am not sure what this is about. Which topic is it?';
+      question = 'I want to get this right. Which of these is it about?';
     }
     options.push(opt('Something else', 'office', 'handoff'));
     ctx.setPending({ text, kind: 'domain', domain: r.domain, options, attempts });
@@ -245,10 +245,10 @@ async function answerQuestionInner(ctx, text, forced = {}) {
 
   // Access: role, then plan.
   if (!DOMAINS[d].roles.includes(ctx.role)) {
-    return reply({ ...base, action: 'blocked', text: `${DOMAINS[d].label} information is not available for your account.` });
+    return reply({ ...base, action: 'blocked', text: `Sorry, ${DOMAINS[d].label.toLowerCase()} details are not available for your account.` });
   }
   if (DOMAINS[d].feature && !ctx.entitlements?.features?.includes(DOMAINS[d].feature)) {
-    return reply({ ...base, action: 'blocked', text: `The ${DOMAINS[d].label} module is not part of ${ctx.school?.name || 'your school'}'s plan.` });
+    return reply({ ...base, action: 'blocked', text: `${DOMAINS[d].label} is not switched on for ${ctx.school?.name || 'your school'} yet, so I cannot help with it here.` });
   }
 
   const skill = skills[d];
@@ -286,7 +286,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
       if (!chosen.length && children.length > 1) {
         const options = [...children.map((c) => opt(`${c.name} (${c.class}-${c.section})`, c._id, 'student')), opt('All children', 'all', 'student')];
         ctx.setPending({ text, kind: 'student', domain: d, options, attempts: 1 });
-        return reply({ ...base, action: 'clarify', text: `You have ${children.length} children at this school. Who is this about?`, options });
+        return reply({ ...base, action: 'clarify', text: `Happy to help. Which of your children is this about?`, options });
       }
       sctx.students = chosen;
     }
