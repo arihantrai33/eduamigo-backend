@@ -27,11 +27,9 @@ function numbersMatch(original, rewritten) {
   return rupees(original).every((r) => got.has(r));
 }
 
-function shouldRewrite(language) {
-  const mode = String(process.env.ASSISTANT_REWRITE || 'auto').toLowerCase();
-  if (mode === 'never') return false;
-  if (mode === 'always') return true;
-  return language === 'hi' || language === 'hinglish';
+// Every language is put into a friendly voice (English too); ASSISTANT_REWRITE=never switches the model wording off.
+function shouldRewrite() {
+  return String(process.env.ASSISTANT_REWRITE || 'auto').toLowerCase() !== 'never';
 }
 
 const STYLE = {
@@ -41,6 +39,7 @@ const STYLE = {
 };
 
 const SYSTEM = (language) => `You reword answers from a school's assistant for the user, in ${STYLE[language] || STYLE.en}.
+Sound like a warm, helpful person at the school office talking to a parent, student or colleague: natural and kind, never stiff or robotic, never "as an AI", no form-letter phrases. Keep it short.
 Rules:
 - Keep every number, amount, date, time, name, class and receipt number exactly as written. Write digits as digits (0-9). Keep the ₹ sign.
 - Do not add, remove or guess any facts. Keep bullet lists as lists.

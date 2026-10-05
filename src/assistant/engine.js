@@ -55,7 +55,7 @@ const ageOf = (dob, now = new Date()) => (dob ? Math.floor((now - new Date(dob))
 const childSummary = (c) => ({ name: c.name, gender: c.gender ? (c.gender === 'Male' ? 'boy' : c.gender === 'Female' ? 'girl' : null) : null, age: ageOf(c.dateOfBirth), class: `class ${c.class}-${c.section}` });
 
 function emptyPending() {
-  return { text: null, kind: null, domain: null, subject: null, person: null, child: null, options: [], attempts: 0 };
+  return { text: null, kind: null, domain: null, subject: null, person: null, child: null, summary: null, options: [], attempts: 0 };
 }
 
 async function loadConversation(user, schoolId, conversationId) {
@@ -116,15 +116,15 @@ function sentToText(ticket) {
   return people.join(' and ');
 }
 
-async function handoffReply({ ctx, text, domain, reason, student, subject = null, personName = null }) {
-  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student, subject, personName });
+async function handoffReply({ ctx, text, domain, reason, student, subject = null, personName = null, summary = null }) {
+  const ticket = await createTicket({ school: ctx.schoolId, user: ctx.user, domain, question: redact(text), reason, student, subject, personName, summary: summary ? redact(summary) : null });
   const team = teamLabel(ticket.team);
   const to = sentToText(ticket);
   const msg = reason === 'complaint'
     ? `I have noted your complaint and passed it to ${to} (ticket ${ticket.number}). You will get a reply in the app.`
     : reason === 'sensitive'
     ? `I am sorry to hear this. It is important, so I have passed it to ${to} and the school management as urgent (ticket ${ticket.number}). Someone from the school will contact you soon. If anyone is in danger right now, please call the school directly or dial 112.`
-    : `I have sent your message to ${to} (ticket ${ticket.number}). You will get their reply in the app.`;
+    : `I have sent your message to ${to} (ticket ${ticket.number}), with a short summary so you do not have to explain again. You will get their reply in the app, and you are welcome to meet them at school too.`;
   return reply({
     domain: domain || null, label: domain ? DOMAINS[domain]?.label : null, confidence: 1, method: 'rule', action: 'handoff', text: msg, question: text,
     ticket: { id: String(ticket._id), number: ticket.number, team, sentTo: (ticket.contacts || []).map((c) => ({ name: c.name, title: c.title })) },
@@ -201,7 +201,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
 
   // A school question no topic covers: offer the office.
   if (r.domain === 'school_other') {
-    ctx.setPending({ text, kind: 'handoff', domain: null, options: [HANDOFF_OPTION] });
+    ctx.setPending({ text, kind: 'handoff', domain: null, summary: forced.nlu?.english || null, options: [HANDOFF_OPTION] });
     return reply({ confidence: r.confidence, method: r.method, action: 'no_data', text: 'I do not have that information in the app. Shall I ask the school office for you?', options: [HANDOFF_OPTION] });
   }
 
@@ -322,7 +322,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     let offer = null;
     if (out.handoffOffer) {
       offer = await handoffOffer(ctx, { text, domain: d, subject: sctx.subject, person: sctx.personName, child: sctx.child });
-      ctx.setPending({ text, kind: 'handoff', domain: d, subject: sctx.subject, person: sctx.personName, child: sctx.child, options: [offer.option] });
+      ctx.setPending({ text, kind: 'handoff', domain: d, subject: sctx.subject, person: sctx.personName, child: sctx.child, summary: forced.nlu?.english || null, options: [offer.option] });
     }
     return reply({ ...base, action: 'no_data', text: out.text, link: out.link || null, options: offer ? [offer.option] : [] });
   }
@@ -330,7 +330,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   const sources = out.sources?.length ? out.sources : [{ type: d, label: `${DOMAINS[d].label} records checked` }];
   return reply({
     ...base, action: 'answer', text: out.text, sources, link: out.link || null, actions: out.actions || [], options: out.options || [],
-    facts: out.facts && Object.keys(out.facts).length ? out.facts : null, subject: sctx.subject, person: sctx.personName, child: sctx.child,
+    facts: out.facts && Object.keys(out.facts).length ? out.facts : null, subject: sctx.subject, person: sctx.personName, child: sctx.child, summary: forced.nlu?.english || null,
   });
 }
 
@@ -390,7 +390,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     if (tapped.type === 'handoff') {
       replies.push(await handoffReply({
         ctx, text: pending.text, domain: pending.domain, reason: pending.kind === 'handoff' ? (pending.subject || pending.person ? 'forwarded' : 'not_covered') : 'unclear',
-        student: await studentForHandoff(ctx, pending.text, pending.child), subject: pending.subject, personName: pending.person,
+        student: await studentForHandoff(ctx, pending.text, pending.child), subject: pending.subject, personName: pending.person, summary: pending.summary,
       }));
     } else {
       if (tapped.type === 'domain') forced.domain = tapped.value;
@@ -422,7 +422,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
         if (part.urgent || ['complaint', 'human', 'forward'].includes(part.kind)) {
           const reason = part.urgent ? 'sensitive' : part.kind === 'complaint' ? 'complaint' : part.kind === 'forward' ? 'forwarded' : 'requested';
           replies.push(await handoffReply({
-            ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person,
+            ctx, text: part.text, domain: topicDomain, reason, student: await studentForHandoff(ctx, part.text, part.child), subject: part.subject, personName: part.person, summary: part.english,
           }));
         } else replies.push(await answerQuestion(ctx, part.text, { nlu: part }));
       }
@@ -442,14 +442,22 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   const composable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => r.action === 'answer' && r.facts && !r.generated);
   const wordable = replies.map((r, i) => ({ id: String(i), r })).filter(({ r }) => !composable.some((c) => c.r === r)
     && ['answer', 'no_data', 'blocked', 'clarify', 'handoff'].includes(r.action) && !r.generated && r.text);
-  if (ctx.aiAllowed && composable.length) {
-    const { result, ai } = await compose(
-      composable.map(({ id, r }) => ({ id, question: r.question, text: r.text, facts: r.facts })),
-      { role: ctx.role, askerName: ctx.user?.name || '', language, today: `${dayText(dayKey(now), { weekday: true })}` },
-    );
-    if (ai) ctx.noteAi(ai);
+  // Both model calls run at the same time, so the person waits for one.
+  const [composed, worded] = await Promise.all([
+    ctx.aiAllowed && composable.length
+      ? compose(
+        composable.map(({ id, r }) => ({ id, question: r.question, text: r.text, facts: r.facts })),
+        { role: ctx.role, askerName: ctx.user?.name || '', language, today: `${dayText(dayKey(now), { weekday: true })}` },
+      )
+      : null,
+    ctx.aiAllowed && writer.shouldRewrite() && wordable.length
+      ? writer.rewrite(wordable.map(({ id, r }) => ({ id, text: r.text })), language)
+      : null,
+  ]);
+  if (composed) {
+    if (composed.ai) ctx.noteAi(composed.ai);
     for (const { id, r } of composable) {
-      const w = result.get(id);
+      const w = composed.result.get(id);
       if (!w || w.rejected) { if (w?.rejected) r.groundedCheck = 'kept_original'; continue; }
       if (w.text !== r.text) { r.text = w.text; aiInfo.composed = true; }
       // The records do not hold what was asked: say what they do hold and offer to ask the right person.
@@ -457,15 +465,14 @@ async function ask({ user, school, entitlements, message, conversationId, choice
         const offer = await handoffOffer(ctx, { text: r.question, domain: r.domain, subject: r.subject, person: r.person, child: r.child });
         r.action = 'no_data';
         r.options = [offer.option];
-        ctx.setPending({ text: r.question, kind: 'handoff', domain: r.domain, subject: r.subject, person: r.person, child: r.child, options: [offer.option] });
+        ctx.setPending({ text: r.question, kind: 'handoff', domain: r.domain, subject: r.subject, person: r.person, child: r.child, summary: r.summary, options: [offer.option] });
       }
     }
   }
-  if (ctx.aiAllowed && writer.shouldRewrite(language) && wordable.length) {
-    const { result, ai } = await writer.rewrite(wordable.map(({ id, r }) => ({ id, text: r.text })), language);
-    if (ai) ctx.noteAi(ai);
+  if (worded) {
+    if (worded.ai) ctx.noteAi(worded.ai);
     for (const { id, r } of wordable) {
-      const w = result.get(id);
+      const w = worded.result.get(id);
       if (w && !w.rejected && w.text !== r.text) { r.text = w.text; aiInfo.rewritten = true; }
       if (w?.rejected) r.groundedCheck = 'kept_original';
     }
@@ -497,7 +504,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
     conversationId: String(conv._id),
     queryId: String(log._id),
     language,
-    replies: replies.map(({ generated, groundedCheck, runnerUp, question, facts, subject, person, child, ...r }) => r),
+    replies: replies.map(({ generated, groundedCheck, runnerUp, question, facts, subject, person, child, summary, ...r }) => r),
     ai: { used: aiInfo.used, provider: aiInfo.provider },
   };
 }

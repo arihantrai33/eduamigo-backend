@@ -17,6 +17,7 @@ const assistantConversationSchema = new mongoose.Schema({
       subject:  { type: String, default: null },
       person:   { type: String, default: null },
       child:    { type: String, default: null },
+      summary:  { type: String, default: null },
       options:  { type: [{ label: String, value: String, type: { type: String }, _id: false }], default: [] },
       attempts: { type: Number, default: 0 },
     },

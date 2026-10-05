@@ -103,21 +103,21 @@ const REASON_TITLES = {
 };
 
 // Creates the ticket and notifies the assignees. Returns the ticket.
-async function createTicket({ school, user, domain, question, reason, student = null, subject = null, personName = null }) {
+async function createTicket({ school, user, domain, question, reason, student = null, subject = null, personName = null, summary = null }) {
   const priority = reason === 'sensitive' ? 'high' : 'normal';
   const { team, people } = await recipientsFor({ school, domain, student, subject, personName, priority });
   const assignees = [...new Set(people.map((p) => p.userId).filter(Boolean))];
   const seq = await Counter.next(school, 'assistantTicket');
   const ticket = await AssistantTicket.create({
     school, number: `T-${1000 + seq}`, raisedBy: user._id, raisedRole: user.role, student: student?._id || null,
-    domain: domain || null, question: String(question).slice(0, 1000), reason, priority, team, assignees,
+    domain: domain || null, question: String(question).slice(0, 1000), summary: summary ? String(summary).slice(0, 400) : null, reason, priority, team, assignees,
     contacts: people.map((p) => ({ name: p.name, title: p.title })),
   });
 
   const who = student ? `${user.name} (${user.role}, about ${student.name} ${student.class}-${student.section})` : `${user.name} (${user.role})`;
   await Promise.all(assignees.map((id) => notifyUser(school, id, {
     title: `${priority === 'high' ? 'Urgent: ' : ''}EduAmigo Ask ticket ${ticket.number}`,
-    message: `${REASON_TITLES[reason]}. ${who} wrote: "${ticket.question.slice(0, 300)}"`,
+    message: `${REASON_TITLES[reason]}. ${who} wrote: "${ticket.question.slice(0, 300)}"${ticket.summary ? ` (In short: ${ticket.summary})` : ''}`,
     type: 'General',
   }).catch(() => null)));
   return ticket;
