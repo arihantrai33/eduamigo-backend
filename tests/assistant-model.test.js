@@ -252,6 +252,12 @@ describe('answers written for the exact question', () => {
     expect(res.body.data.replies[0].text).toBe('Haan, Aarav ki ₹4,500 fees baki hai.');
   });
 
+  test('a Roman-letter question is never answered in Devanagari, which would turn the names into unchecked text', async () => {
+    mockModel({ understand: [part({ text: 'kya fees baki hai', topic: 'fees' })], compose: { answered: true, text: 'आरव की ₹4,500 फीस बाकी है।' } });
+    const res = await ask(A.parentUser, 'kya fees baki hai');
+    expect(res.body.data.replies[0].text).toContain('₹4,500 is due');
+  });
+
   test('an answer with an invented amount or name is thrown away', async () => {
     mockModel({ understand: [part({ text: 'kya fees baki hai', topic: 'fees' })], compose: { answered: true, text: 'Haan, Rohit ki ₹9,000 fees baki hai.' } });
     const res = await ask(A.parentUser, 'kya fees baki hai');

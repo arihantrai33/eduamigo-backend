@@ -17,10 +17,21 @@ const SECTION_TARGET = 700;
 const STOP = new Set(('the a an is are was were be been am of to in on at for and or but if so as by with from this that these those it its ' +
   'what which who whom whose when where why how do does did can could should would will shall may might must my me i you your we our they their he she his her ' +
   'about any there here please tell show give know want need get ' +
+  // words that frame a question about documents without saying what it is about
+  'policy policies rule rules information info detail details regarding related guideline guidelines ' +
   'kya hai hain tha thi the ho hoga hogi ka ki ke ko se me mein par pe aur ya bhi to toh kab kaun kaunsi kaunsa kaise kitna kitni kitne ' +
   'batao bataiye bataye mujhe mera meri mere hamara hamari school').split(' '));
 
-const stem = (t) => (t.length > 4 ? t.replace(/ies$/, 'y').replace(/(es|s)$/, '') : t);
+// A light stemmer: plurals and the common endings, so "refundable", "refunded" and "refunds" all meet "refund".
+const stem = (t) => {
+  if (t.length <= 3 || !/^[a-z]+$/.test(t)) return t;
+  let w = t;
+  if (/ies$/.test(w) && w.length > 4) w = `${w.slice(0, -3)}y`;
+  else if (/(ses|xes|zes|ches|shes)$/.test(w)) w = w.slice(0, -2);
+  else if (/s$/.test(w) && !/(ss|us|is)$/.test(w)) w = w.slice(0, -1);
+  for (const end of ['able', 'ible', 'ing', 'ed', 'ly']) if (w.endsWith(end) && w.length - end.length >= 4) { w = w.slice(0, -end.length); break; }
+  return w;
+};
 const terms = (text) => tokenize(text).filter((t) => t.length >= 2 && !STOP.has(t)).map(stem);
 
 // "1. Heading", "HEADING", "# Heading" or "Heading:" on a line of its own start a new section.
@@ -71,31 +82,36 @@ async function visibleDocuments(school, role) {
   return SchoolDocument.find(q).limit(MAX_DOCS_PER_SCHOOL).lean();
 }
 
-// queries: the person's words and the model's English restatement. Returns the best sections, best first:
+// queries: the person's words and the model's English restatement; expand: the model's synonyms. Returns the best sections, best first:
 // [{ documentId, title, category, heading, text, updatedAt, score, matched }]
-async function search({ school, role, queries, limit = 3 }) {
+async function search({ school, role, queries, expand = [], limit = 3 }) {
   const docs = await visibleDocuments(school, role);
-  const q = [...new Set(queries.filter(Boolean).flatMap(terms))].slice(0, 16);
+  const primary = [...new Set(queries.filter(Boolean).flatMap(terms))].slice(0, 16);
+  // Synonyms suggested by the model help a section match, but do not raise how many words a question must share.
+  const q = [...new Set([...primary, ...expand.filter(Boolean).flatMap(terms)])].slice(0, 24);
   if (!docs.length || !q.length) return [];
 
   const units = docs.flatMap((d) => d.sections.map((s) => {
     const body = terms(s.text);
-    const head = terms(`${d.title} ${s.heading}`);
-    return { d, s, body, head, len: body.length + head.length };
+    const head = terms(s.heading);   // the section's own heading counts double
+    const title = terms(d.title);    // the document title says little about one section, so it counts half
+    return { d, s, body, head, title, len: body.length + head.length };
   })).filter((u) => u.len);
   if (!units.length) return [];
   const avg = units.reduce((a, u) => a + u.len, 0) / units.length;
   const N = units.length;
-  const df = (t) => units.filter((u) => u.body.includes(t) || u.head.includes(t)).length;
+  const df = (t) => units.filter((u) => u.body.includes(t) || u.head.includes(t) || u.title.includes(t)).length;
 
   const K1 = 1.4; const B = 0.75;
   const scored = units.map((u) => {
     let score = 0;
     const matched = [];
     for (const t of q) {
-      const tf = u.body.filter((x) => x === t).length + 2 * u.head.filter((x) => x === t).length; // title and heading words count double
+      const inBody = u.body.filter((x) => x === t).length + 2 * u.head.filter((x) => x === t).length;
+      const tf = inBody + (u.title.includes(t) ? 0.5 : 0);
       if (!tf) continue;
-      matched.push(t);
+      // A word found only in the document title is a weak match for this section.
+      if (inBody) matched.push(t);
       const n = df(t);
       const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
       score += idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (u.len / avg))));
@@ -104,9 +120,11 @@ async function search({ school, role, queries, limit = 3 }) {
   });
 
   // Enough shared words: two distinctive words, or the only one a short question has.
-  const need = Math.min(2, q.length);
+  const need = Math.min(2, primary.length);
+  // A single shared word is enough when it is rare in this school's documents ("uniform" appears in one or two sections).
+  const rare = (t) => t.length >= 5 && df(t) <= 2;
   return scored
-    .filter((x) => x.matched.length >= need)
+    .filter((x) => x.matched.length >= need || x.matched.some(rare))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map(({ u, score, matched }) => ({

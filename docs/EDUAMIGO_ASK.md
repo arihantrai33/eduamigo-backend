@@ -1,5 +1,8 @@
 # EduAmigo Ask
 
+> The current architecture, security, grounding and evaluation are in `UNIFIEDAI_ARCHITECTURE.md`, `SECURITY.md`,
+> `AI_GROUNDING.md` and `EVALUATION.md`. This file keeps the setup notes (Azure OpenAI), the API and the demo walkthrough.
+
 One assistant for everything in a school (Microsoft Innovate 2026, Problem Statement 18, "One Front Door
 for Everything"). Students, parents, teachers, accountants and admins ask in English, Hindi or Hinglish,
 and the assistant does one of three things:

@@ -8,9 +8,19 @@
 
 const AssistantQuery = require('../models/AssistantQuery');
 const AssistantTicket = require('../models/AssistantTicket');
+const { tokenize } = require('./text');
 const { DOMAINS } = require('./domains');
 
 const REPEAT_WINDOW_MS = 10 * 60 * 1000;
+// Is `b` the same question asked again (in other words)? Word overlap of at least half. A different question on the same
+// topic (the other child's fees, another day's timetable) is not a repeat.
+const similar = (a, b) => {
+  const x = new Set(tokenize(a).filter((t) => t.length > 2));
+  const y = new Set(tokenize(b).filter((t) => t.length > 2));
+  if (!x.size || !y.size) return false;
+  const shared = [...x].filter((t) => y.has(t)).length;
+  return shared / Math.min(x.size, y.size) >= 0.5;
+};
 const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
 
 function percentile(values, p) {
@@ -42,7 +52,8 @@ async function schoolMetrics(schoolId, { days = 30, now = new Date() } = {}) {
 
   // End-to-end resolution: did the person's need actually get settled? One unit per question that reached an outcome.
   //   answered   resolved when it was backed by a real record or document, the person did not mark it unhelpful, and did not
-  //              ask the same thing again within 10 minutes (a repeat means the first answer did not settle it)
+  //              ask the same thing again within 10 minutes, in similar words (a repeat means the first answer did not settle it;
+  //              a different question on the same topic is not a repeat)
   //   handed off resolved when staff resolved the ticket; still open tickets are "pending" and not counted either way
   //   no answer  (the assistant had nothing) and a clarifying question the person never answered count as unresolved
   //   refusals   (access not allowed) are correct behaviour and are left out
@@ -68,7 +79,7 @@ async function schoolMetrics(schoolId, { days = 30, now = new Date() } = {}) {
     const q = p.query;
     if (p.action === 'answer' && p.domain && p.domain !== 'general') {
       answered += 1;
-      const repeat = laterQueries(q).some((o) => o.parts.some((x) => x.domain === p.domain && x.method !== 'choice'));
+      const repeat = laterQueries(q).some((o) => o.parts.some((x) => x.domain === p.domain && x.method !== 'choice' && similar(x.text, p.text)));
       if (p.grounded !== false && p.sources > 0 && q.feedback?.helpful !== false && !repeat) out.resolvedByAssistant += 1; else out.unresolved += 1;
     } else if (p.action === 'handoff') {
       const t = ticketById.get(String(p.ticket));

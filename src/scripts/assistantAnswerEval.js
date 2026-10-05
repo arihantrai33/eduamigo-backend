@@ -29,11 +29,14 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     if (!r.token) throw new Error(`Cannot sign in as ${who} (${id}) at ${BASE}: ${r.message || 'no token'}`);
     tokens[who] = r.token;
   }
-  const only = process.argv[2];
+  const only = process.argv.slice(2).find((a) => !a.startsWith('--'));
+  // --batch=final runs only the questions written after all fixes (never tuned on).
+  const batch = (process.argv.find((a) => a.startsWith('--batch=')) || '').slice(8) || null;
   const byConv = [];
   let pass = 0; let total = 0; let freshPass = 0; let freshTotal = 0; const failed = [];
   for (const [i, c] of cases.entries()) {
     if (only && !c.q.toLowerCase().includes(only.toLowerCase())) continue;
+    if (batch && c.batch !== batch) continue;
     total += 1;
     const started = Date.now();
     const res = await post('/assistant/ask', { message: c.q }, tokens[c.who]);
@@ -57,6 +60,33 @@ const matches = (text, pattern) => new RegExp(pattern, 'i').test(text);
     for (const p of problems) console.log(`      - ${p}`);
   }
   console.log(`\n${pass}/${total} answers correct (${Math.round((pass / Math.max(1, total)) * 1000) / 10}%)`);
+  // Conversations: several turns in one chat (follow-ups, topic switches, a clarifying question answered by the next turn).
+  for (const conv of conversations) {
+    if (batch) continue;
+    if (only && !conv.name.toLowerCase().includes(only.toLowerCase())) continue;
+    total += 1;
+    let conversationId = null;
+    const problems = [];
+    const shownTurns = [];
+    for (const [t, turn] of conv.turns.entries()) {
+      const res = await post('/assistant/ask', { message: turn.q, ...(conversationId ? { conversationId } : {}) }, tokens[conv.who]);
+      conversationId = res.data?.conversationId || conversationId;
+      const replies = res.data?.replies || [];
+      const text = replies.map((r) => r.text).join('\n');
+      shownTurns.push(`${turn.q} -> ${text.replace(/\n/g, ' | ').slice(0, 160)}`);
+      if (!replies.length) problems.push(`turn ${t + 1}: no reply`);
+      if (turn.action && !replies.some((r) => turn.action.split('|').includes(r.action))) problems.push(`turn ${t + 1}: action ${replies.map((r) => r.action).join('+')} instead of ${turn.action}`);
+      for (const p of turn.all || []) if (!matches(text, p)) problems.push(`turn ${t + 1}: missing /${p}/`);
+      for (const p of turn.none || []) if (matches(text, p)) problems.push(`turn ${t + 1}: must not contain /${p}/`);
+      for (const o of turn.options || []) if (!replies.some((r) => (r.options || []).some((x) => matches(x.label, o)))) problems.push(`turn ${t + 1}: no option /${o}/`);
+    }
+    if (!problems.length) pass += 1; else failed.push({ n: `conversation ${conv.name}`, c: { q: conv.name, who: conv.who }, text: shownTurns.join('\n'), problems });
+    byConv.push({ name: conv.name, ok: !problems.length });
+    console.log(`${problems.length ? 'FAIL' : 'ok  '} conversation [${conv.who}] ${conv.name} (${conv.turns.length} turns)`);
+    if (problems.length || process.env.VERBOSE) shownTurns.forEach((x) => console.log(`      ${x}`));
+    for (const p of problems) console.log(`      - ${p}`);
+  }
+
   // --save keeps the result for the admin dashboard (the numbers shown there come from this file, never typed in).
   if (process.argv.includes('--save') && !only) {
     const file = require('path').join(__dirname, '../assistant/eval/last-answers-report.json');

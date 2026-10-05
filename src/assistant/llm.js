@@ -2,7 +2,7 @@
 //
 //   ASSISTANT_PROVIDERS   order to try, default "azure,gemini" (unconfigured providers are skipped)
 //   ASSISTANT_AI=off      turns model calls off; the assistant still works on keywords and templates
-//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 6000
+//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000
 //
 //   Azure OpenAI: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT (e.g. gpt-4.1-mini),
 //                 AZURE_OPENAI_API_VERSION (default 2024-10-21)
@@ -22,7 +22,7 @@ const CACHE_MAX = 500;
 const health = new Map(); // provider -> { failures, skipUntil }
 const cache = new Map();  // key -> { at, value }
 
-const timeoutMs = () => Number(process.env.ASSISTANT_TIMEOUT_MS || 6000);
+const timeoutMs = () => Number(process.env.ASSISTANT_TIMEOUT_MS || 10000);
 
 const PROVIDERS = {
   azure: {

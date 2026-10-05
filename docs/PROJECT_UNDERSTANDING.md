@@ -159,4 +159,7 @@ sessions, audit log.
 | 11 | Dependencies | Backend: 8 moderate advisories (all under `firebase-admin` / Google Cloud client libraries). Frontend: 4 high (`firebase` client, `@grpc/grpc-js` via Firestore, which the app does not use) | `npm audit --omit=dev` | open; fixes need a major `firebase` upgrade, see "Known issues" |
 | 12 | Hygiene | `_to_delete/` (git bundles) and `Claude outputs/` sit untracked in the repo folder | `git status` | open: move out of the folder |
 | 13 | Session | The token is kept in `localStorage` (readable by any script on the page) | `AuthContext.jsx` | accepted for now; httpOnly cookies would need a CSRF design; helmet and a strict CSP reduce the risk |
+| 15 | Deployment | `vercel.json` rewrote only a few paths, so refreshing `/select-school`, `/s/:code` or `/forgot-password` would return 404 on Vercel; no security headers | read `vercel.json` | **fixed**: catch-all SPA rewrite, `nosniff`, frame, referrer, HSTS and permissions headers; a CSP is still to add |
+| 16 | Metrics | A different question on the same topic within 10 minutes (the other child's fees) was counted as a repeat, lowering resolution | simulated on live log | **fixed**: a repeat needs similar wording |
+| 17 | AI | A Roman-letter question could be answered in Devanagari, with transliterated names that escape the name check | live probe | **fixed**: such an answer is rejected |
 | 14 | Frontend | Lint reports pre-existing issues in older screens | `npm run lint` | open, unrelated to the assistant |

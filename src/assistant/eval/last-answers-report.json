@@ -1,0 +1,41 @@
+{
+  "savedAt": "2026-10-05T18:01:28.705Z",
+  "questions": 111,
+  "correct": 111,
+  "accuracy": 100,
+  "fresh": {
+    "questions": 30,
+    "correct": 30
+  },
+  "byRole": {
+    "parent": {
+      "questions": 46,
+      "correct": 46
+    },
+    "parent2": {
+      "questions": 4,
+      "correct": 4
+    },
+    "student": {
+      "questions": 22,
+      "correct": 22
+    },
+    "teacher": {
+      "questions": 14,
+      "correct": 14
+    },
+    "admin": {
+      "questions": 19,
+      "correct": 19
+    },
+    "multi-turn chats": {
+      "questions": 6,
+      "correct": 6
+    }
+  },
+  "conversations": {
+    "questions": 6,
+    "correct": 6
+  },
+  "failures": []
+}

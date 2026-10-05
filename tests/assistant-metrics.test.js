@@ -31,8 +31,11 @@ test('only outcomes that settled the person\'s need count as resolved', async ()
   // 3. answer marked unhelpful: not resolved
   await log(A.teacherUser, 180, { action: 'answer', domain: 'attendance', sources: 1 }, { feedback: { helpful: false, at: at(179) } });
   // 4. answer followed by the same question again within 10 minutes: not resolved
-  await log(A.admin, 170, { action: 'answer', domain: 'fees', sources: 1 });
-  await log(A.admin, 166, { action: 'answer', domain: 'fees', sources: 1 });
+  await log(A.admin, 170, { action: 'answer', domain: 'fees', sources: 1, text: 'pending fees of class 9-A' });
+  await log(A.admin, 166, { action: 'answer', domain: 'fees', sources: 1, text: 'pending fees of class 9-A please' });
+  // 4b. a different question on the same topic is not a repeat: it settles
+  await log(A.otherStudentUser, 60, { action: 'answer', domain: 'fees', sources: 1, text: 'fees of Kabir' });
+  await log(A.otherStudentUser, 58, { action: 'answer', domain: 'fees', sources: 1, text: 'bus fee of Riya' });
   // 5. hand-off whose ticket staff resolved after 3 hours: resolved by staff; an open one is pending
   const done = await ticket('resolved', 180);
   const open = await ticket('open');
@@ -44,10 +47,10 @@ test('only outcomes that settled the person\'s need count as resolved', async ()
   await log(A.studentUser, 100, { action: 'blocked', domain: 'hr' });
 
   const m = await schoolMetrics(A.school._id, { now: NOW });
-  expect(m.resolution).toMatchObject({ resolvedByAssistant: 2, resolvedByStaff: 1, pending: 1 });
-  // 2 settled by the assistant (1 and the second of 4), 1 by staff; unresolved: 2, 3, the first of 4 (repeated), the clarify
+  expect(m.resolution).toMatchObject({ resolvedByAssistant: 4, resolvedByStaff: 1, pending: 1 });
+  // 4 settled by the assistant (1, the second of 4, and both of 4b), 1 by staff; unresolved: 2, 3, the first of 4 (repeated), the clarify
   expect(m.resolution.unresolved).toBe(4);
-  expect(m.rates.resolution).toBe(Math.round((3 / 7) * 1000) / 10);
+  expect(m.rates.resolution).toBe(Math.round((5 / 9) * 1000) / 10);
   expect(m.resolution.avgTicketHours).toBe(3);
 });
 

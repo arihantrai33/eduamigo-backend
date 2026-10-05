@@ -90,7 +90,9 @@ async function compose(items, { role = 'student', today = '', askerName = '', la
       const item = list.find((x) => String(x.id) === String(i.id));
       const text = typeof item?.text === 'string' ? item.text.trim() : '';
       const source = `${JSON.stringify(i.facts)}\n${i.text}\n${i.question}\n${today}`;
-      const ok = text && text.length <= Math.max(900, i.text.length * 1.6) && grounded(text, source);
+      // A question written in Roman letters is never answered in Devanagari (names would be transliterated and escape the name check).
+      const scriptOk = /[\u0900-\u097F]/.test(i.question) || !/[\u0900-\u097F]/.test(text);
+      const ok = text && scriptOk && text.length <= Math.max(900, i.text.length * 1.6) && grounded(text, source);
       if (ok) result.set(i.id, { text, answered: item.answered !== false });
       else {
         if (process.env.ASSISTANT_DEBUG) console.warn('[compose rejected]', JSON.stringify({ q: i.question, text }));

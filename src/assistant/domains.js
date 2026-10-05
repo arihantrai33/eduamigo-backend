@@ -14,14 +14,14 @@
 
 const DOMAINS = {
   fees: {
-    about: "school fees, dues, payments, receipts, collection, defaulters, bus fees",
+    about: "a person's own fee records: what is due or overdue, payments made, receipts, school-wide collection and defaulters, bus fees. NOT the rules about fees (late fee, refund, concession, due dates, how to pay): those are policies",
     ask: "fees",
     label: 'Fees',
     feature: 'fees',
     roles: ['student', 'parent', 'admin', 'accountant'],
     owner: 'accounts',
     terms: [
-      ['fee', 3], ['fees', 3], ['fess', 3], ['feez', 3], ['fes', 2], ['school fees', 3], ['bus fees', 4], ['transport fees', 4], ['van fees', 4], ['tuition', 3], ['shulk', 3], ['फीस', 3], ['शुल्क', 3],
+      ['fee', 3], ['fees', 3], ['fess', 3], ['feez', 3], ['fes', 2], ['school fees', 3], ['bus fee', 4], ['bus fees', 4], ['transport fees', 4], ['van fees', 4], ['tuition', 3], ['shulk', 3], ['फीस', 3], ['शुल्क', 3],
       ['fee receipt', 3], ['receipt', 2], ['rasid', 2], ['raseed', 2], ['installment', 2], ['instalment', 2], ['kisht', 2],
       ['challan', 2], ['payment', 2], ['pay', 2], ['paid', 1], ['dues', 2], ['due', 1], ['overdue', 2], ['outstanding', 2],
       ['balance', 1], ['baki', 1], ['baaki', 1], ['bakaya', 2], ['jama', 1], ['paisa', 1], ['paise', 1], ['concession', 2],
@@ -161,7 +161,7 @@ const DOMAINS = {
     ],
   },
   policies: {
-    about: "the school's written rules and information: handbook, policies (fee and refund policy, leave policy, uniform, school timings, exam and promotion rules, code of conduct, admission process, holidays rules, contact and address)",
+    about: "the school's written rules and general information, not anyone's own records: handbook and policies such as late fee, refund, discount and concession rules, how and when to pay, leave and absence rules, uniform, school timings, exam and promotion rules, code of conduct, mobile phone rules, canteen and other facilities, admission process, contact and address. Any question about the school itself that is not a person's record, notice or timetable",
     ask: "school rules and policies",
     label: 'School information',
     feature: null,

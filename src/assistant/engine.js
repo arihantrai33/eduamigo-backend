@@ -178,6 +178,8 @@ async function namesOtherStudent(ctx, text, own) {
 // Returns the refusal text, or null when the question stays within what the asker may see.
 async function scopeRefusal(ctx, d, text, nlu, forced) {
   if (forced.studentIds) return null; // a tapped choice; the options were the asker's own
+  // Exam dates, like the timetable, are the same for the whole class: not a personal record.
+  if (d === 'exams' && nlu?.view === 'schedule') return null;
   if (['student', 'parent'].includes(ctx.role) && PERSONAL_RECORDS.includes(d)) {
     const own = ctx.role === 'student' ? [await ctx.profile.student()].filter(Boolean) : await ctx.profile.children();
     const namesOwn = ctx.role === 'parent' && pickChildren(text, own, ctx.conv.state.lastStudentId).length > 0;
@@ -289,7 +291,7 @@ async function answerQuestionInner(ctx, text, forced = {}) {
   const understood = forced.nlu?.english ? `${forced.nlu.english} ${text}` : text;
   const sctx = {
     ...ctx, text: understood, question: text, cls: forced.cls || parseClass(text) || nluClass, staffId: forced.staffId || null,
-    personName: forced.nlu?.person || null, subject: forced.nlu?.subject || null, child: forced.nlu?.child || null, view: forced.nlu?.view || null, students: [],
+    personName: forced.nlu?.person || null, subject: forced.nlu?.subject || null, child: forced.nlu?.child || null, view: forced.nlu?.view || null, search: forced.nlu?.search || null, students: [],
   };
   const refusal = await scopeRefusal(ctx, d, text, forced.nlu, forced);
   if (refusal) return reply({ ...base, action: 'blocked', text: refusal });
@@ -311,7 +313,9 @@ async function answerQuestionInner(ctx, text, forced = {}) {
       let chosen = pickChildren(text, children, state.lastStudentId);
       // The model matched the child from the sentence itself ("mere bete ki", "chhoti ka").
       if (!chosen.length && forced.nlu?.child) {
-        chosen = forced.nlu.child.toLowerCase() === 'all' ? children : children.filter((c) => c.name.toLowerCase() === forced.nlu.child.toLowerCase());
+        // "all" is only believed when the words say so (both, dono, sab); a model that guesses "all" must not skip the question.
+        const sayAll = pickChildren(text, children, state.lastStudentId).length === children.length;
+        chosen = forced.nlu.child.toLowerCase() === 'all' ? (sayAll ? children : []) : children.filter((c) => c.name.toLowerCase() === forced.nlu.child.toLowerCase());
       }
       if (!chosen.length && children.length === 1) chosen = children;
       if (!chosen.length && state.lastStudentId) chosen = children.filter((c) => String(c._id) === String(state.lastStudentId));

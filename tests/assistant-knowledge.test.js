@@ -33,6 +33,25 @@ describe('splitting a document', () => {
   });
 });
 
+describe('retrieval picks the right section', () => {
+  const FEES = `FEE PAYMENT
+Tuition is paid in two terms. Fees can be paid online or at the counter. Late fee applies after the due date.
+
+LATE FEE
+A late fee of Rs 50 per week is charged after the due date. Pay the fee on time to avoid the late fee.
+
+REFUNDS
+Admission fees are not refundable. Tuition is refundable only if the student leaves within 15 days.`;
+
+  test('the document title does not outweigh the section that really answers; "refundable" meets "refund"', async () => {
+    await add(A.admin, { title: 'Fee payment and refund policy', text: FEES });
+    const hit = await search({ school: A.school._id, role: 'parent', queries: ['what is the fee refund policy'] });
+    expect(hit[0].heading).toBe('REFUNDS');
+    const late = await search({ school: A.school._id, role: 'parent', queries: ['how much is the late fee'] });
+    expect(late[0].heading).toBe('LATE FEE');
+  });
+});
+
 describe('managing documents', () => {
   test('only admins manage them, and each school only ever touches its own', async () => {
     expect((await add(A.parentUser, { title: 'Handbook', text: HANDBOOK })).status).toBe(403);
@@ -97,6 +116,18 @@ describe('answering from documents', () => {
     expect(parent.body.data.replies.map((r) => r.text).join(' ')).not.toContain('ID card');
     const other = await ask(B.parentUser, 'school uniform kya hai');
     expect(other.body.data.replies[0].action).not.toBe('answer');
+  });
+
+  test('synonyms from the model help a section match but do not make a one-word question harder', async () => {
+    const hit = await search({ school: A.school._id, role: 'parent', queries: ['school ka uniform batao'], expand: ['dress', 'attire', 'clothing', 'wear'] });
+    expect(hit[0].heading).toBe('UNIFORM');
+    const hours = await search({ school: A.school._id, role: 'parent', queries: ['school kitne baje khulta hai', 'What time does the school open?'], expand: ['timing', 'timings', 'hours', 'opens', 'schedule'] });
+    expect(hours[0].heading).toBe('SCHOOL TIMINGS');
+  });
+
+  test('a restatement that adds a general word ("rules") does not hide the one rare word that matters ("uniform")', async () => {
+    const hit = await search({ school: A.school._id, role: 'parent', queries: ['school ka uniform batao', 'What are the school uniform rules? school ka uniform batao'], expand: ['dress', 'code', 'clothing'] });
+    expect(hit[0].heading).toBe('UNIFORM');
   });
 
   test('retrieval needs real overlap: unrelated words find nothing', async () => {

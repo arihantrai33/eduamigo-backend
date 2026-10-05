@@ -8,9 +8,9 @@ const { day, source } = require('./util');
 const excerpt = (text, n = 220) => (text.length > n ? `${text.slice(0, n).replace(/\s+\S*$/, '')}...` : text);
 
 async function run(ctx) {
-  // The person's own words and the model's restatement are both searched.
-  const queries = [ctx.question, ctx.text];
-  const found = await knowledge.search({ school: ctx.schoolId, role: ctx.role, queries, limit: 3 });
+  // The person's words, the model's English restatement and the search words (with synonyms) the model suggested.
+  const found = await knowledge.search({ school: ctx.schoolId, role: ctx.role, queries: [ctx.question, ctx.text], expand: [ctx.search], limit: 3 });
+  if (process.env.ASSISTANT_DEBUG) console.warn('[policies]', JSON.stringify({ question: ctx.question, text: ctx.text, search: ctx.search, found: found.length }));
   if (!found.length) {
     return {
       noData: true, handoffOffer: true,
