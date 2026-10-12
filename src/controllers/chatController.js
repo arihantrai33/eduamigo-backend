@@ -169,21 +169,31 @@ const getTeacherContacts = asyncHandler(async (req, res) => {
   const extraParents = await Parent.find({ school: req.schoolId, children: { $in: students.map((s) => s._id) }, userId: { $ne: null } });
 
   const contacts = [];
-  const seenParents = new Set();
+  // One entry per parent: a parent with two children in the teacher's classes is one conversation, so the children are listed together.
+  const parentContacts = new Map();
   for (const s of students) {
     contacts.push({ type: 'student', _id: s._id, userId: s.userId, name: s.name, class: s.class, section: s.section, roomId: roomFor(req.user._id, s.userId) });
     const parentIds = new Set();
     if (s.parentUserId && parentName.has(String(s.parentUserId))) parentIds.add(String(s.parentUserId));
     extraParents.filter((p) => p.children.some((c) => String(c) === String(s._id))).forEach((p) => parentIds.add(String(p.userId)));
     for (const pid of parentIds) {
-      if (seenParents.has(`${pid}:${s._id}`)) continue;
-      seenParents.add(`${pid}:${s._id}`);
+      const existing = parentContacts.get(pid);
+      if (existing) {
+        if (!existing.children.includes(s.name)) existing.children.push(s.name);
+        continue;
+      }
       const p = extraParents.find((x) => String(x.userId) === pid);
-      contacts.push({
-        type: 'parent', userId: pid, name: parentName.get(pid) || p?.name || 'Parent', childName: s.name,
+      const entry = {
+        type: 'parent', userId: pid, name: parentName.get(pid) || p?.name || 'Parent', children: [s.name],
         class: s.class, section: s.section, roomId: roomFor(req.user._id, pid),
-      });
+      };
+      parentContacts.set(pid, entry);
+      contacts.push(entry);
     }
+  }
+  for (const c of parentContacts.values()) {
+    c.childName = c.children.join(', ');
+    delete c.children;
   }
   const stats = await roomStats(req.schoolId, req.user._id, [...new Set(contacts.map((c) => c.roomId))]);
   res.json({ success: true, data: contacts.map((c) => ({ ...c, ...stats.get(c.roomId) })) });

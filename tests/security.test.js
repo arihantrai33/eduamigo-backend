@@ -263,4 +263,17 @@ describe('chat contact lists', () => {
     expect(teacher.status).toBe(200);
     expect(teacher.body.data.map((c) => c.type).sort()).toEqual(['parent', 'student']);
   });
+
+  test('a parent with two children in the teacher\'s class is one contact naming both children', async () => {
+    const sibling = await Student.create({
+      name: 'Sibling', phone: '9000000010', rollNumber: '2', class: '10', section: 'A', school: A.school._id,
+      userId: (await makeUser(A.school, 'student'))._id, parentUserId: A.parentUser._id,
+    });
+    const res = await api().get('/api/chat/teacher-contacts').set(auth(A.teacherUser));
+    const parents = res.body.data.filter((c) => c.type === 'parent');
+    expect(parents).toHaveLength(1);
+    expect(parents[0].childName).toBe(`${A.student.name}, ${sibling.name}`);
+    const keys = res.body.data.map((c) => `${c.type}-${c.userId}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
 });
