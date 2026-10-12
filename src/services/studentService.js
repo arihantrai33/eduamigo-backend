@@ -9,6 +9,7 @@ const { temporaryPassword, hashPassword } = require('./credentials');
 const { assertStudentCapacity } = require('./subscription');
 const academic = require('./academic');
 const StudentEnrollment = require('../models/StudentEnrollment');
+const { withKeyLock, isDuplicateKey } = require('../utils/concurrency');
 
 const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'photo'];
@@ -18,7 +19,7 @@ const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', '
 //   Parent signs in with the school code + mobile number (or email). A parent account is made when a
 //   parent email or a valid parent mobile is given. If that parent already has an account in this
 //   school (a sibling is enrolled), the new student is linked to it instead of creating another.
-async function createStudentWithAccounts(school, input) {
+async function createOnce(school, input) {
   const data = {};
   for (const key of STUDENT_FIELDS) if (input[key] !== undefined && input[key] !== '') data[key] = input[key];
   const { class: cls, section } = parseClassKey(input.class, input.section);
@@ -115,6 +116,27 @@ async function createStudentWithAccounts(school, input) {
     if (student) await StudentEnrollment.deleteMany({ school, student: student._id }).catch(() => {});
     throw err;
   }
+}
+
+// The next roll number is "highest in the class + 1", so two admissions into the same class at the same moment pick the
+// same number and the unique index rejects one. Admissions without a given roll number for one class are therefore run
+// one after another in this process, and a clash from another server process is retried (the failed attempt has already
+// rolled back its accounts, so nothing is left behind).
+const isRollNumberClash = (err) => isDuplicateKey(err) && /roll/i.test(JSON.stringify(err.keyPattern || {}) + String(err.message));
+
+async function createStudentWithAccounts(school, input) {
+  if (String(input.rollNumber ?? '').trim()) return createOnce(school, input);
+  const { class: cls, section } = parseClassKey(input.class, input.section);
+  return withKeyLock(`roll:${school}:${cls}:${section}`, async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await createOnce(school, input);
+      } catch (err) {
+        if (!isRollNumberClash(err) || attempt >= 4) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));
+      }
+    }
+  });
 }
 
 module.exports = { createStudentWithAccounts, STUDENT_FIELDS };
