@@ -1,10 +1,13 @@
 const Notification = require('../models/Notification');
+const push = require('./push');
 const { parentUserIdsForStudent } = require('./directory');
 
 // Personal notification for one user.
 async function notifyUser(school, recipient, { title, message, type = 'Info', createdBy = null }) {
   if (!recipient) return null;
-  return Notification.create({ school, recipient, title, message, type, createdBy, targetRole: 'all' });
+  const note = await Notification.create({ school, recipient, title, message, type, createdBy, targetRole: 'all' });
+  push.toUser(school, recipient, { title, body: message, data: { type, id: note._id } });
+  return note;
 }
 
 // Personal notification to every parent linked to a student.
@@ -22,7 +25,9 @@ async function notifyStudent(student, payload) {
 
 // Broadcast to a role (or 'all') inside one school.
 async function broadcast(school, { title, message, type = 'General', targetRole = 'all', createdBy = null }) {
-  return Notification.create({ school, recipient: null, title, message, type, targetRole, createdBy });
+  const note = await Notification.create({ school, recipient: null, title, message, type, targetRole, createdBy });
+  push.toRole(school, targetRole, { title, body: message, data: { type, id: note._id } });
+  return note;
 }
 
 module.exports = { notifyUser, notifyParents, notifyStudent, broadcast };

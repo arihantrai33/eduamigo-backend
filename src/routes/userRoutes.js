@@ -13,6 +13,7 @@ router.use(protect);
 router.get('/profile', c.getProfile);
 router.patch('/password', c.changePassword);
 router.patch('/fcm-token', c.updateFcmToken);
+router.delete('/fcm-token', c.removeFcmToken);
 router.post('/logout-all', c.logoutAll);
 
 router.post('/register', requirePermission('users.manage'), audited('user.created', 'user', 'email'), c.registerUser);

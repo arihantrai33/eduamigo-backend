@@ -13,7 +13,13 @@ const userSchema = new mongoose.Schema({
   school:    { type: mongoose.Schema.Types.ObjectId, ref: 'School', default: null },
   profileId: { type: mongoose.Schema.Types.ObjectId, default: null },
   isActive:  { type: Boolean, default: true },
-  fcmToken:  { type: String, default: null },
+  fcmToken:  { type: String, default: null }, // legacy: last device of older app versions (see devices)
+  // Phones and tablets that receive push notifications (services/push.js), at most 5. `v` is the tokenVersion at
+  // registration: signing out everywhere or a password reset raises tokenVersion, which silences every older device.
+  devices: {
+    type: [{ _id: false, token: { type: String, required: true }, platform: { type: String, default: '' }, v: { type: Number, default: 0 }, updatedAt: { type: Date, default: Date.now } }],
+    default: [],
+  },
   phone:     { type: String, default: null },
   // Last 10 digits of phone, kept in sync automatically; used for mobile-number sign-in.
   loginPhone: { type: String, default: null },
@@ -26,6 +32,7 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } }, name: 'email_unique_when_set' });
 userSchema.index({ school: 1, loginPhone: 1 });
+userSchema.index({ 'devices.token': 1 });
 
 const STAFF_ROLES = ['superadmin', 'admin', 'accountant', 'teacher'];
 

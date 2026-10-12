@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const push = require('../services/push');
 const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
 const { temporaryPassword, hashPassword, validatePasswordStrength } = require('../services/credentials');
 
@@ -178,11 +179,19 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
 });
 
 // PATCH /api/users/fcm-token
+// PATCH /api/users/fcm-token { fcmToken, platform } — this device receives push notifications for this person.
 const updateFcmToken = asyncHandler(async (req, res) => {
-  const { fcmToken } = req.body || {};
+  const { fcmToken, platform } = req.body || {};
   if (!fcmToken) throw new HttpError(400, 'fcmToken is required');
-  await User.updateOne({ _id: req.user._id, school: req.schoolId }, { fcmToken });
+  if (!(await push.registerDevice(req.user, req.schoolId, fcmToken, platform))) throw new HttpError(400, 'fcmToken is not valid');
   res.json({ success: true, message: 'Device registered for notifications' });
+});
+
+// DELETE /api/users/fcm-token { fcmToken } — signing out on this device: it stops receiving this person's notifications.
+const removeFcmToken = asyncHandler(async (req, res) => {
+  await push.unregisterDevice(req.user, req.schoolId, (req.body || {}).fcmToken);
+  await User.updateOne({ _id: req.user._id, school: req.schoolId, fcmToken: (req.body || {}).fcmToken }, { fcmToken: null });
+  res.json({ success: true, message: 'Device removed' });
 });
 
 // GET /api/users  (admin: users of own school). Optional ?page=&limit=
@@ -212,5 +221,5 @@ const toggleUserStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   loginUser, registerUser, getProfile, changePassword, resetPassword, logoutAll, forgotPassword, resetPasswordWithCode, loginIdOf,
-  updateFcmToken, getAllUsers, toggleUserStatus,
+  updateFcmToken, removeFcmToken, getAllUsers, toggleUserStatus,
 };
