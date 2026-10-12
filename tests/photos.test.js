@@ -322,3 +322,23 @@ describe('migrating old photos', () => {
     expect(mockCloud.destroyed.filter((d) => d.type === 'upload').map((d) => d.key).sort()).toEqual(['student_photos/one', 'student_photos/three']);
   });
 });
+
+describe('logs', () => {
+  test('the private link token is never written to the request log', async () => {
+    process.env.LOG_IN_TESTS = 'true';
+    const lines = [];
+    const spy = jest.spyOn(process.stdout, 'write').mockImplementation((c) => { lines.push(String(c)); return true; });
+    let token;
+    try {
+      const created = await create(A, png);
+      const shown = (await api().get(`/api/students/${created.body.data._id}`).set(auth(A.admin))).body.data.photo;
+      token = linkPath(shown).split('/').pop();
+      await api().get(`/api/photos/${token}`);
+      await new Promise((r) => setTimeout(r, 30));
+    } finally { spy.mockRestore(); delete process.env.LOG_IN_TESTS; }
+    const text = lines.join('');
+    expect(text).toContain('"path":"/api/photos/:token"');
+    expect(text).not.toContain(token);
+    expect(text).not.toContain(token.split('.')[0]);
+  });
+});

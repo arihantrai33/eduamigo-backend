@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const { corsOrigins } = require('./config/env');
 const { protect, requireFeature } = require('./middleware/authMiddleware');
 const { isSchoolDomainOrigin } = require('./services/schoolDirectory');
-const { log, errorFields, requestLogger } = require('./utils/logger');
+const { log, errorFields, requestLogger, loggedPath } = require('./utils/logger');
 const { apiLimiter } = require('./middleware/rateLimit');
 
 // Mount-level plan check: the whole module belongs to one feature.
@@ -107,7 +107,7 @@ function buildApp() {
     }
 
     if (status >= 500) {
-      log.error('request_failed', { requestId: req.id, method: req.method, path: req.originalUrl.split('?')[0], status, ...errorFields(err) });
+      log.error('request_failed', { requestId: req.id, method: req.method, path: loggedPath(req.originalUrl), status, ...errorFields(err) });
       // Only errors written for users (expose: true) keep their message; anything else stays generic.
       if (!err.expose) message = 'Something went wrong. Please try again.';
     }

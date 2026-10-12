@@ -23,6 +23,9 @@ const errorFields = (err) => ({
   stack: err && err.stack ? String(err.stack).split('\n').slice(0, 6).join('\n') : undefined,
 });
 
+// Private photo links carry their access token in the path, so the token never goes into the log.
+const loggedPath = (url) => url.split('?')[0].replace(/^(\/api\/photos\/).+$/, '$1:token');
+
 // Gives every request an id (reusing a sane one from the proxy), returns it as X-Request-Id and logs one line
 // when the response finishes. The query string is dropped because it can hold tokens or personal details.
 function requestLogger(req, res, next) {
@@ -35,7 +38,7 @@ function requestLogger(req, res, next) {
     log.info('request', {
       requestId: req.id,
       method: req.method,
-      path: req.originalUrl.split('?')[0],
+      path: loggedPath(req.originalUrl),
       status: res.statusCode,
       ms: Math.round(Number(process.hrtime.bigint() - start) / 1e6),
       school: req.schoolId ? String(req.schoolId) : undefined,
@@ -45,4 +48,4 @@ function requestLogger(req, res, next) {
   next();
 }
 
-module.exports = { log, errorFields, requestLogger };
+module.exports = { log, errorFields, requestLogger, loggedPath };
