@@ -37,5 +37,9 @@ feeSchema.set('toObject', { virtuals: true });
 
 feeSchema.index({ school: 1, status: 1 });
 feeSchema.index({ studentId: 1, feeType: 1, academicYear: 1 });
+// A receipt number is never used twice in a school. Fees without payments are left out of the index.
+feeSchema.index({ school: 1, 'payments.receiptNo': 1 }, {
+  unique: true, name: 'receipt_unique_per_school', partialFilterExpression: { 'payments.receiptNo': { $type: 'string' } },
+});
 
 module.exports = mongoose.model('Fee', feeSchema);

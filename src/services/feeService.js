@@ -1,13 +1,17 @@
-const crypto = require('crypto');
 const Fee = require('../models/Fee');
+const Counter = require('../models/Counter');
 const Student = require('../models/Student');
 const { HttpError } = require('../utils/http');
 
 const PAYMENT_MODES = ['Cash', 'Online', 'Cheque', 'UPI', 'Card', 'Bank Transfer'];
 
-function receiptNumber(date = new Date()) {
-  const ymd = date.toISOString().slice(0, 10).replace(/-/g, '');
-  return `RCPT-${ymd}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+// Receipt numbers run 1, 2, 3 ... for each school and calendar year: RCPT-2026-000001. The number comes from an atomic
+// per-school counter, and the Fee model has a unique index on (school, receipt number) as a second guard.
+// A payment that fails after its number was taken leaves a gap, never a duplicate. Older receipts keep their old numbers.
+async function nextReceiptNo(school, date = new Date()) {
+  const year = date.getUTCFullYear();
+  const seq = await Counter.next(school, `receipt:${year}`);
+  return `RCPT-${year}-${String(seq).padStart(6, '0')}`;
 }
 
 function statusFor(amount, paid) {
@@ -43,7 +47,7 @@ async function applyPayment({ school, feeId, amount, mode, reference, collectedB
   if (value > balance) throw new HttpError(400, `Payment exceeds the outstanding balance of ${balance}`);
   const paymentMode = PAYMENT_MODES.includes(mode) ? mode : 'Cash';
 
-  const receiptNo = receiptNumber();
+  const receiptNo = await nextReceiptNo(school);
   fee.payments.push({ amount: value, mode: paymentMode, reference, receiptNo, collectedBy, onlineOrder, paidAt: new Date() });
   fee.paidAmount = Math.round(((fee.paidAmount || 0) + value) * 100) / 100;
   fee.status = statusFor(fee.amount, fee.paidAmount);

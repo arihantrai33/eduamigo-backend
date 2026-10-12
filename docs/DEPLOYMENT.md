@@ -25,6 +25,10 @@ See `.env.example` for the full list.
 3. Review the table, then apply: `npm run migrate -- --apply`
    - Add `--rotate-driver-tokens` to issue new, longer driver codes (drivers must enter the new code).
 4. The migration is safe to run again; a second run reports no pending changes.
+5. Receipt numbers: the dry run reports `receipts.duplicate_numbers_need_review` if two receipts in one school share a number
+   (old receipts used random numbers). Nothing is changed. Review those fees by hand; until they are fixed the unique index
+   `receipt_unique_per_school` cannot be built (the apply step reports `indexes.failed.Fee` and carries on). New receipts are numbered
+   RCPT-<year>-<6 digits> per school from an atomic counter.
 
 What it does: adds the missing `school` on older records, normalises class/section values, removes old
 notifications that were visible to every parent, merges duplicate attendance, re-queues notes for the AI,

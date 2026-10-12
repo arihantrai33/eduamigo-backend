@@ -386,6 +386,16 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
       if (APPLY) await col(Model).dropIndex(name);
     }
   }
+  // Receipt numbers must be unique per school before the unique index can be built. Existing numbers are never
+  // changed here; duplicates are only reported so they can be reviewed by hand (the index build then fails and says so).
+  const duplicateReceipts = await col(Fee).aggregate([
+    { $unwind: '$payments' },
+    { $match: { 'payments.receiptNo': { $type: 'string' } } },
+    { $group: { _id: { school: '$school', receiptNo: '$payments.receiptNo' }, n: { $sum: 1 } } },
+    { $match: { n: { $gt: 1 } } },
+  ]).toArray();
+  if (duplicateReceipts.length) count('receipts.duplicate_numbers_need_review', duplicateReceipts.length);
+
   if (APPLY) {
     for (const Model of Object.values(mongoose.models)) {
       try {
