@@ -96,6 +96,13 @@ router.put('/me/branding', protect, requirePermission('settings.manage'), upload
   res.json({ success: true, data: publicSchool(school, req.entitlements, await currentSessionName(req.schoolId)) });
 }));
 
+// GET /api/schools/me/dashboard — staff dashboard numbers, counted on the server; sections follow the role's permissions
+router.get('/me/dashboard', protect, asyncHandler(async (req, res) => {
+  const { schoolDashboard } = require('../services/dashboard');
+  const data = await schoolDashboard({ schoolId: req.schoolId, role: req.user.role, entitlements: req.entitlements });
+  res.json({ success: true, data });
+}));
+
 // GET /api/schools/me/invoices — EduAmigo bills for this school (issued and paid; drafts stay private)
 router.get('/me/invoices', protect, requirePermission('settings.manage'), asyncHandler(async (req, res) => {
   const Invoice = require('../models/Invoice');
