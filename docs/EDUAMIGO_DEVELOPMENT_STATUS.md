@@ -38,8 +38,8 @@ Mobile toolchains on this Mac: Xcode 16.4 is installed; Java and the Android SDK
 | W3 | Replace the duplicated bottom navs with one component (14 copies); widen phone-only containers and bars | done (32dfbcd) |
 | W4 | Desktop layouts for the role dashboards (multi-column), then internal screens portal by portal | partly: home tiles 3 columns; internal screens fill the width; per-screen redesign pending |
 | W5 | Admin: brand-consistent dashboard, server-side dashboard numbers, phone header, table overflow, chat on phones | done (frontend 19995f1, 0f1acbd; backend 6de4259) |
-| W6 | Workflow verification per module (UI to API to database), fixes and tests | pending |
-| W7 | Frontend test setup (Vitest + Testing Library) for navigation, auth guard and key flows; screenshot checks at 375/768/1024/1440 | pending |
+| W6 | Workflow verification per module (UI to API to database), fixes and tests | partly: attendance, fees, leave covered end to end; other modules covered by backend tests only |
+| W7 | Frontend tests: Playwright end-to-end with the system Chrome (`npm run test:e2e`, 16 tests) | done |
 | W8 | Mobile architecture decision (Capacitor vs React Native), then Android and iOS projects, push notifications, secure storage | pending |
 | W9 | Final verification and handover | pending |
 
@@ -55,5 +55,9 @@ Mobile toolchains on this Mac: Xcode 16.4 is installed; Java and the Android SDK
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and Fees);
   they are responsive now but not yet visually unified with the dashboard.
-- No frontend automated tests yet (planned: Playwright end-to-end with the system Chrome, Vitest for units).
 - Push notifications: the server stores device tokens but sends nothing.
+- 2026-10-14: found and fixed that many portal screens could not scroll (content below the first screen unreachable),
+  a crash on the student Learn screen, a school-search limit that would block a class on one network (30/min -> 120/min),
+  labels for screen readers on sign-in, attendance, payment and leave forms. 16 end-to-end tests: sign-in per role,
+  role guard, sign-out, sidebar vs tabs, every screen opens without error (all four portals), every screen scrolls,
+  attendance -> parent notice once, payment -> next receipt number, leave -> approval -> parent history.
