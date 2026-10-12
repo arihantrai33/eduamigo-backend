@@ -70,7 +70,7 @@ const staffMessage = (ctx, ticket, lead) => clip(`${lead} ${ticket.summary || ''
 const titleOf = (ticket, prefix = '') => clip(`${ticket.priority === 'high' ? 'Urgent: ' : ''}${prefix}${ticket.number} ${ticket.title || 'EduAmigo Ask ticket'}`, 190);
 
 async function persistNotifications(ticket, results) {
-  await AssistantTicket.updateOne({ _id: ticket._id }, { $push: { notifications: { $each: results.map((r) => ({ name: r.name, ok: r.ok, error: r.error || undefined })) } } });
+  await AssistantTicket.updateOne({ _id: ticket._id, school: ticket.school }, { $push: { notifications: { $each: results.map((r) => ({ name: r.name, ok: r.ok, error: r.error || undefined })) } } });
 }
 
 module.exports = (register) => {
@@ -92,8 +92,8 @@ module.exports = (register) => {
           const { people } = await recipientsFor({ school: ctx.schoolId, domain: already.domain, student: p.student, subject: p.subject, personName: p.personName, priority: already.priority });
           const reachable = people.filter((x) => x.userId);
           if (reachable.length) {
-            await AssistantTicket.updateOne({ _id: already._id }, { $set: { assignees: [...new Set(reachable.map((x) => x.userId))], contacts: people.map((x) => ({ name: x.name, title: x.title })), lastActivityAt: new Date() } });
-            const healed = await AssistantTicket.findById(already._id);
+            await AssistantTicket.updateOne({ _id: already._id, school: ctx.schoolId }, { $set: { assignees: [...new Set(reachable.map((x) => x.userId))], contacts: people.map((x) => ({ name: x.name, title: x.title })), lastActivityAt: new Date() } });
+            const healed = await AssistantTicket.findOne({ _id: already._id, school: ctx.schoolId });
             const notified = await tell(ctx, healed, reachable, { title: titleOf(healed), message: staffMessage(ctx, healed, `${REASON_TITLES[healed.reason] || 'Request'}.`) });
             await persistNotifications(healed, notified);
             return { ticket: healed, people, notified, deduped: true, healed: true, priority: healed.priority };
@@ -158,8 +158,8 @@ module.exports = (register) => {
     validate: (p) => [!p.text && 'text'].filter(Boolean),
     async execute(ctx, p) {
       const note = clip(p.brief?.summary || p.text, 900);
-      await AssistantTicket.updateOne({ _id: p.ticket._id }, { $push: { notes: { by: ctx.user._id, kind: 'follow_up', text: redact(note) } }, $set: { lastActivityAt: new Date() } });
-      const fresh = await AssistantTicket.findById(p.ticket._id);
+      await AssistantTicket.updateOne({ _id: p.ticket._id, school: ctx.schoolId }, { $push: { notes: { by: ctx.user._id, kind: 'follow_up', text: redact(note) } }, $set: { lastActivityAt: new Date() } });
+      const fresh = await AssistantTicket.findOne({ _id: p.ticket._id, school: ctx.schoolId });
       const people = (fresh.contacts || []).map((c, i) => ({ name: c.name, userId: String(fresh.assignees[i] || '') }));
       const notified = await tell(ctx, fresh, fresh.assignees.map((id, i) => ({ name: fresh.contacts[i]?.name || 'Staff', userId: String(id) })), { title: titleOf(fresh, 'Update on '), message: clip(`Follow-up from ${ctx.user.name}: ${redact(note)}`, 1900) });
       await persistNotifications(fresh, notified);
@@ -182,15 +182,15 @@ module.exports = (register) => {
     authorize: (ctx, p) => (isOwner(ctx, p.ticket) ? (p.ticket.status === 'resolved' ? { ok: false, why: 'resolved' } : { ok: true }) : { ok: false, why: 'not_yours' }),
     validate: (p) => [!p.text && 'text'].filter(Boolean),
     async execute(ctx, p) {
-      await AssistantTicket.updateOne({ _id: p.ticket._id }, { $push: { notes: { by: ctx.user._id, kind: 'repeat', text: redact(clip(p.text, 400)) } } });
-      const fresh = await AssistantTicket.findById(p.ticket._id);
+      await AssistantTicket.updateOne({ _id: p.ticket._id, school: ctx.schoolId }, { $push: { notes: { by: ctx.user._id, kind: 'repeat', text: redact(clip(p.text, 400)) } } });
+      const fresh = await AssistantTicket.findOne({ _id: p.ticket._id, school: ctx.schoolId });
       const waitedH = (Date.now() - new Date(p.ticket.lastActivityAt || p.ticket.createdAt).getTime()) / 3600000;
       let notified = [];
       // Nudge only after a day without any activity, so asking twice in a minute does not flood staff.
       if (waitedH >= 24) {
         notified = await tell(ctx, fresh, fresh.assignees.map((id, i) => ({ name: fresh.contacts[i]?.name || 'Staff', userId: String(id) })), { title: titleOf(fresh, 'Reminder: '), message: clip(`${ctx.user.name} is still waiting for a reply on ${fresh.number} (${Math.round(waitedH / 24)} days).`, 1900) });
         await persistNotifications(fresh, notified);
-        await AssistantTicket.updateOne({ _id: fresh._id }, { $set: { lastActivityAt: new Date() } });
+        await AssistantTicket.updateOne({ _id: fresh._id, school: ctx.schoolId }, { $set: { lastActivityAt: new Date() } });
       }
       return { ticket: fresh, people: [], notified, nudged: waitedH >= 24, waitedHours: Math.round(waitedH), priority: fresh.priority };
     },
@@ -214,12 +214,12 @@ module.exports = (register) => {
       const { priority, reason } = policy.priorityFor({ escalated: true });
       const have = new Set(p.ticket.assignees.map(String));
       const add = admins.filter((a) => !have.has(a.userId));
-      await AssistantTicket.updateOne({ _id: p.ticket._id }, {
+      await AssistantTicket.updateOne({ _id: p.ticket._id, school: ctx.schoolId }, {
         $set: { priority, priorityReason: reason, lastActivityAt: new Date() },
         $addToSet: { assignees: { $each: add.map((a) => a.userId) } },
         $push: { notes: { by: ctx.user._id, kind: 'escalation', text: redact(clip(p.text || 'The person asked for this to be escalated.', 400)) }, contacts: { $each: add.map((a) => ({ name: a.name, title: 'School office' })) } },
       });
-      const fresh = await AssistantTicket.findById(p.ticket._id);
+      const fresh = await AssistantTicket.findOne({ _id: p.ticket._id, school: ctx.schoolId });
       const notified = await tell(ctx, fresh, fresh.assignees.map((id, i) => ({ name: fresh.contacts[i]?.name || 'Staff', userId: String(id) })), { title: titleOf(fresh, 'Escalated: '), message: clip(`${ctx.user.name} has escalated this ticket. ${fresh.summary || ''}`, 1900) });
       await persistNotifications(fresh, notified);
       return { ticket: fresh, people: [], notified, priority };
@@ -240,11 +240,11 @@ module.exports = (register) => {
     authorize: (ctx, p) => (isOwner(ctx, p.ticket) ? policy.canReopen(p.ticket) : { ok: false, why: 'not_yours' }),
     validate: () => [],
     async execute(ctx, p) {
-      await AssistantTicket.updateOne({ _id: p.ticket._id }, {
+      await AssistantTicket.updateOne({ _id: p.ticket._id, school: ctx.schoolId }, {
         $set: { status: 'open', resolvedAt: null, lastActivityAt: new Date() }, $inc: { reopenedCount: 1 },
         $push: { notes: { by: ctx.user._id, kind: 'reopen', text: redact(clip(p.text || 'The person says the problem is not solved.', 400)) } },
       });
-      const fresh = await AssistantTicket.findById(p.ticket._id);
+      const fresh = await AssistantTicket.findOne({ _id: p.ticket._id, school: ctx.schoolId });
       const notified = await tell(ctx, fresh, fresh.assignees.map((id, i) => ({ name: fresh.contacts[i]?.name || 'Staff', userId: String(id) })), { title: titleOf(fresh, 'Reopened: '), message: clip(`${ctx.user.name} says this is not solved: ${redact(clip(p.text, 300))}`, 1900) });
       await persistNotifications(fresh, notified);
       return { ticket: fresh, people: [], notified, priority: fresh.priority };

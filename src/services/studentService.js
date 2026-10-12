@@ -34,7 +34,7 @@ async function createStudentWithAccounts(school, input) {
   for (const [key, label] of [['email', 'Student email'], ['parentEmail', 'Parent email']]) {
     if (data[key] && !/^\S+@\S+\.\S+$/.test(data[key])) throw new HttpError(400, `${label} is not valid`);
   }
-  if (data.email && await User.exists({ email: data.email })) throw new HttpError(409, 'Student email already registered');
+  if (data.email && await User.exists({ email: data.email }).setOptions({ crossTenant: 'login emails are unique across all schools' })) throw new HttpError(409, 'Student email already registered');
   await assertStudentCapacity(school);
   await academic.assertClassSection(school, data.class, data.section);
   if (data.admissionNo) {
@@ -49,7 +49,8 @@ async function createStudentWithAccounts(school, input) {
   let parentCreated = false;
   const parentMobile = isMobile(data.parentPhone) ? normalizePhone(data.parentPhone) : null;
   if (data.parentEmail) {
-    parentUser = await User.findOne({ email: data.parentEmail });
+    // Login emails are unique across every school; the check below rejects an address that belongs to another school.
+    parentUser = await User.findOne({ email: data.parentEmail }).setOptions({ crossTenant: 'login emails are unique across all schools' });
     if (parentUser && (parentUser.role !== 'parent' || String(parentUser.school) !== String(school))) {
       throw new HttpError(409, 'Parent email is already used by another account');
     }
@@ -90,7 +91,7 @@ async function createStudentWithAccounts(school, input) {
     credentials.student.admissionNo = student.admissionNo;
     credentials.student.loginId = student.admissionNo;
     await academic.recordPlacement(student);
-    await User.updateOne({ _id: studentUser._id }, { profileId: student._id });
+    await User.updateOne({ _id: studentUser._id, school }, { profileId: student._id });
 
     if (parentUser) {
       let parent = await Parent.findOne({ userId: parentUser._id, school });
@@ -101,17 +102,17 @@ async function createStudentWithAccounts(school, input) {
         });
         if (parentCreated) created.push(parent);
       } else {
-        await Parent.updateOne({ _id: parent._id }, { $addToSet: { children: student._id } });
+        await Parent.updateOne({ _id: parent._id, school }, { $addToSet: { children: student._id } });
       }
-      if (!parentUser.profileId) await User.updateOne({ _id: parentUser._id }, { profileId: parent._id });
+      if (!parentUser.profileId) await User.updateOne({ _id: parentUser._id, school }, { profileId: parent._id });
     }
 
     return { student, credentials, linkedExistingParent: !!parentUser && !parentCreated };
   } catch (err) {
     // Roll back anything created in this attempt so no orphan accounts remain.
-    await Promise.all(created.map((doc) => doc.deleteOne().catch(() => {})));
+    await Promise.all(created.map((doc) => doc.constructor.deleteOne({ _id: doc._id, school }).catch(() => {})));
     const student = created.find((doc) => doc instanceof Student);
-    if (student) await StudentEnrollment.deleteMany({ student: student._id }).catch(() => {});
+    if (student) await StudentEnrollment.deleteMany({ school, student: student._id }).catch(() => {});
     throw err;
   }
 }

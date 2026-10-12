@@ -30,7 +30,7 @@ async function createTeacherWithAccount(school, input) {
   if (await Teacher.exists({ school, $or: [{ email: data.email }, { employeeId: data.employeeId }] })) {
     throw new HttpError(409, 'Email or employee ID already exists in your school');
   }
-  if (await User.exists({ email: data.email })) throw new HttpError(409, 'Email already registered');
+  if (await User.exists({ email: data.email }).setOptions({ crossTenant: 'login emails are unique across all schools' })) throw new HttpError(409, 'Email already registered');
 
   const password = temporaryPassword();
   const user = await User.create({
@@ -39,10 +39,10 @@ async function createTeacherWithAccount(school, input) {
   });
   try {
     const teacher = await Teacher.create({ ...data, school, userId: user._id });
-    await User.updateOne({ _id: user._id }, { profileId: teacher._id });
+    await User.updateOne({ _id: user._id, school }, { profileId: teacher._id });
     return { teacher, credentials: { email: data.email, password } };
   } catch (err) {
-    await user.deleteOne().catch(() => {});
+    await User.deleteOne({ _id: user._id, school }).catch(() => {});
     throw err;
   }
 }

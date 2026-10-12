@@ -119,7 +119,7 @@ Limits [Observed from the docs]: evaluated on demo data, not on real school traf
 | 3 | Require `CORS_ORIGINS` in production; `npm audit fix` for `proxy-addr` | High | XS |
 | 4 | Error tracking, structured logging with request IDs, uptime check | High | S |
 | 5 | Shared rate-limit store and a global limit | High | S |
-| 6 | Tenant-scope guard (plugin plus failing test) | High | M |
+| 6 | Tenant-scope guard (plugin plus failing test) | High | M | Done 2026-10-12: see `docs/TENANT_GUARD.md` |
 | 7 | Paid Atlas and Render tiers, backup schedule, restore drill | High | S |
 | 8 | Frontend: smoke tests for login, fees and Ask; triage lint errors | Medium | M |
 | 9 | Token lifetime and storage hardening, upload signature check, CSP | Medium | M |

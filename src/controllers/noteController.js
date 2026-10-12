@@ -83,8 +83,8 @@ const deleteNote = asyncHandler(async (req, res) => {
   if (req.user.role !== 'admin' && String(note.uploadedBy) !== String(req.user._id)) {
     throw new HttpError(403, 'You can only delete your own uploads');
   }
-  await NoteEmbedding.deleteMany({ noteId: note._id });
-  await note.deleteOne();
+  await NoteEmbedding.deleteMany({ noteId: note._id, school: req.schoolId });
+  await Note.deleteOne({ _id: note._id, school: req.schoolId });
   res.json({ success: true, message: 'Deleted' });
 });
 

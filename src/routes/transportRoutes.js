@@ -23,7 +23,7 @@ async function ensureTracking(bus) {
   if (!bus.trackingId) {
     bus.trackingId = makeTrackingId();
     bus.firebaseKey = `transport/${bus.trackingId}`;
-    await Transport.updateOne({ _id: bus._id }, { trackingId: bus.trackingId, firebaseKey: bus.firebaseKey });
+    await Transport.updateOne({ _id: bus._id, school: bus.school }, { trackingId: bus.trackingId, firebaseKey: bus.firebaseKey });
   }
   return bus;
 }
@@ -190,7 +190,7 @@ router.put('/:id/assign-students', protect, transportOn, requirePermission('tran
   bus.assignedStudents = ids;
   bus.availableSeats = bus.capacity - ids.length;
   await bus.save();
-  const updated = await Transport.findById(bus._id).populate('assignedStudents', 'name rollNumber class section');
+  const updated = await Transport.findOne({ _id: bus._id, school: req.schoolId }).populate('assignedStudents', 'name rollNumber class section');
   res.json({ success: true, data: updated });
 }));
 
@@ -199,7 +199,7 @@ router.delete('/:id', protect, transportOn, requirePermission('transport.manage'
   const bus = await Transport.findOne({ _id: req.params.id, school: req.schoolId });
   if (!bus) throw new HttpError(404, 'Bus not found');
   await Student.updateMany({ bus: bus._id, school: req.schoolId }, { $set: { bus: null } });
-  await bus.deleteOne();
+  await Transport.deleteOne({ _id: bus._id, school: req.schoolId });
   res.json({ success: true, message: 'Bus deleted' });
 }));
 

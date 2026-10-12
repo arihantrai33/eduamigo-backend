@@ -122,11 +122,11 @@ exports.createOrder = asyncHandler(async (req, res) => {
 async function settle(order, paymentId) {
   // Claim the order; only one caller moves it out of "created".
   const claimed = await PaymentOrder.findOneAndUpdate(
-    { _id: order._id, status: 'created' },
+    { _id: order._id, school: order.school, status: 'created' },
     { status: 'processing', providerPaymentId: paymentId },
     { returnDocument: 'after' },
   );
-  if (!claimed) return PaymentOrder.findById(order._id); // already handled (or being handled)
+  if (!claimed) return PaymentOrder.findOne({ _id: order._id, school: order.school }); // already handled (or being handled)
 
   try {
     const { payment, duplicate } = await recordPayment({
@@ -138,7 +138,7 @@ async function settle(order, paymentId) {
     await claimed.save();
 
     if (duplicate) return claimed; // the other caller already applied it and told the parents
-    const [fee, student] = await Promise.all([Fee.findById(claimed.fee), Student.findById(claimed.student)]);
+    const [fee, student] = await Promise.all([Fee.findOne({ _id: claimed.fee, school: claimed.school }), Student.findOne({ _id: claimed.student, school: claimed.school })]);
     if (student) {
       await notifyParents(student, {
         title: 'Fee payment received',

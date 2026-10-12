@@ -26,7 +26,7 @@ const addFee = asyncHandler(async (req, res) => {
     school: req.schoolId, studentId, amount: Number(amount), feeType: feeType || 'Tuition',
     dueDate: due, month, year, academicYear: academicYear || await sessionNameForDate(req.schoolId, due), remarks, status: 'Unpaid',
   });
-  await syncStudentFeeStatus(student._id);
+  await syncStudentFeeStatus(student._id, req.schoolId);
   res.status(201).json({ success: true, message: 'Fee record created successfully', data: fee });
 });
 

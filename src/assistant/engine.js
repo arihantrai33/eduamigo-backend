@@ -192,8 +192,8 @@ async function recordVerification(result) {
   const t = result.data?.ticket;
   if (!t?._id) return;
   try {
-    if (result.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id }, { $set: { verification: { state: 'unverified', action: result.name, failed: result.failed || [], at: new Date() } } });
-    else if (result.state === 'verified' && t.verification?.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id }, { $unset: { verification: 1 } });
+    if (result.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id, school: t.school }, { $set: { verification: { state: 'unverified', action: result.name, failed: result.failed || [], at: new Date() } } });
+    else if (result.state === 'verified' && t.verification?.state === 'unverified') await AssistantTicket.updateOne({ _id: t._id, school: t.school }, { $unset: { verification: 1 } });
   } catch { /* the trace and the action log still record the state */ }
 }
 

@@ -137,7 +137,7 @@ exports.updateStudent = asyncHandler(async (req, res) => {
     { returnDocument: 'after', runValidators: true },
   );
   if (!student) throw new HttpError(404, 'Student not found');
-  if (update.name && student.userId) await User.updateOne({ _id: student.userId }, { name: update.name });
+  if (update.name && student.userId) await User.updateOne({ _id: student.userId, school: req.schoolId }, { name: update.name });
   if (student.class !== before.class || student.section !== before.section || student.rollNumber !== before.rollNumber) {
     await academic.recordPlacement(student);
   }

@@ -42,7 +42,7 @@ const deleteBook = asyncHandler(async (req, res) => {
   const book = await Library.findOne({ _id: req.params.id, school: req.schoolId });
   if (!book) throw new HttpError(404, 'Book not found');
   if (book.issued > 0) throw new HttpError(409, 'This book has issued copies and cannot be deleted');
-  await book.deleteOne();
+  await Library.deleteOne({ _id: book._id, school: req.schoolId });
   res.json({ success: true, message: 'Book deleted' });
 });
 

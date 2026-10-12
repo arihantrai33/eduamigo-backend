@@ -15,7 +15,7 @@ const createParent = asyncHandler(async (req, res) => {
   if (!name || !phone) throw new HttpError(400, 'Name and mobile number are required');
   if (!isMobile(phone)) throw new HttpError(400, 'Enter a valid 10-digit mobile number (parents sign in with it)');
   if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'Email is not valid');
-  if (email && await User.exists({ email })) throw new HttpError(409, 'Email already registered');
+  if (email && await User.exists({ email }).setOptions({ crossTenant: 'login emails are unique across all schools' })) throw new HttpError(409, 'Email already registered');
   if (await User.exists({ school: req.schoolId, role: 'parent', loginPhone: normalizePhone(phone) })) {
     throw new HttpError(409, 'A parent with this mobile number already exists. Link the child to that parent instead.');
   }
@@ -35,15 +35,15 @@ const createParent = asyncHandler(async (req, res) => {
       name, email, phone, gender, address, occupation,
       children: children.map((c) => c._id), school: req.schoolId, userId: user._id,
     });
-    await User.updateOne({ _id: user._id }, { profileId: parent._id });
-    await Student.updateMany({ _id: { $in: children.map((c) => c._id) }, parentUserId: null }, { parentUserId: user._id });
+    await User.updateOne({ _id: user._id, school: req.schoolId }, { profileId: parent._id });
+    await Student.updateMany({ _id: { $in: children.map((c) => c._id) }, school: req.schoolId, parentUserId: null }, { parentUserId: user._id });
     const schoolCode = (await School.findById(req.schoolId).select('code').lean())?.code || null;
     res.status(201).json({
       success: true, message: 'Parent created successfully', data: parent,
       credentials: { schoolCode, loginId: normalizePhone(phone), email: email || null, phone: normalizePhone(phone), password },
     });
   } catch (err) {
-    await user.deleteOne().catch(() => {});
+    await User.deleteOne({ _id: user._id, school: req.schoolId }).catch(() => {});
     throw err;
   }
 });

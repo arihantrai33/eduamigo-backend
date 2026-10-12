@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { enterTenant } = require('../config/tenantGuard');
 const User = require('../models/User');
 const { jwtSecret } = require('../config/env');
 const { hasPermission } = require('../config/permissions');
@@ -49,6 +50,7 @@ const protect = async (req, res, next) => {
     req.school = user.school;
     req.schoolId = user.school._id;
     req.entitlements = entitlements;
+    enterTenant(req.schoolId); // from here on the tenant guard checks every query in this request
 
     // Support session opened by the platform owner: every change made in it is audited.
     if (decoded.imp) {

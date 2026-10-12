@@ -33,10 +33,10 @@ async function deactivateStudent(student, status, reason = '') {
   };
   await student.save();
   await academic.closeEnrollment(student, status === 'graduated' ? 'graduated' : 'left', String(reason || '').slice(0, 300));
-  if (student.userId) await User.updateOne({ _id: student.userId }, { isActive: false });
+  if (student.userId) await User.updateOne({ _id: student.userId, school: student.school }, { isActive: false });
   if (student.parentUserId) {
     const siblings = await Student.countDocuments({ parentUserId: student.parentUserId, isActive: true, school: student.school });
-    if (!siblings) await User.updateOne({ _id: student.parentUserId }, { isActive: false });
+    if (!siblings) await User.updateOne({ _id: student.parentUserId, school: student.school }, { isActive: false });
   }
   return student;
 }
@@ -122,7 +122,7 @@ async function apply(schoolId, { toSession, decisions = [], makeCurrent = false 
   const moving = plans.filter((p) => p.action === 'promote' || p.action === 'detain');
 
   // Roll numbers are unique per class-section: park everyone who stays on a temporary number first.
-  for (const p of moving) await Student.updateOne({ _id: p.student._id }, { rollNumber: `~${p.student._id}` });
+  for (const p of moving) await Student.updateOne({ _id: p.student._id, school: schoolId }, { rollNumber: `~${p.student._id}` });
 
   for (const p of plans) {
     summary[p.action] += 1;
@@ -131,10 +131,10 @@ async function apply(schoolId, { toSession, decisions = [], makeCurrent = false 
       continue;
     }
     await StudentEnrollment.updateMany(
-      { student: p.student._id, status: 'studying', session: { $ne: toSession } },
+      { school: schoolId, student: p.student._id, status: 'studying', session: { $ne: toSession } },
       { $set: { status: p.action === 'promote' ? 'promoted' : 'detained', endedAt: new Date() } },
     );
-    await Student.updateOne({ _id: p.student._id }, { class: p.toClass, section: p.toSection });
+    await Student.updateOne({ _id: p.student._id, school: schoolId }, { class: p.toClass, section: p.toSection });
   }
 
   // New roll numbers, alphabetical, in every class-section that received students.
@@ -143,10 +143,10 @@ async function apply(schoolId, { toSession, decisions = [], makeCurrent = false 
     const [cls, section] = key.split('|');
     const group = await Student.find({ school: schoolId, isActive: true, class: cls, section }).sort({ name: 1, _id: 1 });
     // Students who were not part of this run keep their place after the newcomers are parked.
-    for (const s of group) await Student.updateOne({ _id: s._id }, { rollNumber: `~${s._id}` });
+    for (const s of group) await Student.updateOne({ _id: s._id, school: schoolId }, { rollNumber: `~${s._id}` });
     for (const [i, s] of group.entries()) {
       s.rollNumber = String(i + 1);
-      await Student.updateOne({ _id: s._id }, { rollNumber: s.rollNumber });
+      await Student.updateOne({ _id: s._id, school: schoolId }, { rollNumber: s.rollNumber });
       await academic.recordPlacement(s, { session: toSession });
     }
   }
@@ -169,7 +169,7 @@ async function transferCertificate(schoolId, studentId) {
   }
   const [school, history] = await Promise.all([
     School.findById(schoolId).select('name address city phone email principal branding.logoUrl').lean(),
-    StudentEnrollment.find({ student: student._id }).sort({ session: 1 }).lean(),
+    StudentEnrollment.find({ school: schoolId, student: student._id }).sort({ session: 1 }).lean(),
   ]);
   return {
     tcNumber: student.exit.tcNumber,

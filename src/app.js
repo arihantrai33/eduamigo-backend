@@ -1,3 +1,4 @@
+require('./config/tenantGuard'); // must run before any model is compiled
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

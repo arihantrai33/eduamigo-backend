@@ -119,7 +119,7 @@ const sendMessage = asyncHandler(async (req, res) => {
     text, fileUrl: fileUrl || null, fileName: fileName || null, fileType: fileType || null, school: req.schoolId,
   });
   await Conversation.updateOne(
-    { roomId: message.roomId },
+    { school: req.schoolId, roomId: message.roomId },
     {
       $set: { school: req.schoolId, participants: [req.user._id, receiver._id], lastText: text || `Attachment: ${fileName || 'file'}`, lastAt: message.createdAt, lastSender: req.user._id },
     },
@@ -164,7 +164,7 @@ const getTeacherContacts = asyncHandler(async (req, res) => {
     $or: keys.map((k) => (k.section ? { class: k.class, section: k.section } : { class: k.class })),
   }).sort({ class: 1, section: 1, rollNumber: 1 });
 
-  const parentUsers = await User.find({ _id: { $in: students.map((s) => s.parentUserId).filter(Boolean) }, isActive: true }).select('name');
+  const parentUsers = await User.find({ school: req.schoolId, _id: { $in: students.map((s) => s.parentUserId).filter(Boolean) }, isActive: true }).select('name');
   const parentName = new Map(parentUsers.map((u) => [String(u._id), u.name]));
   const extraParents = await Parent.find({ school: req.schoolId, children: { $in: students.map((s) => s._id) }, userId: { $ne: null } });
 

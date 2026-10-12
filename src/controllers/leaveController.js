@@ -146,7 +146,7 @@ const deleteLeave = asyncHandler(async (req, res) => {
   const leave = await LeaveRequest.findOne({ _id: req.params.id, school: req.schoolId });
   if (!leave) throw new HttpError(404, 'Leave request not found');
   if (leave.status === 'Pending') throw new HttpError(409, 'Pending leave requests cannot be deleted');
-  await leave.deleteOne();
+  await LeaveRequest.deleteOne({ _id: leave._id, school: req.schoolId });
   res.json({ success: true, message: 'Leave deleted successfully' });
 });
 

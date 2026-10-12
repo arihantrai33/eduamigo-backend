@@ -158,7 +158,7 @@ exports.saveMarks = asyncHandler(async (req, res) => {
   if (entries.length) {
     await Mark.bulkWrite(entries.map(({ studentId, value, absent }) => ({
       updateOne: {
-        filter: { student: studentId, subject: fields.subject, examName: fields.examName, academicYear: fields.academicYear },
+        filter: { school: req.schoolId, student: studentId, subject: fields.subject, examName: fields.examName, academicYear: fields.academicYear },
         update: {
           $set: {
             ...fields, ...key, student: studentId, school: req.schoolId, teacher: teacher?._id,
@@ -190,7 +190,7 @@ exports.publishMarks = asyncHandler(async (req, res) => {
     const grade = mark.absent ? 'AB' : gradeFor(pct);
 
     await ExamResult.findOneAndUpdate(
-      { student: mark.student._id, subject: fields.subject, examName: fields.examName, academicYear: fields.academicYear },
+      { school: req.schoolId, student: mark.student._id, subject: fields.subject, examName: fields.examName, academicYear: fields.academicYear },
       {
         $set: {
           school: req.schoolId, exam: exam._id, student: mark.student._id, teacher: mark.teacher,

@@ -98,7 +98,7 @@ const updateAndReapplyFeeStructure = asyncHandler(async (req, res) => {
       });
     }
   }
-  await syncStudentFeeStatus(fees.map((f) => f.studentId));
+  await syncStudentFeeStatus(fees.map((f) => f.studentId), req.schoolId);
   res.json({ success: true, message: `Fee structure updated. ${updated} unpaid fee record(s) updated.`, data: structure, updated });
 });
 
@@ -109,7 +109,7 @@ const deleteFeeStructure = asyncHandler(async (req, res) => {
   if (!structure) throw new HttpError(404, 'Fee structure not found');
   const used = await Fee.countDocuments({ school: req.schoolId, feeStructureId: structure._id });
   if (used) throw new HttpError(409, `This fee structure has been applied to ${used} student(s) and cannot be deleted`);
-  await structure.deleteOne();
+  await FeeStructure.deleteOne({ _id: structure._id, school: req.schoolId });
   res.json({ success: true, message: 'Fee structure deleted successfully' });
 });
 
@@ -141,7 +141,7 @@ const applyFeeStructureToClass = asyncHandler(async (req, res) => {
     month: due.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }), year: due.getUTCFullYear(), status: 'Unpaid',
   })));
 
-  await syncStudentFeeStatus(toCreate.map((s) => s._id));
+  await syncStudentFeeStatus(toCreate.map((s) => s._id), req.schoolId);
   for (const s of toCreate) {
     await notifyParents(s, {
       title: 'New fee added',
@@ -150,7 +150,7 @@ const applyFeeStructureToClass = asyncHandler(async (req, res) => {
     });
   }
 
-  await FeeStructure.updateOne({ _id: structure._id }, {
+  await FeeStructure.updateOne({ _id: structure._id, school: req.schoolId }, {
     $push: { applyHistory: { appliedAt: new Date(), appliedBy: req.user._id, totalStudents: students.length, created: toCreate.length, skipped: skip.size } },
   });
 

@@ -36,12 +36,12 @@ async function saveClassAttendance({ user, school, teacher, date, cls, section, 
   const invalid = normalized.filter((r) => !byId.has(r.studentId));
   if (invalid.length) throw new HttpError(400, `${invalid.length} student(s) do not belong to ${key.class}-${key.section}`);
 
-  const previous = await Attendance.find({ studentId: { $in: students.map((s) => s._id) }, date: day });
+  const previous = await Attendance.find({ school, studentId: { $in: students.map((s) => s._id) }, date: day });
   const prevStatus = new Map(previous.map((p) => [String(p.studentId), p.status]));
 
   await Attendance.bulkWrite(normalized.map((r) => ({
     updateOne: {
-      filter: { studentId: r.studentId, date: day },
+      filter: { school, studentId: r.studentId, date: day },
       update: {
         $set: { status: r.status, remarks: r.remarks, markedBy: user._id, class: key.class, section: key.section, school },
       },

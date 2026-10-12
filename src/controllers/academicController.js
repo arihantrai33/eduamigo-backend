@@ -143,7 +143,7 @@ exports.deleteClass = asyncHandler(async (req, res) => {
   if (await Student.exists({ school: req.schoolId, class: cls.name })) {
     throw new HttpError(409, 'Students have been in this class, so it cannot be deleted. Deactivate it instead.');
   }
-  await cls.deleteOne();
+  await SchoolClass.deleteOne({ _id: cls._id, school: req.schoolId });
   res.json({ success: true, message: `Class ${cls.name} deleted` });
 });
 

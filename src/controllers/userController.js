@@ -77,7 +77,7 @@ const registerUser = asyncHandler(async (req, res) => {
   if (!ASSIGNABLE_ROLES.includes(role)) {
     throw new HttpError(400, 'Only admin and accountant logins can be created here. Add students, parents and teachers from their own screens.');
   }
-  if (await User.exists({ email })) throw new HttpError(409, 'Email already registered');
+  if (await User.exists({ email }).setOptions({ crossTenant: 'login emails are unique across all schools' })) throw new HttpError(409, 'Email already registered');
 
   let password = req.body.password;
   let generated = false;
@@ -115,7 +115,7 @@ const changePassword = asyncHandler(async (req, res) => {
   const problem = validatePasswordStrength(newPassword);
   if (problem) throw new HttpError(400, problem);
 
-  const user = await User.findById(req.user._id);
+  const user = await User.findOne({ _id: req.user._id, school: req.schoolId });
   if (!(await user.comparePassword(String(currentPassword || '')))) throw new HttpError(400, 'Current password is incorrect');
   if (await user.comparePassword(newPassword)) throw new HttpError(400, 'New password must be different from the current one');
 
@@ -153,7 +153,7 @@ async function loginIdOf(user) {
 
 // POST /api/users/logout-all — signs the user out on every device, including this one
 const logoutAll = asyncHandler(async (req, res) => {
-  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+  await User.updateOne({ _id: req.user._id, school: req.schoolId }, { $inc: { tokenVersion: 1 } });
   res.json({ success: true, message: 'Signed out of all devices' });
 });
 
@@ -181,7 +181,7 @@ const resetPasswordWithCode = asyncHandler(async (req, res) => {
 const updateFcmToken = asyncHandler(async (req, res) => {
   const { fcmToken } = req.body || {};
   if (!fcmToken) throw new HttpError(400, 'fcmToken is required');
-  await User.updateOne({ _id: req.user._id }, { fcmToken });
+  await User.updateOne({ _id: req.user._id, school: req.schoolId }, { fcmToken });
   res.json({ success: true, message: 'Device registered for notifications' });
 });
 

@@ -65,7 +65,7 @@ exports.updateTeacher = asyncHandler(async (req, res) => {
   );
   if (!teacher) throw new HttpError(404, 'Teacher not found');
   if (teacher.userId && (update.name || update.phone)) {
-    await User.updateOne({ _id: teacher.userId }, { ...(update.name && { name: update.name }), ...(update.phone && { phone: update.phone }) });
+    await User.updateOne({ _id: teacher.userId, school: req.schoolId }, { ...(update.name && { name: update.name }), ...(update.phone && { phone: update.phone }) });
   }
   res.json({ success: true, message: 'Teacher updated successfully', data: teacher });
 });
@@ -106,6 +106,6 @@ exports.deleteTeacher = asyncHandler(async (req, res) => {
     { returnDocument: 'after' },
   );
   if (!teacher) throw new HttpError(404, 'Teacher not found');
-  if (teacher.userId) await User.updateOne({ _id: teacher.userId }, { isActive: false });
+  if (teacher.userId) await User.updateOne({ _id: teacher.userId, school: req.schoolId }, { isActive: false });
   res.json({ success: true, message: 'Teacher deactivated successfully' });
 });

@@ -145,7 +145,7 @@ exports.admit = asyncHandler(async (req, res) => {
     await claimed.save();
     res.status(201).json({ success: true, data: claimed, student, credentials, linkedExistingParent });
   } catch (err) {
-    await Admission.updateOne({ _id: a._id }, { status: 'Approved' }); // nothing was created; allow another try
+    await Admission.updateOne({ _id: a._id, school: req.schoolId }, { status: 'Approved' }); // nothing was created; allow another try
     throw err;
   }
 });

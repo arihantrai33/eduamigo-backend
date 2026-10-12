@@ -49,7 +49,7 @@ const deleteSalary = asyncHandler(async (req, res) => {
   const salary = await Salary.findOne({ _id: req.params.id, school: req.schoolId });
   if (!salary) throw new HttpError(404, 'Salary record not found');
   if (salary.status === 'Paid') throw new HttpError(409, 'Paid salary records cannot be deleted');
-  await salary.deleteOne();
+  await Salary.deleteOne({ _id: salary._id, school: req.schoolId });
   res.json({ success: true, message: 'Deleted' });
 });
 

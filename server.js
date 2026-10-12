@@ -1,4 +1,5 @@
 require('dotenv').config({ quiet: true });
+require('./src/config/tenantGuard'); // must run before any model is compiled
 const mongoose = require('mongoose');
 const { assertEnv } = require('./src/config/env');
 const buildApp = require('./src/app');

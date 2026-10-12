@@ -189,7 +189,7 @@ async function nextRollNumber(schoolId, cls, section) {
 async function recordPlacement(student, { session } = {}) {
   const name = session || await currentSessionName(student.school);
   await StudentEnrollment.updateOne(
-    { student: student._id, session: name },
+    { school: student.school, student: student._id, session: name },
     {
       $set: { school: student.school, class: student.class, section: student.section, rollNumber: student.rollNumber || '' },
       $setOnInsert: { status: 'studying', startedAt: new Date() },
@@ -201,7 +201,7 @@ async function recordPlacement(student, { session } = {}) {
 // Ends the student's open enrollment (left school, graduated...).
 async function closeEnrollment(student, status, note = '') {
   await StudentEnrollment.updateMany(
-    { student: student._id, status: 'studying' },
+    { school: student.school, student: student._id, status: 'studying' },
     { $set: { status, endedAt: new Date(), note } },
   );
 }
@@ -211,7 +211,7 @@ async function closeEnrollment(student, status, note = '') {
 async function movePlacement(students, { toSession, status = 'promoted' } = {}) {
   const now = new Date();
   for (const student of students) {
-    const open = await StudentEnrollment.findOne({ student: student._id, status: 'studying' }).sort({ startedAt: -1 });
+    const open = await StudentEnrollment.findOne({ school: student.school, student: student._id, status: 'studying' }).sort({ startedAt: -1 });
     const target = toSession || await currentSessionName(student.school);
     if (open && open.session !== target) {
       open.status = status;

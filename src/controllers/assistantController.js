@@ -124,7 +124,7 @@ const updateTicket = asyncHandler(async (req, res) => {
     await notifyUser(req.schoolId, t.raisedBy, { title: `Update on ${t.number}`, message: text, type: 'General', createdBy: req.user._id }).catch(() => null);
   }
   audit(req, 'assistant.ticket_updated', { targetType: 'assistant_ticket', targetId: t._id, details: { number: t.number, status: t.status, noted: !!text } });
-  const fresh = await AssistantTicket.findById(t._id).populate('raisedBy', 'name').populate('student', 'name class section').populate('notes.by', 'name').lean();
+  const fresh = await AssistantTicket.findOne({ _id: t._id, school: req.schoolId }).populate('raisedBy', 'name').populate('student', 'name class section').populate('notes.by', 'name').lean();
   res.json({ success: true, data: ticketView(fresh, req.user._id) });
 });
 
