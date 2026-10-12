@@ -27,7 +27,8 @@ Frontend (observed in code and in screenshots at 375, 768, 1024 and 1440 px):
 | F7 | No frontend tests; ESLint reports 178 errors and 20 warnings (mostly the accepted fetch-in-effect pattern). | Medium |
 | F8 | Owner console exists as a separate app with 2 commits; not part of this pass. | Info |
 
-Mobile toolchains on this Mac: Xcode 16.4 is installed; Java and the Android SDK are not (installable for free with Homebrew).
+Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed with Homebrew (free): JDK 21, the Android SDK
+(platform 36), an Android emulator image, the iOS 18.6 Simulator runtime and `ios-webkit-debug-proxy`.
 
 ## Plan (dependency order)
 
@@ -38,9 +39,9 @@ Mobile toolchains on this Mac: Xcode 16.4 is installed; Java and the Android SDK
 | W3 | Replace the duplicated bottom navs with one component (14 copies); widen phone-only containers and bars | done (32dfbcd) |
 | W4 | Desktop layouts for the role dashboards (multi-column), then internal screens portal by portal | partly: home tiles 3 columns; internal screens fill the width; per-screen redesign pending |
 | W5 | Admin: brand-consistent dashboard, server-side dashboard numbers, phone header, table overflow, chat on phones | done (frontend 19995f1, 0f1acbd; backend 6de4259) |
-| W6 | Workflow verification per module (UI to API to database), fixes and tests | partly: attendance, fees, leave covered end to end; other modules covered by backend tests only |
-| W7 | Frontend tests: Playwright end-to-end with the system Chrome (`npm run test:e2e`, 16 tests) | done |
-| W8 | Mobile architecture decision (Capacitor vs React Native), then Android and iOS projects, push notifications, secure storage | pending |
+| W6 | Workflow verification per module (UI to API to database), fixes and tests | partly: attendance, fees, leave, notices and parent-teacher chat covered end to end; other modules covered by backend tests only |
+| W7 | Frontend tests: Playwright end-to-end with the system Chrome (`npm run test:e2e`, 19 tests); mobile smoke tests (`npm run test:android`, `npm run test:ios`) | done |
+| W8 | Mobile: Capacitor chosen (see frontend `docs/MOBILE.md`); Android + iOS projects; Keychain/Keystore session; FCM push (backend `services/push.js`, 9 tests); back button; deep links; safe area, status bar and keyboard handling | done for local development (emulator 14/14, Simulator 20/20). Needs people with the accounts: Firebase files and APNs key for push, signing keys, physical phones, store review |
 | W9 | Final verification and handover | pending |
 
 ## Progress log
@@ -51,13 +52,40 @@ Mobile toolchains on this Mac: Xcode 16.4 is installed; Java and the Android SDK
 - Screen sweep (automated, headless Chrome, in-memory demo data): 32 portal screens at 375 and 1280 px and 35 admin screens
   at 375 px. No JavaScript errors. Remaining horizontal overflow at 375 px: Ask Insights (45 px), ID card tool (fixed print size).
 - Backend suite: 37 suites, 718 tests passing.
-
-## Known gaps (honest list)
-- Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and Fees);
-  they are responsive now but not yet visually unified with the dashboard.
-- Push notifications: the server stores device tokens but sends nothing.
-- 2026-10-14: found and fixed that many portal screens could not scroll (content below the first screen unreachable),
+- 2026-10-13: found and fixed that many portal screens could not scroll (content below the first screen unreachable),
   a crash on the student Learn screen, a school-search limit that would block a class on one network (30/min -> 120/min),
   labels for screen readers on sign-in, attendance, payment and leave forms. 16 end-to-end tests: sign-in per role,
   role guard, sign-out, sidebar vs tabs, every screen opens without error (all four portals), every screen scrolls,
   attendance -> parent notice once, payment -> next receipt number, leave -> approval -> parent history.
+- 2026-10-13: push notifications backend (devices per user, shared-phone safe, silenced by sign-out-everywhere, 9 tests;
+  suite 38 suites / 727 tests). Capacitor 8 Android and iOS projects added in the frontend; JDK 21 and Android SDK 36
+  installed locally with Homebrew (free); Android SDK licences accepted for the local build tools.
+- 2026-10-13: frontend first download 1.89 MB -> 377 kB (screens load when first opened); one accessible dialog for the
+  admin screens; chat usable with a keyboard and screen readers; EduAmigo icons and splash screens. 19 end-to-end tests.
+- 2026-10-13: apps verified in the Android emulator (Android 16, API 36: 14/14 checks) and the iOS Simulator (iPhone 16,
+  iOS 18.6: 20/20). Found and fixed on iPhone: content under the status bar and the home indicator, the page zooming into
+  text fields, the keyboard pushing screens up under the status bar (chat header lost) and covering the message box,
+  and a deleted-and-reinstalled app signing the previous person back in (iOS keeps Keychain items; a fresh install now
+  starts signed out). Also: the student results page showed a phone tab bar on desktop. Release bundle (AAB) builds
+  unsigned with a placeholder API address. Frontend commits bfe7c4f, 98ee923, a3972b2.
+
+## Known gaps (honest list)
+- Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
+  Fees); they are responsive but not yet visually unified with the dashboards. About 35 screens use text arrows (← ➤) as
+  back and send buttons, many without a label for screen readers, instead of the app's line icons.
+- The student results page has its own tab bar (Home, Bus, Learn, Result, Me); every other student screen shows Home, Bus,
+  Learn, Chat, Me. Unifying it changes a visible tab, so it waits for the owner's decision.
+- Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
+  verified on a phone yet.
+- iOS links (`eduamigo://`): iOS asks "Open in EduAmigo?"; the scheme is verified, tapping Open is a manual check.
+- On the website the session token is in localStorage and there is no Content-Security-Policy yet.
+- Exams, marks, report cards, timetable, transport, library, admissions, HR, notes and AI are verified by backend tests
+  only, not end to end through the screens.
+- Not done: physical phones, signed release builds, store listings and review, deployment (paused until authorised).
+
+## Next actions (resume here)
+1. Owner decision: unify the student results tab bar (see Known gaps).
+2. W4: unify internal screens portal by portal (shared page header, line icons for back/send, tokens instead of literals).
+3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
+4. Security: Content-Security-Policy and the web token storage decision.
+5. W9: final handover document.
