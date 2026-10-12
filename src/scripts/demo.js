@@ -11,6 +11,12 @@ process.env.DISABLE_JOBS = 'true';
 process.env.EMAIL_PROVIDER = 'log';            // reset codes are printed in this terminal
 process.env.JWT_SECRET = process.env.DEMO_JWT_SECRET || 'local-demo-secret-not-for-production-use-only';
 delete process.env.CORS_ORIGINS;               // allow the local frontend
+// Local demo only: many people (and the end-to-end tests) sign in from this one machine, so the per-address limits
+// are raised. Production keeps its defaults (src/middleware/rateLimit.js).
+process.env.PUBLIC_LOOKUP_PER_MINUTE = process.env.PUBLIC_LOOKUP_PER_MINUTE || '5000';
+process.env.LOGIN_ATTEMPTS_PER_15_MIN = process.env.LOGIN_ATTEMPTS_PER_15_MIN || '1000';
+process.env.API_ANON_PER_MINUTE = process.env.API_ANON_PER_MINUTE || '100000';
+process.env.API_USER_PER_MINUTE = process.env.API_USER_PER_MINUTE || '100000';
 
 // Language model settings only (EduAmigo Ask, AI revision) are taken from .env, so the demo answers in
 // Hindi/Hinglish like production. Nothing else is read: the database, payment and email settings stay unused.

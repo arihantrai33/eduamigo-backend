@@ -24,7 +24,7 @@ const loginKey = (req) => `${ipKeyGenerator(req.ip)}:${String(req.body?.schoolCo
 // Brute-force protection for login: 10 attempts per 15 minutes per IP + login ID.
 const loginLimiter = make('login', {
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: () => Number(process.env.LOGIN_ATTEMPTS_PER_15_MIN || 10),
   keyGenerator: loginKey,
   message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
 });
@@ -54,9 +54,10 @@ const assistantLimiter = make('assistant', {
 });
 
 // Public school lookup (no login): stops anyone from scraping the school list.
+// A school's computer lab or Wi-Fi shares one address, so a whole class finding the school in the same minute must fit.
 const publicLookupLimiter = make('publicLookup', {
   windowMs: 60 * 1000,
-  limit: 30,
+  limit: () => Number(process.env.PUBLIC_LOOKUP_PER_MINUTE || 120),
   keyGenerator: (req) => ipKeyGenerator(req.ip),
   message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
 });
