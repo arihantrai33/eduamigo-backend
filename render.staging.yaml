@@ -25,6 +25,8 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: PUBLIC_API_URL # this service's own https address; student photo links point here
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: CLOUDINARY_CLOUD_NAME

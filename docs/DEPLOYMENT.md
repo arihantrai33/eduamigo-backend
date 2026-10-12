@@ -15,6 +15,8 @@ The server now refuses to start if `JWT_SECRET` is missing or shorter than 32 ch
 ## 2. Configure Render environment variables
 Required: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGINS` (your Vercel URL), Cloudinary and Gemini keys.
 For online fee payments also set `DATA_ENCRYPTION_KEY` (see `docs/PAYMENTS.md`).
+For student photos set `PUBLIC_API_URL` to the API's own https address (for example `https://eduamigo-backend.onrender.com`): the app and the API are on
+different domains, and photo links must be absolute. See `docs/STUDENT_PHOTOS.md`.
 See `.env.example` for the full list.
 
 ## 3. Back up and migrate the database
