@@ -66,7 +66,7 @@ const publicLookupLimiter = make('publicLookup', {
 // Generous on purpose, so an attacker cannot lock a real user out with a few requests.
 const loginAccountLimiter = make('loginAccount', {
   windowMs: 15 * 60 * 1000,
-  limit: 30,
+  limit: () => Number(process.env.LOGIN_ACCOUNT_ATTEMPTS_PER_15_MIN || 30),
   keyGenerator: (req) => `${String(req.body?.schoolCode || '').toUpperCase()}:${String(req.body?.identifier ?? req.body?.email ?? '').trim().toLowerCase()}`,
   message: { success: false, message: 'Too many login attempts for this account. Please try again in 15 minutes.' },
 });

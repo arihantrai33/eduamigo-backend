@@ -15,6 +15,7 @@ delete process.env.CORS_ORIGINS;               // allow the local frontend
 // are raised. Production keeps its defaults (src/middleware/rateLimit.js).
 process.env.PUBLIC_LOOKUP_PER_MINUTE = process.env.PUBLIC_LOOKUP_PER_MINUTE || '5000';
 process.env.LOGIN_ATTEMPTS_PER_15_MIN = process.env.LOGIN_ATTEMPTS_PER_15_MIN || '1000';
+process.env.LOGIN_ACCOUNT_ATTEMPTS_PER_15_MIN = process.env.LOGIN_ACCOUNT_ATTEMPTS_PER_15_MIN || '1000';
 process.env.API_ANON_PER_MINUTE = process.env.API_ANON_PER_MINUTE || '100000';
 process.env.API_USER_PER_MINUTE = process.env.API_USER_PER_MINUTE || '100000';
 
