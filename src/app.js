@@ -44,6 +44,8 @@ function buildApp() {
     res.status(db === 'up' ? 200 : 503).json({ status: db === 'up' ? 'ok' : 'degraded', db });
   });
   app.get('/', (req, res) => res.json({ message: 'EduAmigo API' }));
+  // Photo links come before the general limiter: they have their own, higher one (see routes/photoRoutes.js).
+  app.use('/api/photos', require('./routes/photoRoutes'));
   app.use('/api', apiLimiter);
 
   app.use('/api/public',         require('./routes/publicRoutes'));

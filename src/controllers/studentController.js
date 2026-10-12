@@ -1,13 +1,12 @@
 const Student = require('../models/Student');
 const User = require('../models/User');
-const cloudinary = require('../config/cloudinary');
-const streamifier = require('streamifier');
 const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
 const { parseClassKey, normalizeClass, normalizeSection } = require('../utils/classes');
 const { createStudentWithAccounts } = require('../services/studentService');
 const { studentForUser, resolveChild, teacherForUser, canAccessStudent } = require('../services/directory');
 const { temporaryPassword, hashPassword } = require('../services/credentials');
 const School = require('../models/School');
+const photos = require('../services/photos');
 const { audit } = require('../services/audit');
 const academic = require('../services/academic');
 const { deactivateStudent, transferCertificate } = require('../services/yearEnd');
@@ -15,18 +14,8 @@ const StudentEnrollment = require('../models/StudentEnrollment');
 const { pageParams, paged } = require('../utils/paginate');
 const { hasPermission } = require('../config/permissions');
 
-function uploadPhotoToCloudinary(buffer) {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { folder: 'student_photos', resource_type: 'image' },
-      (err, result) => (err ? reject(err) : resolve(result)),
-    );
-    streamifier.createReadStream(buffer).pipe(uploadStream);
-  });
-}
-
 const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
-  'parentName', 'parentPhone', 'parentEmail', 'photo', 'class', 'section'];
+  'parentName', 'parentPhone', 'parentEmail', 'class', 'section'];
 
 // GET /students — admin/teacher (teachers only see their assigned classes). Optional ?page=&limit=
 exports.getStudents = asyncHandler(async (req, res) => {
@@ -104,8 +93,16 @@ exports.getStudent = asyncHandler(async (req, res) => {
 
 exports.createStudent = asyncHandler(async (req, res) => {
   const input = { ...req.body };
-  if (req.file) input.photo = (await uploadPhotoToCloudinary(req.file.buffer)).secure_url;
-  const { student, credentials, linkedExistingParent } = await createStudentWithAccounts(req.schoolId, input);
+  delete input.photo; delete input.photoKey; // a photo only comes from an uploaded file
+  const photoKey = req.file ? await photos.uploadStudentPhoto(req.file.buffer, req.schoolId) : null;
+  let created;
+  try {
+    created = await createStudentWithAccounts(req.schoolId, input, { photoKey });
+  } catch (err) {
+    await photos.removePhoto(photoKey); // nothing was saved, so the new file must not stay behind
+    throw err;
+  }
+  const { student, credentials, linkedExistingParent } = created;
   res.status(201).json({ success: true, data: student, credentials, linkedExistingParent });
 });
 
@@ -117,7 +114,6 @@ exports.updateStudent = asyncHandler(async (req, res) => {
     if (update.class !== undefined) update.class = parsed.class;
     if (parsed.section) update.section = parsed.section;
   }
-  if (req.file) update.photo = (await uploadPhotoToCloudinary(req.file.buffer)).secure_url;
   if (update.admissionNo !== undefined) {
     update.admissionNo = String(update.admissionNo).trim();
     if (!update.admissionNo) throw new HttpError(400, 'Admission number cannot be empty');
@@ -125,18 +121,28 @@ exports.updateStudent = asyncHandler(async (req, res) => {
       throw new HttpError(409, `Admission number ${update.admissionNo} is already used by another student`);
     }
   }
-  const before = await Student.findOne({ _id: req.params.id, school: req.schoolId }).select('class section rollNumber').lean();
+  const before = await Student.findOne({ _id: req.params.id, school: req.schoolId }).select('class section rollNumber photoKey').lean();
   if (!before) throw new HttpError(404, 'Student not found');
   if (update.class !== undefined || update.section !== undefined) {
     await academic.assertClassSection(req.schoolId, update.class ?? before.class, update.section ?? before.section);
   }
 
-  const student = await Student.findOneAndUpdate(
-    { _id: req.params.id, school: req.schoolId },
-    update,
-    { returnDocument: 'after', runValidators: true },
-  );
-  if (!student) throw new HttpError(404, 'Student not found');
+  // The new photo is uploaded last, after every check above, and removed again if saving fails.
+  const newKey = req.file ? await photos.uploadStudentPhoto(req.file.buffer, req.schoolId) : null;
+  if (newKey) { update.photoKey = newKey; update.photo = null; } // the old public address, if any, is no longer used
+  let student;
+  try {
+    student = await Student.findOneAndUpdate(
+      { _id: req.params.id, school: req.schoolId },
+      update,
+      { returnDocument: 'after', runValidators: true },
+    );
+  } catch (err) {
+    await photos.removePhoto(newKey);
+    throw err;
+  }
+  if (!student) { await photos.removePhoto(newKey); throw new HttpError(404, 'Student not found'); }
+  if (newKey && before.photoKey) await photos.removePhoto(before.photoKey);
   if (update.name && student.userId) await User.updateOne({ _id: student.userId, school: req.schoolId }, { name: update.name });
   if (student.class !== before.class || student.section !== before.section || student.rollNumber !== before.rollNumber) {
     await academic.recordPlacement(student);

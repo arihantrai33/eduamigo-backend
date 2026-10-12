@@ -70,6 +70,18 @@ const loginAccountLimiter = make('loginAccount', {
   message: { success: false, message: 'Too many login attempts for this account. Please try again in 15 minutes.' },
 });
 
+// Photo links: a page shows many avatars at once and <img> requests carry no login, so this is per address and generous.
+// In memory, since a database write per image would cost more than it protects.
+const photoLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.PHOTO_PER_MINUTE || 600),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: disabled,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
+});
+
 // Coarse flood guard for the whole API, in memory on purpose (no database write per request). Signed-in callers are
 // counted per session token, so the many users behind one school network do not share a single allowance.
 const apiKey = (req) => {
@@ -86,4 +98,4 @@ const apiLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please slow down and try again in a minute.' },
 });
 
-module.exports = { loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, assistantLimiter, publicLookupLimiter, apiLimiter };
+module.exports = { loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { displayPhoto } = require('../services/photos');
 
 const studentSchema = new mongoose.Schema({
   name:         { type: String, required: true, trim: true },
@@ -19,7 +20,10 @@ const studentSchema = new mongoose.Schema({
   parentEmail:  { type: String, lowercase: true, trim: true },
   // Derived from Fee records by feeService.syncStudentFeeStatus; never set by hand.
   feeStatus:    { type: String, enum: ['Not billed', 'Paid', 'Pending', 'Partial'], default: 'Not billed' },
+  // photoKey: the private Cloudinary asset (services/photos.js). photo: an old public address, kept only until the
+  // photo is migrated. The API never returns photoKey; it returns `photo` as a short-lived private link.
   photo:        { type: String },
+  photoKey:     { type: String },
   school:       { type: mongoose.Schema.Types.ObjectId, ref: 'School', default: null },
   bus:          { type: mongoose.Schema.Types.ObjectId, ref: 'Transport', default: null },
   userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -36,6 +40,15 @@ const studentSchema = new mongoose.Schema({
     tcIssuedAt: { type: Date, default: null },
   },
 }, { timestamps: true });
+
+studentSchema.set('toJSON', {
+  transform(doc, ret) {
+    const shown = displayPhoto(ret);
+    if (shown) ret.photo = shown; else delete ret.photo;
+    delete ret.photoKey;
+    return ret;
+  },
+});
 
 // Roll numbers are unique per class-section within one school (not across schools).
 // Among students who are still in the school: a student who left keeps their old roll number on record,

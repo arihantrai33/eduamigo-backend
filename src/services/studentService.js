@@ -12,16 +12,17 @@ const StudentEnrollment = require('../models/StudentEnrollment');
 const { withKeyLock, isDuplicateKey } = require('../utils/concurrency');
 
 const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
-  'parentName', 'parentPhone', 'parentEmail', 'photo'];
+  'parentName', 'parentPhone', 'parentEmail'];
 
 // Creates a student plus login accounts for the student and (optionally) the parent.
 //   Student signs in with the school code + admission number; email is optional.
 //   Parent signs in with the school code + mobile number (or email). A parent account is made when a
 //   parent email or a valid parent mobile is given. If that parent already has an account in this
 //   school (a sibling is enrolled), the new student is linked to it instead of creating another.
-async function createOnce(school, input) {
+async function createOnce(school, input, extras = {}) {
   const data = {};
   for (const key of STUDENT_FIELDS) if (input[key] !== undefined && input[key] !== '') data[key] = input[key];
+  if (extras.photoKey) data.photoKey = extras.photoKey; // only ever set by the server after an upload, never from the request body
   const { class: cls, section } = parseClassKey(input.class, input.section);
   data.class = cls;
   data.section = section;
@@ -124,13 +125,13 @@ async function createOnce(school, input) {
 // rolled back its accounts, so nothing is left behind).
 const isRollNumberClash = (err) => isDuplicateKey(err) && /roll/i.test(JSON.stringify(err.keyPattern || {}) + String(err.message));
 
-async function createStudentWithAccounts(school, input) {
-  if (String(input.rollNumber ?? '').trim()) return createOnce(school, input);
+async function createStudentWithAccounts(school, input, extras = {}) {
+  if (String(input.rollNumber ?? '').trim()) return createOnce(school, input, extras);
   const { class: cls, section } = parseClassKey(input.class, input.section);
   return withKeyLock(`roll:${school}:${cls}:${section}`, async () => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await createOnce(school, input);
+        return await createOnce(school, input, extras);
       } catch (err) {
         if (!isRollNumberClash(err) || attempt >= 4) throw err;
         await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));

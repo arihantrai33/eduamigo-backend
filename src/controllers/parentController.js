@@ -1,6 +1,7 @@
 const Parent = require('../models/Parent');
 const Student = require('../models/Student');
 const User = require('../models/User');
+const { displayPhoto } = require('../services/photos');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { temporaryPassword, hashPassword } = require('../services/credentials');
 const { childrenForParent } = require('../services/directory');
@@ -64,7 +65,7 @@ const getMyChild = asyncHandler(async (req, res) => {
         address: parent?.address,
         occupation: parent?.occupation,
       },
-      children: children.map((c) => ({ _id: c._id, name: c.name, rollNumber: c.rollNumber, class: c.class, section: c.section, photo: c.photo, feeStatus: c.feeStatus })),
+      children: children.map((c) => ({ _id: c._id, name: c.name, rollNumber: c.rollNumber, class: c.class, section: c.section, photo: displayPhoto(c), feeStatus: c.feeStatus })),
     },
   });
 });
@@ -105,7 +106,7 @@ const getParentDashboard = asyncHandler(async (req, res) => {
 // GET /api/parents (admin). Optional ?page=&limit=
 const getAllParents = asyncHandler(async (req, res) => {
   const result = await paged(Parent, { school: req.schoolId }, pageParams(req.query),
-    (q) => q.populate('children', 'name rollNumber class section photo').sort({ createdAt: -1 }));
+    (q) => q.populate('children', 'name rollNumber class section photo photoKey').sort({ createdAt: -1 }));
   res.json({ success: true, ...result });
 });
 
