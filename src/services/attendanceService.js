@@ -4,8 +4,21 @@ const { HttpError } = require('../utils/http');
 const { toDayKey, formatDay } = require('../utils/dates');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
 const { notifyParents } = require('./notify');
+const { mapLimit, isDuplicateKey } = require('../utils/concurrency');
 
 const STATUSES = ['Present', 'Absent', 'Late', 'Leave', 'Holiday'];
+
+// Creates or updates one attendance row and returns the row as it was before. When two saves create the same row at the
+// same moment, the unique index rejects one of them; that one is simply repeated and then updates the existing row.
+async function upsertRow(filter, update) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await Attendance.findOneAndUpdate(filter, update, { upsert: true, returnDocument: 'before', lean: true });
+    } catch (err) {
+      if (!isDuplicateKey(err) || attempt >= 3) throw err;
+    }
+  }
+}
 
 // Saves attendance for a class on one day. Re-saving the same day updates records
 // (idempotent). Parents are notified only when a child's status becomes Absent/Late.
@@ -36,22 +49,16 @@ async function saveClassAttendance({ user, school, teacher, date, cls, section, 
   const invalid = normalized.filter((r) => !byId.has(r.studentId));
   if (invalid.length) throw new HttpError(400, `${invalid.length} student(s) do not belong to ${key.class}-${key.section}`);
 
-  const previous = await Attendance.find({ school, studentId: { $in: students.map((s) => s._id) }, date: day });
-  const prevStatus = new Map(previous.map((p) => [String(p.studentId), p.status]));
-
-  await Attendance.bulkWrite(normalized.map((r) => ({
-    updateOne: {
-      filter: { school, studentId: r.studentId, date: day },
-      update: {
-        $set: { status: r.status, remarks: r.remarks, markedBy: user._id, class: key.class, section: key.section, school },
-      },
-      upsert: true,
-    },
-  })));
+  // Each row is written with one atomic upsert that also returns what was there before. Two saves of the same class and
+  // day at the same moment therefore cannot both see "no previous status", so a parent is told once per change.
+  const before = await mapLimit(normalized, 10, (r) => upsertRow(
+    { school, studentId: r.studentId, date: day },
+    { $set: { status: r.status, remarks: r.remarks, markedBy: user._id, class: key.class, section: key.section, school } },
+  ));
 
   let notified = 0;
-  for (const r of normalized) {
-    if ((r.status === 'Absent' || r.status === 'Late') && prevStatus.get(r.studentId) !== r.status) {
+  for (const [i, r] of normalized.entries()) {
+    if ((r.status === 'Absent' || r.status === 'Late') && before[i]?.status !== r.status) {
       const student = byId.get(r.studentId);
       notified += await notifyParents(student, {
         title: `Attendance: ${r.status}`,
