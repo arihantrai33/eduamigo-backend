@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const { corsOrigins } = require('./config/env');
 const { protect, requireFeature } = require('./middleware/authMiddleware');
 const { isSchoolDomainOrigin } = require('./services/schoolDirectory');
+const { log, errorFields, requestLogger } = require('./utils/logger');
 
 // Mount-level plan check: the whole module belongs to one feature.
 const gated = (feature) => [protect, requireFeature(feature)];
@@ -14,6 +15,7 @@ function buildApp() {
 
   app.set('trust proxy', 1); // Render / Vercel sit behind a proxy
   app.disable('x-powered-by');
+  app.use(requestLogger);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
   const allowed = corsOrigins();
@@ -25,6 +27,7 @@ function buildApp() {
       isSchoolDomainOrigin(origin).then((ok) => cb(null, ok), () => cb(null, false));
     },
     credentials: true,
+    exposedHeaders: ['X-Request-Id'], // so the app can show a support reference when something fails
   }));
 
   // Payment gateway webhook: needs the exact raw body to check the signature, so it comes before express.json.
@@ -99,11 +102,11 @@ function buildApp() {
     }
 
     if (status >= 500) {
-      console.error(`[${req.method} ${req.originalUrl}]`, err);
+      log.error('request_failed', { requestId: req.id, method: req.method, path: req.originalUrl.split('?')[0], status, ...errorFields(err) });
       // Only errors written for users (expose: true) keep their message; anything else stays generic.
       if (!err.expose) message = 'Something went wrong. Please try again.';
     }
-    res.status(status).json({ success: false, message, ...(err.extra || {}) });
+    res.status(status).json({ success: false, message, ...(status >= 500 ? { requestId: req.id } : {}), ...(err.extra || {}) });
   });
 
   return app;

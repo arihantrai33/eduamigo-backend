@@ -12,6 +12,10 @@ function assertEnv() {
   if (process.env.JWT_SECRET.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters long');
   }
+  // Without an allow-list the CORS check lets every website call the API, which is only acceptable in development.
+  if (process.env.NODE_ENV === 'production' && !corsOrigins().length) {
+    throw new Error('CORS_ORIGINS must list the allowed frontend origins in production');
+  }
 }
 
 function jwtSecret() {
