@@ -58,3 +58,39 @@ describe('chat inbox is school scoped', () => {
     expect(row.unread).toBe(0);
   });
 });
+
+describe('fee reminders are sent once', () => {
+  const fees = () => Fee.create([
+    { school: A.school._id, studentId: A.student._id, feeType: 'Tuition', amount: 5000, paidAmount: 0, status: 'Unpaid', dueDate: day('2026-10-08') },
+    { school: A.school._id, studentId: A.student._id, feeType: 'Transport', amount: 1000, paidAmount: 400, status: 'Partial', dueDate: day('2026-10-03') },
+  ]);
+
+  test('running the job again the same day sends nothing new', async () => {
+    await fees();
+    expect(await sendFeeReminders(NOW)).toBe(2);
+    expect(await sendFeeReminders(NOW)).toBe(0);
+    expect(await Notification.countDocuments({})).toBe(2);
+  });
+
+  test('two instances running at the same moment send each reminder once', async () => {
+    await fees();
+    const [a, b] = await Promise.all([sendFeeReminders(NOW), sendFeeReminders(NOW)]);
+    expect(a + b).toBe(2);
+    expect(await Notification.countDocuments({})).toBe(2);
+  });
+
+  test('a changed due date is a new reminder', async () => {
+    const [tuition] = await fees();
+    await sendFeeReminders(NOW);
+    await Fee.updateOne({ _id: tuition._id }, { dueDate: day('2026-10-03') }); // now due in 2 days
+    expect(await sendFeeReminders(NOW)).toBe(1);
+  });
+
+  test('if sending fails, the reminder is released for the next run', async () => {
+    await fees();
+    const spy = jest.spyOn(Notification, 'create').mockRejectedValueOnce(new Error('push service down'));
+    await expect(sendFeeReminders(NOW)).rejects.toThrow('push service down');
+    spy.mockRestore();
+    expect(await sendFeeReminders(NOW)).toBe(2);
+  });
+});

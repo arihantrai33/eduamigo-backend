@@ -7,6 +7,7 @@ const { corsOrigins } = require('./config/env');
 const { protect, requireFeature } = require('./middleware/authMiddleware');
 const { isSchoolDomainOrigin } = require('./services/schoolDirectory');
 const { log, errorFields, requestLogger } = require('./utils/logger');
+const { apiLimiter } = require('./middleware/rateLimit');
 
 // Mount-level plan check: the whole module belongs to one feature.
 const gated = (feature) => [protect, requireFeature(feature)];
@@ -43,6 +44,7 @@ function buildApp() {
     res.status(db === 'up' ? 200 : 503).json({ status: db === 'up' ? 'ok' : 'degraded', db });
   });
   app.get('/', (req, res) => res.json({ message: 'EduAmigo API' }));
+  app.use('/api', apiLimiter);
 
   app.use('/api/public',         require('./routes/publicRoutes'));
   app.use('/api/platform',       require('./routes/platformRoutes'));

@@ -4,6 +4,7 @@
 const cron = require('node-cron');
 const Fee = require('../models/Fee');
 const Student = require('../models/Student');
+const ReminderLog = require('../models/ReminderLog');
 const { notifyParents } = require('../services/notify');
 const { schoolIdsWithFeature } = require('../services/subscription');
 const { SCHOOL_TZ, toDayKey, formatDay } = require('../utils/dates');
@@ -32,11 +33,24 @@ async function sendFeeReminders(now = new Date()) {
       if (balance <= 0) continue;
       const student = await Student.findOne({ _id: fee.studentId, school: fee.school, isActive: true });
       if (!student) continue;
-      sent += await notifyParents(student, {
-        title,
-        message: `${fee.feeType || 'Fee'} for ${student.name}: Rs ${balance.toLocaleString('en-IN')} is due on ${formatDay(fee.dueDate)}.`,
-        type: 'Fee',
-      });
+      // Claim this reminder first: if another run (or instance) already did, the unique key rejects us and we skip it.
+      const claim = { school: fee.school, fee: fee._id, days, dueDate: fee.dueDate };
+      try {
+        await ReminderLog.create(claim);
+      } catch (err) {
+        if (err.code === 11000) continue;
+        throw err;
+      }
+      try {
+        sent += await notifyParents(student, {
+          title,
+          message: `${fee.feeType || 'Fee'} for ${student.name}: Rs ${balance.toLocaleString('en-IN')} is due on ${formatDay(fee.dueDate)}.`,
+          type: 'Fee',
+        });
+      } catch (err) {
+        await ReminderLog.deleteOne(claim); // nothing was sent, so a later run may try again
+        throw err;
+      }
     }
   }
   return sent;

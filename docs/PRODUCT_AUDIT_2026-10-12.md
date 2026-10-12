@@ -118,12 +118,12 @@ Limits [Observed from the docs]: evaluated on demo data, not on real school traf
 | 2 | Rotate secrets, back up, migrate production, merge to `main` | Blocker | S |
 | 3 | Require `CORS_ORIGINS` in production; `npm audit fix` for `proxy-addr` | High | XS |
 | 4 | Error tracking, structured logging with request IDs, uptime check | High | S |
-| 5 | Shared rate-limit store and a global limit | High | S |
+| 5 | Shared rate-limit store and a global limit | High | S | Done 2026-10-13: see `docs/SECURITY.md` |
 | 6 | Tenant-scope guard (plugin plus failing test) | High | M | Done 2026-10-12: see `docs/TENANT_GUARD.md` |
 | 7 | Paid Atlas and Render tiers, backup schedule, restore drill | High | S |
 | 8 | Frontend: smoke tests for login, fees and Ask; triage lint errors | Medium | M |
 | 9 | Token lifetime and storage hardening, upload signature check, CSP | Medium | M |
-| 10 | Cron dedupe or move to a single worker | Medium | S |
+| 10 | Cron dedupe or move to a single worker | Medium | S | Fee reminders done 2026-10-13 (`ReminderLog`); note processing already locks |
 | 11 | firebase-admin major upgrade | Medium | S |
 | 12 | Clean up prototypes and `_to_delete` | Low | XS |
 

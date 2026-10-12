@@ -46,3 +46,22 @@ marked otherwise.
 
 ## Reporting
 Security issues go to the project owner; do not post keys or logs containing personal data in tickets.
+
+## Rate limits
+
+- **Stored in MongoDB** (`RateLimit` collection, `src/services/rateLimitStore.js`): login, password reset, public school lookup, AI revision and
+  EduAmigo Ask. Counts survive a restart and are shared by every server instance. Rows expire by themselves (TTL index).
+  `RATE_LIMIT_STORE=memory` keeps them in the process instead (default under automated tests).
+- **Login** is limited twice: 10 attempts per 15 minutes per IP + account, and 30 per 15 minutes per account alone, so many addresses
+  cannot grind on one account. The second limit is generous so nobody can lock a real user out with a few requests.
+- **Flood guard on the whole API** (`/api`, except `/api/health`): in memory, per instance, on purpose (no database write per request).
+  Signed-in callers are counted per session token, so users on one school network do not share an allowance; anonymous callers are
+  counted per IP. Defaults 300 per minute signed in, 120 anonymous; override with `API_USER_PER_MINUTE` and `API_ANON_PER_MINUTE`.
+- If the limiter cannot reach MongoDB, requests are allowed and the error is logged by express-rate-limit (`passOnStoreError`),
+  so a database problem does not lock everyone out. Watch the logs for "error from store".
+
+## Scheduled jobs
+
+Fee reminders write one `ReminderLog` row per fee, reminder (7 or 2 days) and due date before sending, protected by a unique index. A repeated
+run or a second instance skips what was already sent; a send that fails releases its row so the next run retries. Note processing claims
+each note with a lock. Both still start inside the web process; set `DISABLE_JOBS=true` on any extra instance that should not run them.

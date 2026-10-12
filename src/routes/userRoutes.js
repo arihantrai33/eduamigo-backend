@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
-const { loginLimiter, passwordResetLimiter } = require('../middleware/rateLimit');
+const { loginLimiter, loginAccountLimiter, passwordResetLimiter } = require('../middleware/rateLimit');
 const c = require('../controllers/userController');
 const { audited } = require('../middleware/auditTrail');
 
-router.post('/login', loginLimiter, c.loginUser);
+router.post('/login', loginLimiter, loginAccountLimiter, c.loginUser);
 router.post('/forgot-password', passwordResetLimiter, c.forgotPassword);
 router.post('/reset-password', passwordResetLimiter, c.resetPasswordWithCode);
 
