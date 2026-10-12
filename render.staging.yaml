@@ -1,0 +1,35 @@
+# Staging environment for the SaaS release. Production (eduamigo-backend) is a separate service and is not touched.
+# Create it in Render: New > Blueprint > this repository > branch "staging" > Blueprint file path "render.staging.yaml".
+# Values marked sync: false are asked for once in the Render dashboard and never stored in git.
+services:
+  - type: web
+    name: eduamigo-staging
+    runtime: node
+    plan: free
+    region: oregon
+    branch: staging
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      - key: MONGO_URI
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
