@@ -10,7 +10,9 @@ process.env.NODE_ENV = 'development';
 process.env.DISABLE_JOBS = 'true';
 process.env.EMAIL_PROVIDER = 'log';            // reset codes are printed in this terminal
 process.env.JWT_SECRET = process.env.DEMO_JWT_SECRET || 'local-demo-secret-not-for-production-use-only';
-delete process.env.CORS_ORIGINS;               // allow the local frontend
+// Allow the local website and the mobile apps (capacitor://localhost, https://localhost). Set to empty rather than
+// deleted: loading a backup reads .env again, which would bring a deleted CORS_ORIGINS back and block the apps.
+process.env.CORS_ORIGINS = '';
 // Local demo only: many people (and the end-to-end tests) sign in from this one machine, so the per-address limits
 // are raised. Production keeps its defaults (src/middleware/rateLimit.js).
 process.env.PUBLIC_LOOKUP_PER_MINUTE = process.env.PUBLIC_LOOKUP_PER_MINUTE || '5000';
