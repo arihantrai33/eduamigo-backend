@@ -5,7 +5,8 @@
 //   3. after the answer  ```check blocks re-computed (mathcheck.js), ```diagram blocks validated (diagram.js),
 //                        cited passages ([S1]) matched, reliability note built from that evidence (confidence.js)
 // Identity, school, class and section come from the signed-in user on the server. Nothing here can change records, send
-// messages or create tickets. Web research is not part of this path (see research.js): no provider is configured.
+// messages or create tickets. There is no web research: no search provider is configured, so the tutor never claims to
+// have searched the web (docs/EDUAMIGO_LEARNING_AI.md, "Web research").
 
 const llm = require('../assistant/llm');
 const { detectLanguage } = require('../assistant/text');

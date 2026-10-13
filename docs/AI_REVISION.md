@@ -1,5 +1,9 @@
 # AI Revision: how it works and how to set it up
 
+> Since 2026-10-14 the student screen is **Learning AI** (`/student/learn`, `/api/learning`, see
+> `EDUAMIGO_LEARNING_AI.md`); `/student/revise` opens it. The note processing and the Atlas index below are still what the
+> tutor's vector search uses; without Atlas it searches the same chunks with BM25. `/api/revision/ask` still exists.
+
 ## Flow
 1. A teacher uploads a PDF for a class (for example `10-A`, or `10` for every section) from **Upload Materials**.
 2. Every 5 minutes the note processing job picks up new notes (one server claims each note, so nothing is processed twice),

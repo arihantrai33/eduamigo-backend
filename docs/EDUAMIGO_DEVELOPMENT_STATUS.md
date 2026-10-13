@@ -133,6 +133,24 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
     screenshots, 0 JS errors, 0 sideways scroll; builds ok; 0 lint messages on changed lines.
   - Local commits (not pushed): backend 6ea4038 (+ this update); frontend 16f3531, 3ff48d3, 7ed0f18, 7cae7d3,
     86983f4. Console unchanged since ad35921.
+- 2026-10-14: EduAmigo AI. Details, measurements and limits are in `docs/EDUAMIGO_LEARNING_AI.md`.
+  - Root cause of study requests turning into tickets: the understanding prompt filed "a doubt about a lesson" under
+    `forward` (a ticket for the teacher), and there was no study topic. Fixed with a `learning` topic and a `learn` kind,
+    with the server overruling a model `forward` that has no pass-on words. Explicit "teacher ko bolo..." still makes a
+    ticket. A records failure in Ask is now reported as a failure for that part, never as "nothing found".
+  - Learning AI for students (`/student/learn` replaces "Revise with AI"):
+    - AI Tutor and Guided Learning, streamed: school notes searched (vector on Atlas, BM25 elsewhere) and cited.
+    - Calculations re-computed by a safe parser; validated diagrams.
+    - Evidence-based reliability notes (no percentages); history with delete and a 180-day limit.
+    - Voice Learning with the browser's speech services.
+    - Practice & Assessment with checked answer keys and fair marking.
+    - Revision Planner from real exam dates; Learning Progress.
+  - Web research is not built: no search provider is configured (needs approval).
+  - Results:
+    - backend 773/773; frontend Playwright 55/55; sweep 150 screenshots, 0 JS errors, 0 sideways scroll.
+    - Live latency (12 tutor answers): first token p50 0.93 s, p95 3.6 s; Ask understanding p50 1.5 s.
+    - Voice latency is recorded in the app but not yet measured on a real device.
+  - Local commits (not pushed): backend 47e82ab, 9823698, 80ec694 (+ docs); frontend f5f5cfe (+ docs).
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
@@ -146,6 +164,12 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 - Date of admission: existing and imported students show "Not recorded" until the school enters the real date; the
   migration has not been run on real data.
 - Printing verified in Chrome only (Safari not automated, Firefox not installed).
+- AI:
+  - Voice not tried with real speech or on phones.
+  - No labelled accuracy set for study answers.
+  - Web research not built.
+  - Notes have no page numbers.
+  - The wider Ask upgrade (comparisons, trends and follow-ups across all modules) is not done.
 - Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
   verified on a phone yet.
 - iOS links (`eduamigo://`): iOS asks "Open in EduAmigo?"; the scheme is verified, tapping Open is a manual check.
@@ -158,6 +182,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 1. Owner checks: print a receipt, a report card and a certificate in Safari (or turn on Safari ▸ Settings ▸ Developer ▸
    "Allow remote automation" if it should be automated); approve running `migrate:admission-dates` on real data when
    ready (after a backup).
-2. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
-3. Security: Content-Security-Policy and the web token storage decision.
-4. W9: final handover document.
+2. Learning AI pilot on the local demo with real uploaded notes, a teacher and a few students; voice on a real Android
+   phone and iPhone; a labelled study-question evaluation set. Approval needed for a web search provider.
+3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
+4. Security: Content-Security-Policy and the web token storage decision.
+5. W9: final handover document.
