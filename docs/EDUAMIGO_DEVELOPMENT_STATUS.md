@@ -69,6 +69,14 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   starts signed out). Also: the student results page showed a phone tab bar on desktop. Release bundle (AAB) builds
   unsigned with a placeholder API address. Frontend commits bfe7c4f, 98ee923, a3972b2.
 
+- 2026-10-13: web UI/UX transformation (frontend `docs/EDUAMIGO_WEB_UX_AUDIT.md` has the route inventory and log).
+  Shared components PageHeader, PortalHeader, StatCard/StatGrid and toolbar classes; 29 admin screens moved off their
+  coloured banners and colour-bordered stat cards onto the dashboard's look; four portal screens with stray white
+  headers now match the rest; portals sit in a centred column on wide screens; 2.8 s Transport animation removed;
+  teacher single class preselected; leave balance contrast; three admin screens no longer scroll sideways on phones.
+  Full sweep after the work: 150 screenshots, 0 JavaScript errors, 0 routes with page-level sideways scroll;
+  Playwright 19/19. Frontend commits b15be6f..c87c491.
+
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
   Fees); they are responsive but not yet visually unified with the dashboards. Example: on the teacher's leave screen
@@ -87,8 +95,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 
 ## Next actions (resume here)
 1. Owner decision: unify the student results tab bar (see Known gaps).
-2. W4: unify internal screens portal by portal (shared page header, tokens instead of literals, contrast fixes).
-   Visible redesigns are shown to the owner as screenshots before they are applied.
+2. W4 (largely done 2026-10-13, see the web UX audit): owner decision on phone home headers scrolling away; table card
+   layouts on phones; form validation review; remaining admin headers (Chat, ID cards, Ask, Teacher Profile, TC).
 3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 4. Security: Content-Security-Policy and the web token storage decision.
 5. W9: final handover document.
