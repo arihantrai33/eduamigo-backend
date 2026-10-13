@@ -474,3 +474,15 @@ describe('worked answers without a check block', () => {
     expect(calls).toHaveLength(1); // only the streamed answer
   });
 });
+
+describe('learning context route', () => {
+  test('is registered: the student gets their class context; no token is 401 and other roles 403, never 404', async () => {
+    await seedNotes();
+    const res = await api().get('/api/learning/context').set(auth(A.studentUser));
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ class: '10', section: 'A', subjects: ['Mathematics', 'Science'], exams: [], capabilities: { webResearch: false, historyDays: 180 } });
+    expect((await api().get('/api/learning/context')).status).toBe(401);
+    expect((await api().get('/api/learning/context').set(auth(A.parentUser))).status).toBe(403);
+    expect((await api().get('/api/learning/nope').set(auth(A.studentUser))).body.message).toBe('Endpoint not found');
+  });
+});
