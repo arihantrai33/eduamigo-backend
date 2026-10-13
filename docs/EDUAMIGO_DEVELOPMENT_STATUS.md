@@ -92,6 +92,25 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   routes at 375 and 1440 px, 0 JS errors). Turning a school off and voiding an invoice now ask first; invoice actions
   report the result; "Schools" no longer lights up with "Add a school". Void is checked by lint/build only (the demo
   plans have no price, so no invoice can be created).
+- 2026-10-13: final verification and hardening pass (no redesign; details in the frontend's web UX audit).
+  - Errors: 18 "Error" fallbacks and 18 raw technical messages replaced; one helper gives the server's words, plain
+    advice for no connection/timeouts/401/403/404/413/429, and for a server failure the action plus a short reference
+    matching this backend's request id log line. The console shows the same reference. No backend change needed: the
+    error handler already hides internals on 5xx and logs them with the request id.
+  - Printing, checked as PDFs: report cards printed at half width with the last line on an extra page, the receipt's
+    last line fell onto page 2, the transfer certificate printed the admin sidebar and Ask button and would stop after
+    one page. Fixed: full width, one page per report card/receipt, long documents continue cleanly.
+  - Console invoice Void tested with a mocked platform API (Cancel sends nothing; OK voids and reports it).
+  - Unsaved changes: moving to another screen inside the app now asks (router navigator guarded, as BrowserRouter
+    has no useBlocker); sign-out asks before clearing the session; reload/close also asks for dialogs. Browser
+    Back/Forward is not covered.
+  - Tests no longer touch a running demo: Playwright starts its own on 8100/5174. Before this, test runs reused the
+    owner's in-memory demo on 8000 and wrote test records into its GVPS school (cleared when that demo restarts).
+  - Results: frontend Playwright 35/35 twice; console Playwright 6/6, lint and build clean; backend 727/727; frontend
+    build ok, lint on changed files 70 → 64 messages; sweep 150 screenshots with 0 JS errors and 0 sideways scroll.
+  - Local commits, none pushed (no upstream on any branch): frontend `feature/responsive-product` dea2606, 95bf32e,
+    403714f, 7091a85, e3983ff; console `main` ad35921; backend `hardening/pilot-readiness` this status update.
+    Working trees clean except the owner's untracked `docs/UNIFIEDAI_ARCHITECTURE_GUIDE.md` (left untouched).
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
@@ -100,8 +119,11 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   (Fixed 2026-10-13, frontend 837b4d7: the 48 icon-only back, send and close buttons that showed ← ➤ × now use line
   icons and all have screen-reader labels.)
 - (Fixed 2026-10-13, frontend 2ab6301: the student results page now uses the shared tab bar with Learn current.)
-- Unsaved-change warnings cover dialogs and tab close/reload, not moving to another screen inside the app
-  (`BrowserRouter` cannot block navigation). About 15 error messages fall back to the word "Error" on network failures.
+- Unsaved-change warnings do not cover the browser's Back/Forward buttons (would need a data router). Session expiry
+  on a dirty form: the browser asks, but the session is already cleared.
+- Transfer certificate "Date of admission" is the student record's creation date (no admission date field exists);
+  wrong for students imported later. Owner decision: add a field, or rename the line.
+- Printing checked in Chrome only.
 - Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
   verified on a phone yet.
 - iOS links (`eduamigo://`): iOS asks "Open in EduAmigo?"; the scheme is verified, tapping Open is a manual check.
@@ -111,8 +133,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 - Not done: physical phones, signed release builds, store listings and review, deployment (paused until authorised).
 
 ## Next actions (resume here)
-1. W4 leftovers: print check of report card, receipt and TC; generic "Error" fallbacks; owner console has no
-   automated tests and Void needs a browser check with a priced plan.
+1. Owner decisions: transfer certificate admission date; whether to move to a data router so Back/Forward can be
+   guarded too.
 2. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 3. Security: Content-Security-Policy and the web token storage decision.
 4. W9: final handover document.
