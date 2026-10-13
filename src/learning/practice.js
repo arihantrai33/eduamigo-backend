@@ -108,6 +108,10 @@ function publicSession(s) {
   };
 }
 
+// Where the student stands in this set. The difficulty only changes on enough evidence: every question answered and at least
+// MIN_EVIDENCE of them marked (a "show solution" is not evidence). A set of one or two questions never moves the level.
+// `struggling` (under half right on enough evidence) tells the app to offer to teach the missed topics again.
+const MIN_EVIDENCE = 3;
 function summarize(s) {
   const last = new Map();
   for (const a of s.attempts) if (a.verdict !== 'revealed' || !last.has(a.questionId)) last.set(a.questionId, a);
@@ -115,10 +119,15 @@ function summarize(s) {
   const score = marked.reduce((n, a) => n + (a.verdict === 'correct' ? 1 : a.verdict === 'partly' ? 0.5 : 0), 0);
   const answered = last.size;
   const accuracy = marked.length ? score / marked.length : null;
+  const enoughEvidence = answered === s.questions.length && marked.length >= MIN_EVIDENCE;
   const i = LEVELS.indexOf(s.difficulty);
-  const nextDifficulty = accuracy === null || answered < s.questions.length ? s.difficulty
+  const nextDifficulty = !enoughEvidence ? s.difficulty
     : accuracy >= 0.8 ? LEVELS[Math.min(2, i + 1)] : accuracy < 0.5 ? LEVELS[Math.max(0, i - 1)] : s.difficulty;
-  return { answered, total: s.questions.length, score, marked: marked.length, nextDifficulty };
+  const struggling = enoughEvidence && accuracy < 0.5;
+  // The topics of the questions that were not answered right (or whose solution had to be shown).
+  const topicOf = new Map(s.questions.map((q) => [q.id, q.topic || s.topic || '']));
+  const missed = [...new Set([...last.entries()].filter(([, a]) => a.verdict !== 'correct').map(([id]) => topicOf.get(id)).filter(Boolean))].slice(0, 3);
+  return { answered, total: s.questions.length, score, marked: marked.length, enoughEvidence, nextDifficulty, struggling, ...(struggling ? { reteach: { subject: s.subject, topics: missed.length ? missed : [s.topic].filter(Boolean) } } : {}) };
 }
 
 // The weakest subject/topic from earlier practice (for "focus on my weak topics").

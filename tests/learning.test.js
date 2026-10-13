@@ -486,3 +486,36 @@ describe('learning context route', () => {
     expect((await api().get('/api/learning/nope').set(auth(A.studentUser))).body.message).toBe('Endpoint not found');
   });
 });
+
+describe('teach, practise, evaluate, revise', () => {
+  const UsageCounter = require('../src/models/UsageCounter');
+  const numeric = (n, prompt, answer, expr) => ({ format: 'numeric', topic: 'Fractions', prompt, answer, hint: 'h', solution: 's', check: { type: 'value', expr, answer } });
+  const make = async (qs) => { jsons.push({ questions: qs }); return (await api().post('/api/learning/practice').set(auth(A.studentUser)).send({ subject: 'Mathematics', topic: 'Fractions', difficulty: 'medium', formats: ['numeric'], count: qs.length })).body.data; };
+  const answer = (s, i, a) => api().post(`/api/learning/practice/${s._id}/answer`).set(auth(A.studentUser)).send({ questionId: s.questions[i].id, answer: a });
+
+  test('difficulty moves only on enough evidence: a short set never changes the level', async () => {
+    const s = await make([numeric(1, 'Write 3/4 as a decimal.', '0.75', '3/4'), numeric(2, 'Write 1/2 as a decimal.', '0.5', '1/2')]);
+    await answer(s, 0, '0.75'); const r = await answer(s, 1, '0.5');
+    expect(r.body.data.summary).toMatchObject({ answered: 2, marked: 2, enoughEvidence: false, nextDifficulty: 'medium', struggling: false });
+  });
+
+  test('a student who struggles is offered the topics to learn again; showing a solution is not counted as an answer', async () => {
+    const s = await make([numeric(1, 'Write 3/4 as a decimal.', '0.75', '3/4'), numeric(2, 'Write 1/2 as a decimal.', '0.5', '1/2'), numeric(3, 'Write 1/4 as a decimal.', '0.25', '1/4'), numeric(4, 'Write 1/5 as a decimal.', '0.2', '1/5')]);
+    await answer(s, 0, '0.1'); await answer(s, 0, '0.2'); await answer(s, 0, '0.3'); // three wrong tries: the solution is then shown
+    await answer(s, 1, '9'); await answer(s, 1, '8'); await answer(s, 1, '7');
+    await api().post(`/api/learning/practice/${s._id}/reveal`).set(auth(A.studentUser)).send({ questionId: s.questions[2].id });
+    const r = await answer(s, 3, '0.2');
+    const sum = r.body.data.summary;
+    expect(sum).toMatchObject({ answered: 4, marked: 3, enoughEvidence: true, struggling: true, nextDifficulty: 'easy' });
+    expect(sum.reteach).toEqual({ subject: 'Mathematics', topics: ['Fractions'] });
+  });
+
+  test('a failed generation saves no set and does not count as a question the student got', async () => {
+    global.fetch = jest.fn(async () => ({ ok: false, status: 500, text: async () => 'down', headers: { get: () => null } }));
+    const res = await api().post('/api/learning/practice').set(auth(A.studentUser)).send({ subject: 'Mathematics', topic: 'Fractions' });
+    expect(res.status).toBe(503);
+    expect(res.body.message).toMatch(/could not prepare practice questions/);
+    expect(await PracticeSession.countDocuments({})).toBe(0);
+    expect(await UsageCounter.countDocuments({ metric: 'ai_questions' })).toBe(0);
+  });
+});
