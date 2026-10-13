@@ -102,10 +102,11 @@ function cacheSet(key, value) {
 }
 
 // One completion. Returns { text, provider, model, usage, ms, cached } or throws when every provider failed.
-async function complete({ system, user, json = false, maxTokens = 400, temperature = 0.2 }) {
+// cache: false for calls that must not repeat an earlier answer (new practice questions, marking a fresh attempt).
+async function complete({ system, user, json = false, maxTokens = 400, temperature = 0.2, cache: useCache = true }) {
   if (!available()) throw new Error('No language model is configured');
   const key = crypto.createHash('sha256').update(JSON.stringify([system, user, json, maxTokens])).digest('hex');
-  const cached = cacheGet(key);
+  const cached = useCache ? cacheGet(key) : null;
   if (cached) return { ...cached, cached: true, ms: 0 };
 
   const errors = [];
@@ -126,7 +127,7 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
       if (!out.text) throw new Error('empty response');
       health.set(name, { failures: 0, skipUntil: 0 });
       const value = { text: out.text, provider: name, model: PROVIDERS[name].model(), usage: out.usage };
-      cacheSet(key, value);
+      if (useCache) cacheSet(key, value);
       return { ...value, cached: false, ms: Date.now() - started };
     } catch (err) {
       const failures = h.failures + 1;
@@ -149,6 +150,90 @@ async function completeJson(args) {
   }
 }
 
+// Streaming chat for the tutor (src/learning). messages: [{ role: 'system'|'user'|'assistant', content }].
+// Returns { provider, model, pieces } where pieces is an async iterable of text. A provider that fails before its first
+// piece is skipped and the next one is tried; after the first piece a failure ends the stream (the caller says so).
+// `signal` cancels the request (the person stopped the answer or left).
+const STREAMERS = {
+  async azure({ messages, maxTokens, temperature, signal }) {
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '');
+    const version = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
+    const url = `${endpoint}/openai/deployments/${encodeURIComponent(process.env.AZURE_OPENAI_DEPLOYMENT)}/chat/completions?api-version=${version}`;
+    const signals = [AbortSignal.timeout(timeoutMs()), signal].filter(Boolean);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': process.env.AZURE_OPENAI_API_KEY },
+      body: JSON.stringify({ messages, temperature, max_tokens: maxTokens, stream: true }),
+      signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
+    });
+    if (!res.ok || !res.body) throw new Error(`Azure OpenAI ${res.status}`);
+    return (async function* pieces() {
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for await (const chunk of res.body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') return;
+          try {
+            const text = JSON.parse(data).choices?.[0]?.delta?.content;
+            if (text) yield text;
+          } catch { /* a keep-alive or partial line */ }
+        }
+      }
+    }());
+  },
+  async gemini({ messages, maxTokens, temperature, signal }) {
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
+    const model = client.getGenerativeModel({ model: PROVIDERS.gemini.model(), systemInstruction: system }, { timeout: timeoutMs() });
+    const contents = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+    const result = await model.generateContentStream({
+      contents, generationConfig: { temperature, maxOutputTokens: Math.max(maxTokens * 4, 1024) },
+    }, signal ? { signal } : undefined);
+    return (async function* pieces() {
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) yield text;
+      }
+    }());
+  },
+};
+
+async function stream({ messages, maxTokens = 900, temperature = 0.3, signal } = {}) {
+  if (!available()) throw new Error('No language model is configured');
+  const errors = [];
+  for (const name of order()) {
+    const h = health.get(name) || { failures: 0, skipUntil: 0 };
+    if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
+    try {
+      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal });
+      // Read the first piece here, so a provider that fails or stays silent is skipped before anything is shown.
+      const it = pieces[Symbol.asyncIterator]();
+      const first = await withTimeout(it.next(), timeoutMs());
+      if (first.done) throw new Error('empty response');
+      health.set(name, { failures: 0, skipUntil: 0 });
+      return {
+        provider: name,
+        model: PROVIDERS[name].model(),
+        pieces: (async function* rest() { yield first.value; for (let n = await it.next(); !n.done; n = await it.next()) yield n.value; }()),
+      };
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      const failures = h.failures + 1;
+      health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
+      errors.push(`${name}: ${err.message}`);
+      if (process.env.NODE_ENV !== 'test') console.error(`[learning] ${name} stream failed: ${err.message}`);
+    }
+  }
+  throw new Error(`All language model providers failed (${errors.join('; ')})`);
+}
+
 // Which providers would be used, for the admin dashboard and the health check.
 const status = () => ({
   enabled: available(),
@@ -157,4 +242,4 @@ const status = () => ({
 
 const resetForTests = () => { health.clear(); cache.clear(); };
 
-module.exports = { complete, completeJson, available, status, resetForTests };
+module.exports = { complete, completeJson, stream, available, status, resetForTests };

@@ -17,4 +17,5 @@ module.exports = {
   hr: require('./hr'),
   policies: require('./policies'),
   general: require('./general'),
+  learning: require('./learning'),
 };

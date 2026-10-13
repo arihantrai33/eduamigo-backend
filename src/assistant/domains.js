@@ -173,6 +173,24 @@ const DOMAINS = {
       ['refund policy', 7], ['fee policy', 7], ['fees policy', 7], ['leave policy', 4], ['promotion rules', 3], ['dress code', 3], ['admission process', 3], ['procedure', 2], ['kaise karte', 1],
     ],
   },
+  // Help with studying, answered by the tutor (src/learning). Never a record and never a ticket: a doubt about a lesson is
+  // explained here; it only goes to a teacher when the person explicitly asks for that (kind "forward" / "human").
+  learning: {
+    about: "help with studying a school subject: explain a concept or a chapter, solve or check a maths or science problem, practice questions, revision and exam preparation tips, a doubt about a lesson. NOT the person's own marks, homework list, notes list or exam dates: those are records",
+    ask: "help with your studies",
+    label: 'Learning help',
+    feature: null,
+    roles: ['student', 'parent', 'teacher', 'admin'],
+    owner: 'subject_teacher',
+    terms: [
+      ['explain', 3], ['explanation', 3], ['samjhao', 3], ['samjha do', 3], ['samjhaiye', 3], ['samjha dijiye', 3], ['samjhana', 2], ['समझाओ', 3], ['समझाइए', 3],
+      ['samajh nahi', 3], ['samajh nahi aaya', 3], ['samajh nahi aa raha', 3], ['dont understand', 3], ["don't understand", 3], ['not understand', 2], ['समझ नहीं', 3],
+      ['kya hota hai', 2], ['kya hoti hai', 2], ['what is', 1], ['meaning of', 2], ['define', 3], ['definition', 3], ['concept', 2],
+      ['solve', 3], ['hal karo', 3], ['hal kijiye', 3], ['sawal', 1], ['formula', 2], ['derive', 3], ['derivation', 3], ['theorem', 2], ['equation', 2],
+      ['revise', 3], ['revision', 3], ['dohrana', 3], ['practice', 2], ['practise', 2], ['practice questions', 3], ['quiz me', 3],
+      ['prepare', 2], ['preparation', 2], ['padhai', 2], ['padhna', 2], ['padhao', 3], ['पढ़ाओ', 3], ['doubt', 2], ['example do', 2], ['example dijiye', 2],
+    ],
+  },
   general: {
     about: "greetings, thanks, what the assistant can do",
     ask: "something general",

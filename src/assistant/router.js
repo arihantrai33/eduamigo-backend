@@ -195,14 +195,21 @@ async function route(text, { role, allowed, previousTopic, useModel = true } = {
 
 const { SAFETY_CATEGORIES } = require('./policy');
 const { RELATIONS } = require('./planner');
-const KINDS = ['ask', 'complaint', 'human', 'forward', 'complaint_inquiry', 'ticket_status'];
+const KINDS = ['ask', 'learn', 'complaint', 'human', 'forward', 'complaint_inquiry', 'ticket_status'];
+
+// Words that ask for a message to be passed to, or a meeting with, a teacher or the office. A study doubt is only ever
+// sent to a person when one of these is in the message itself (see learningOverride in engine.js).
+const PASS_ON = ['bolo', 'bol do', 'bol dena', 'bata do', 'batao unko', 'batana', 'kehna', 'keh do', 'tell', 'inform', 'message', 'msg', 'pass on',
+  'forward', 'ko bolo', 'se kaho', 'kaho', 'meet', 'milna', 'mil sakte', 'call', 'appointment', 'baat karni', 'baat karna', 'se baat', 'complaint', 'shikayat',
+  'बोलो', 'बता दो', 'मिलना'];
+const asksToPassOn = (text) => hasPhrase(text, PASS_ON);
 
 const UNDERSTAND_SYSTEM = `You read one message sent to a school's assistant and split it into the separate questions it contains.
 Users are students, parents, teachers and school staff in India. They write English, Hindi (Devanagari) or Hinglish (Hindi in Roman letters), often with spelling mistakes and short forms (kb = kab, trh = tarah, hw = homework).
 
 Topics:
 ${DOMAIN_KEYS.filter((d) => d !== 'general').map((d) => `- ${d}: ${DOMAINS[d].about}`).join('\n')}
-- general: greetings, thanks, what the assistant can do, or general knowledge unrelated to this school (science, maths, news)
+- general: greetings, thanks, what the assistant can do, or general knowledge unrelated to school studies (news, sports, word meanings)
 
 For EACH separate question return:
 - "text": that part of the message, in the user's own words (fix nothing, but you may add a missing subject from the previous topic)
@@ -211,10 +218,14 @@ For EACH separate question return:
 - "alternative": the second most likely topic, or null
 - "kind": one of
     "ask"               a normal question or request for information
+    "learn"             the user wants help studying: explain a concept or chapter, solve or check a problem, practice questions, revise,
+                        prepare for an exam, or a doubt about a lesson ("photosynthesis samjhao", "I don't understand fractions",
+                        "chapter 3 revise karna hai", "2x+3=11 solve karo"). Topic "learning". The assistant answers it itself: never a ticket.
     "complaint"         the user is making or reporting a complaint, problem or grievance to the school
     "human"             the user wants to speak to a person (principal, teacher, office) or asks to be called
-    "forward"           a question or request that only a person can answer or decide, not records: why marks are low, a doubt about a lesson,
-                        permission, a request to meet, a favour, a message for a teacher ("Maths teacher ko bolo ki beta ka doubt clear kare").
+    "forward"           a question or request that only a person can answer or decide, not records: why marks are low,
+                        permission, a request to meet, a favour, a message for a teacher that the user explicitly asks to pass on
+                        ("Maths teacher ko bolo ki beta ka doubt clear kare"). A doubt the user asks YOU to explain is "learn", not "forward".
                         Also a statement that informs the school of something, such as an absence, coming late or leaving early
                         ("Kabir kal school nahi aa payega", "Riya will be late tomorrow")
     "ticket_status"     the user asks what happened to something they already raised with the school ("complaint ka kya hua?", "any update on my request?", "T-1003 status", "still no reply from the teacher")
@@ -258,7 +269,12 @@ ${children.length ? `The asker's children: ${children.map((c) => `${c.name} (${[
     });
     const list = Array.isArray(out.data?.questions) ? out.data.questions : [];
     const parts = list.slice(0, 4).map((q) => {
-      const kind = KINDS.includes(q?.kind) ? q.kind : 'ask';
+      let kind = KINDS.includes(q?.kind) ? q.kind : 'ask';
+      // A study request is answered by the tutor. The server decides, not the model: a "forward" (which makes a ticket) about
+      // studying stands only when the message itself asks to pass something on to a person.
+      if (q && kind === 'forward' && !asksToPassOn(q.text || text)
+        && (q.topic === 'learning' || scoreKeywords(String(q.text || text)).domain === 'learning')) kind = 'learn';
+      if (q && kind === 'learn') q.topic = 'learning';
       // A missing or unknown topic is only a problem for a normal question: complaints and requests for a person do not need one.
       const topic = q && (DOMAINS[q.topic] || q.topic === 'school_other') ? q.topic : (kind === 'ask' ? null : 'general');
       const conf = Number(q?.confidence);
@@ -375,6 +391,6 @@ function splitQuestions(text, allowed) {
 }
 
 module.exports = {
-  route, understand, reconcile, wordsNameTopic, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, isSevere, isTicketStatusQuestion, isComplaintInquiry, wantsHuman,
+  route, understand, reconcile, wordsNameTopic, scoreKeywords, classifyWithModel, splitQuestions, isSensitive, isSevere, isTicketStatusQuestion, isComplaintInquiry, wantsHuman, asksToPassOn,
   ANSWER_AT, CLARIFY_AT, SENSITIVE, HUMAN, normalize,
 };

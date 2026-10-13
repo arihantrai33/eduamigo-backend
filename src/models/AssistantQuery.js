@@ -8,7 +8,8 @@ const partSchema = new mongoose.Schema({
   confidence: { type: Number, default: 0 },
   runnerUp:   { type: String, default: null },
   method:     { type: String, enum: ['keywords', 'model', 'context', 'choice', 'rule'], default: 'keywords' },
-  action:     { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data'], required: true },
+  // error = the records could not be read (a failure, never reported as "nothing found")
+  action:     { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data', 'error'], required: true },
   sources:    { type: Number, default: 0 },
   grounded:   { type: Boolean, default: true }, // an answer: at least one real record or document was read for it
   composition: { type: String, enum: ['standard', 'composed', 'kept_original'], default: 'standard' }, // model-written answer accepted, or thrown away by the number and name check
@@ -23,7 +24,7 @@ const assistantQuerySchema = new mongoose.Schema({
   text:         { type: String, maxlength: 1000 },
   language:     { type: String, enum: ['en', 'hi', 'hinglish'], default: 'en' },
   parts:        { type: [partSchema], default: [] },
-  action:       { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data'], required: true },
+  action:       { type: String, enum: ['answer', 'clarify', 'handoff', 'blocked', 'no_data', 'error'], required: true },
   latencyMs:    { type: Number, default: 0 },
   requestId:    { type: String, default: null },
   // What the request did, step by step (no message text): [{ step, ms, ok, ...small details }]. For debugging and the dashboard.

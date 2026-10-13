@@ -293,9 +293,23 @@ async function scopeRefusal(ctx, d, text, nlu, forced) {
 }
 
 // One question -> one reply. `forced` comes from a tapped choice: { domain, studentIds, cls, staffId }.
+// A failure while reading records (database error, timeout) is reported as a failure for this part only: it is never shown as
+// "nothing found", it changes nothing, and the other parts of the message are still answered.
 async function answerQuestion(ctx, text, forced = {}) {
-  const out = await answerQuestionInner(ctx, text, forced);
-  return { ...out, question: text };
+  try {
+    const out = await answerQuestionInner(ctx, text, forced);
+    return { ...out, question: text };
+  } catch (err) {
+    ctx.trace?.step('answer', { error: err.name || 'Error' }, false);
+    if (process.env.NODE_ENV !== 'test') console.error(`[assistant] answer failed: ${err.message}`);
+    const d = forced.domain || forced.nlu?.topic || router.scoreKeywords(text, ctx.allowed).domain;
+    const what = DOMAINS[d] && d !== 'general' ? `the ${DOMAINS[d].label.toLowerCase()} records` : 'the school records';
+    return reply({
+      domain: DOMAINS[d] ? d : null, label: DOMAINS[d]?.label || null, action: 'error', question: text,
+      text: `I could not check ${what} just now, so I cannot answer this part. This is not a "no records" answer, and nothing was changed. Please try again in a moment.`,
+      options: [opt('Try again', text, 'ask')],
+    });
+  }
 }
 
 async function answerQuestionInner(ctx, text, forced = {}) {
@@ -396,6 +410,19 @@ async function answerQuestionInner(ctx, text, forced = {}) {
     const out = await skill.run(sctx);
     if (out.ai) ctx.noteAi(out.ai);
     return reply({ ...base, text: out.text, options: out.options || [], generated: !!out.generated });
+  }
+  // Study help: a tutor answer, never a record and never a ticket (skills/learning.js). Written by the tutor in the person's
+  // language, so the record writer (number and name checks against facts) does not rewrite it.
+  if (d === 'learning') {
+    const out = await skill.run(sctx);
+    if (out.ai) ctx.noteAi(out.ai);
+    state.lastDomain = d;
+    return reply({
+      ...base, action: 'answer', text: out.text, generated: true, link: out.link || null,
+      sources: out.sources?.length ? out.sources : [{ type: 'learning', label: 'AI tutor explanation' }],
+      // `confidence` on a reply is the routing confidence (a number); the tutor's evidence-based note is `reliability`.
+      reliability: out.confidence || null, diagrams: out.diagrams?.length ? out.diagrams : undefined,
+    });
   }
 
   // Which student(s).
@@ -663,7 +690,7 @@ async function ask({ user, school, entitlements, message, conversationId, choice
 
   if (aiInfo.used) await recordUsage(schoolId, AI_METRIC);
 
-  const ACTION_RANK = ['handoff', 'clarify', 'blocked', 'no_data', 'answer'];
+  const ACTION_RANK = ['handoff', 'clarify', 'blocked', 'error', 'no_data', 'answer'];
   const overall = ACTION_RANK.find((a) => replies.some((r) => r.action === a)) || 'answer';
   const log = await AssistantQuery.create({
     school: schoolId, user: user._id, role: user.role, conversation: conv._id,
