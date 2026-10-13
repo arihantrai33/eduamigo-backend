@@ -13,6 +13,7 @@
 // short-lived cache.
 
 const crypto = require('crypto');
+const aiUsage = require('../services/aiUsage');
 
 const FAILURE_LIMIT = 3;
 const COOL_OFF_MS = 60 * 1000;
@@ -103,11 +104,15 @@ function cacheSet(key, value) {
 
 // One completion. Returns { text, provider, model, usage, ms, cached } or throws when every provider failed.
 // cache: false for calls that must not repeat an earlier answer (new practice questions, marking a fresh attempt).
-async function complete({ system, user, json = false, maxTokens = 400, temperature = 0.2, cache: useCache = true }) {
+// feature: what the call is for in the usage ledger (defaults to the feature set around the request, see services/aiUsage.js).
+async function complete({ system, user, json = false, maxTokens = 400, temperature = 0.2, cache: useCache = true, feature }) {
   if (!available()) throw new Error('No language model is configured');
   const key = crypto.createHash('sha256').update(JSON.stringify([system, user, json, maxTokens])).digest('hex');
   const cached = useCache ? cacheGet(key) : null;
-  if (cached) return { ...cached, cached: true, ms: 0 };
+  if (cached) {
+    aiUsage.record({ feature, cached: true });
+    return { ...cached, cached: true, ms: 0 };
+  }
 
   const errors = [];
   for (const name of order()) {
@@ -128,8 +133,15 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
       health.set(name, { failures: 0, skipUntil: 0 });
       const value = { text: out.text, provider: name, model: PROVIDERS[name].model(), usage: out.usage };
       if (useCache) cacheSet(key, value);
+      const reported = (out.usage?.input || 0) + (out.usage?.output || 0) > 0;
+      aiUsage.record({
+        feature, provider: name, model: value.model, ms: Date.now() - started, estimated: !reported,
+        inputTokens: reported ? out.usage.input : aiUsage.roughTokens(system) + aiUsage.roughTokens(user), outputTokens: reported ? out.usage.output : aiUsage.roughTokens(out.text),
+      });
       return { ...value, cached: false, ms: Date.now() - started };
     } catch (err) {
+      // A failed call is still a request. What the provider billed for it (if anything) is unknown, so no tokens are claimed.
+      aiUsage.record({ feature, provider: name, model: PROVIDERS[name].model(), ok: false, estimated: true, ms: Date.now() - started });
       const failures = h.failures + 1;
       health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
       errors.push(`${name}: ${err.message}`);
@@ -154,8 +166,9 @@ async function completeJson(args) {
 // Returns { provider, model, pieces } where pieces is an async iterable of text. A provider that fails before its first
 // piece is skipped and the next one is tried; after the first piece a failure ends the stream (the caller says so).
 // `signal` cancels the request (the person stopped the answer or left).
+// Each streamer fills `meter.usage = { input, output }` when the provider reports token counts at the end of the stream.
 const STREAMERS = {
-  async azure({ messages, maxTokens, temperature, signal }) {
+  async azure({ messages, maxTokens, temperature, signal, meter }) {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '');
     const version = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
     const url = `${endpoint}/openai/deployments/${encodeURIComponent(process.env.AZURE_OPENAI_DEPLOYMENT)}/chat/completions?api-version=${version}`;
@@ -163,7 +176,8 @@ const STREAMERS = {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': process.env.AZURE_OPENAI_API_KEY },
-      body: JSON.stringify({ messages, temperature, max_tokens: maxTokens, stream: true }),
+      // include_usage: the provider sends its own token counts in the last chunk, so the ledger is not guessing.
+      body: JSON.stringify({ messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } }),
       signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
     });
     if (!res.ok || !res.body) throw new Error(`Azure OpenAI ${res.status}`);
@@ -179,15 +193,18 @@ const STREAMERS = {
           if (!line.startsWith('data:')) continue;
           const data = line.slice(5).trim();
           if (data === '[DONE]') return;
-          try {
-            const text = JSON.parse(data).choices?.[0]?.delta?.content;
-            if (text) yield text;
-          } catch { /* a keep-alive or partial line */ }
+          // (usage arrives in a chunk before [DONE], handled below)
+          let parsed = null;
+          try { parsed = JSON.parse(data); } catch { /* a keep-alive or partial line */ }
+          if (!parsed) continue;
+          if (parsed.usage) meter.usage = { input: parsed.usage.prompt_tokens || 0, output: parsed.usage.completion_tokens || 0 };
+          const text = parsed.choices?.[0]?.delta?.content;
+          if (text) yield text;
         }
       }
     }());
   },
-  async gemini({ messages, maxTokens, temperature, signal }) {
+  async gemini({ messages, maxTokens, temperature, signal, meter }) {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
@@ -201,29 +218,56 @@ const STREAMERS = {
         const text = chunk.text();
         if (text) yield text;
       }
+      try {
+        const meta = (await result.response).usageMetadata;
+        if (meta) meter.usage = { input: meta.promptTokenCount || 0, output: meta.candidatesTokenCount || 0 };
+      } catch { /* usage is optional */ }
     }());
   },
 };
 
-async function stream({ messages, maxTokens = 900, temperature = 0.3, signal } = {}) {
+// The call is recorded in the usage ledger when the stream ends, is cancelled or fails: with the provider's own token counts
+// when it sent them, otherwise estimated from the text.
+async function stream({ messages, maxTokens = 900, temperature = 0.3, signal, feature } = {}) {
   if (!available()) throw new Error('No language model is configured');
   const errors = [];
   for (const name of order()) {
     const h = health.get(name) || { failures: 0, skipUntil: 0 };
     if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
+    const started = Date.now();
+    const meter = { usage: null };
     try {
-      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal });
+      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal, meter });
       // Read the first piece here, so a provider that fails or stays silent is skipped before anything is shown.
       const it = pieces[Symbol.asyncIterator]();
       const first = await withTimeout(it.next(), timeoutMs());
       if (first.done) throw new Error('empty response');
       health.set(name, { failures: 0, skipUntil: 0 });
+      const model = PROVIDERS[name].model();
       return {
         provider: name,
-        model: PROVIDERS[name].model(),
-        pieces: (async function* rest() { yield first.value; for (let n = await it.next(); !n.done; n = await it.next()) yield n.value; }()),
+        model,
+        pieces: (async function* rest() {
+          let text = first.value;
+          let ok = true;
+          try {
+            yield first.value;
+            for (let n = await it.next(); !n.done; n = await it.next()) { text += n.value; yield n.value; }
+          } catch (err) {
+            ok = !!signal?.aborted; // a cancelled answer is a normal end; a provider error is a failed call
+            throw err;
+          } finally {
+            const reported = !!meter.usage && (meter.usage.input + meter.usage.output) > 0;
+            aiUsage.record({
+              feature, provider: name, model, ok, ms: Date.now() - started, estimated: !reported,
+              inputTokens: reported ? meter.usage.input : aiUsage.roughTokens(messages.map((m) => m.content).join('\n')),
+              outputTokens: reported ? meter.usage.output : aiUsage.roughTokens(text),
+            });
+          }
+        }()),
       };
     } catch (err) {
+      aiUsage.record({ feature, provider: name, model: PROVIDERS[name].model(), ok: false, estimated: true, ms: Date.now() - started });
       if (signal?.aborted) throw err;
       const failures = h.failures + 1;
       health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
@@ -234,12 +278,20 @@ async function stream({ messages, maxTokens = 900, temperature = 0.3, signal } =
   throw new Error(`All language model providers failed (${errors.join('; ')})`);
 }
 
+// Why no model is available right now: 'off' (switched off with ASSISTANT_AI=off, as the local test servers are), 'no_provider'
+// (nothing configured) or null (available). The two need different fixes, so the screens say which one it is.
+function unavailableReason() {
+  if (String(process.env.ASSISTANT_AI || '').toLowerCase() === 'off') return 'off';
+  return order().length ? null : 'no_provider';
+}
+
 // Which providers would be used, for the admin dashboard and the health check.
 const status = () => ({
   enabled: available(),
+  reason: unavailableReason(),
   providers: order().map((name) => ({ name, model: PROVIDERS[name].model(), coolingOff: (health.get(name)?.skipUntil || 0) > Date.now() })),
 });
 
 const resetForTests = () => { health.clear(); cache.clear(); };
 
-module.exports = { complete, completeJson, stream, available, status, resetForTests };
+module.exports = { complete, completeJson, stream, available, unavailableReason, status, resetForTests };

@@ -18,6 +18,7 @@ const Student = require('../models/Student');
 const SchoolClass = require('../models/SchoolClass');
 const { studentForUser, teacherForUser, childrenForParent, canAccessStudent } = require('../services/directory');
 const { usageThisMonth, recordUsage } = require('../services/subscription');
+const aiUsage = require('../services/aiUsage');
 const { parseClassKey } = require('../utils/classes');
 const { DOMAINS, domainsForRole } = require('./domains');
 const router = require('./router');
@@ -505,7 +506,10 @@ function matchOption(text, options) {
 }
 
 // Main entry. Returns { conversationId, queryId, language, replies, suggestions }.
-async function ask({ user, school, entitlements, message, conversationId, choice, now = new Date() }) {
+// Every model call inside is recorded against this school and the "ask" feature (services/aiUsage.js).
+const ask = (args) => aiUsage.within({ school: args.school._id, user: args.user._id, feature: 'ask' }, () => askInner(args));
+
+async function askInner({ user, school, entitlements, message, conversationId, choice, now = new Date() }) {
   const started = Date.now();
   const schoolId = school._id;
   const trace = createTrace({ role: user.role });
@@ -514,7 +518,11 @@ async function ask({ user, school, entitlements, message, conversationId, choice
   let text = String(message || '').trim().slice(0, MAX_MESSAGE);
 
   const allowance = entitlements?.limits?.aiQuestionsPerMonth;
-  const aiAllowed = llm.available() && (allowance == null || (await usageThisMonth(schoolId, AI_METRIC)) < allowance);
+  // A school that has used its AI limits (questions, budget, tokens or the Ask quota) is answered by the keyword mode, which makes
+  // no model call: an honest low-cost fallback instead of unlimited paid calls.
+  const aiAllowed = llm.available()
+    && (allowance == null || (await usageThisMonth(schoolId, AI_METRIC)) < allowance)
+    && await aiUsage.isAllowed({ schoolId, entitlements, group: 'ask' });
   const aiInfo = { used: false, provider: null, model: null, inputTokens: 0, outputTokens: 0, rewritten: false, composed: false };
   const ctx = {
     user, role: user.role, school, schoolId, entitlements, now, conv, aiAllowed,

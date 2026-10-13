@@ -51,6 +51,13 @@ const schoolSchema = new mongoose.Schema({
     limits: {                                                    // per-school limit overrides; null = use the plan's
       maxStudents:         { type: Number, min: 0, default: null },
       aiQuestionsPerMonth: { type: Number, min: 0, default: null },
+      aiBudgetPerMonth:    { type: Number, min: 0, default: null },   // estimated AI cost per month, in the currency of AI_PRICING (enforced only when prices are configured)
+      aiTokensPerMonth:    { type: Number, min: 0, default: null },   // AI tokens per month (input + output)
+      featureQuotas: {                                           // per-feature requests per month; null = no separate quota
+        ask:      { type: Number, min: 0, default: null },
+        tutor:    { type: Number, min: 0, default: null },
+        practice: { type: Number, min: 0, default: null },
+      },
     },
     status:           { type: String, enum: SUBSCRIPTION_STATUSES, default: 'trial' },
     trialEndsAt:      { type: Date, default: () => new Date(Date.now() + DEFAULT_TRIAL_DAYS * 86400000) },

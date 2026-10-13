@@ -26,6 +26,8 @@ const learningConversationSchema = new mongoose.Schema({
   subject: { type: String, trim: true, maxlength: 40, default: null },
   mode:    { type: String, enum: ['tutor', 'guided'], default: 'tutor' },
   language: { type: String, enum: ['en', 'hi', 'hinglish', null], default: null },
+  // What the conversation is about now (from the tutor's own hidden context note, validated): lets "this", "that step" and "ask me questions on it" mean something.
+  topic:   { subject: { type: String, maxlength: 40, default: '' }, topic: { type: String, maxlength: 80, default: '' } },
   turns:   { type: [turnSchema], default: [] },
 }, { timestamps: true });
 

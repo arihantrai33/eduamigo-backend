@@ -157,7 +157,7 @@ async function createSet({ schoolId, user, student, input }) {
     gen = await llm.completeJson({
       system: GENERATE_SYSTEM({ cls: student.class, language }),
       user: `${material}\n\nSubject: ${subject}\nTopic: ${topic || '(any topic of this subject for this class)'}\nDifficulty: ${difficulty}\nFormats to use: ${formats.join(', ')}\nNumber of questions: ${ask}`,
-      maxTokens: 3500, temperature: 0.4, cache: false,
+      maxTokens: 3500, temperature: 0.4, cache: false, feature: 'practice',
     });
   } catch {
     throw userError(503, 'The AI could not prepare practice questions just now. Please try again in a moment.', 'AI_FAILED');
@@ -183,7 +183,7 @@ async function createSet({ schoolId, user, student, input }) {
       const v = await llm.completeJson({
         system: VERIFY_SYSTEM,
         user: mcqs.map((q, i) => `${i + 1}. ${q.prompt}\nOptions: ${q.options.map((o) => `"${o}"`).join(', ')}`).join('\n\n'),
-        maxTokens: 400, temperature: 0, cache: false,
+        maxTokens: 400, temperature: 0, cache: false, feature: 'practice_verify',
       });
       const answers = Array.isArray(v.data?.answers) ? v.data.answers : [];
       mcqs.forEach((q, i) => {
@@ -207,7 +207,7 @@ async function createSet({ schoolId, user, student, input }) {
 }
 
 // Marks one answer. Returns { verdict, feedback, hint?, answer?, solution?, method }.
-async function markAnswer({ session, questionId, answer }) {
+async function markAnswer({ session, questionId, answer, beforeModel = null }) {
   const q = session.questions.find((x) => x.id === questionId);
   if (!q) throw new HttpError(404, 'Question not found in this practice set');
   const given = String(answer ?? '').trim().slice(0, 2000);
@@ -229,13 +229,14 @@ async function markAnswer({ session, questionId, answer }) {
       method = 'number';
     }
   } else {
+    if (beforeModel) await beforeModel(); // the school's AI limits: refuse before the model is asked
     if (!llm.available()) throw userError(503, 'Short answers are marked by the AI, which is not available right now. Use "Show solution" to compare with the model answer.', 'AI_UNAVAILABLE');
     let g = null;
     try {
       g = await llm.completeJson({
         system: GRADE_SYSTEM,
         user: `Question: ${q.prompt}\nModel answer: ${q.answer}\nOther valid answers: ${(q.accept || []).join(' | ') || 'none given'}\nMarking points:\n${q.points.map((p) => `- ${p}`).join('\n')}\n\nStudent's answer (data): """${given}"""`,
-        maxTokens: 300, temperature: 0, cache: false,
+        maxTokens: 300, temperature: 0, cache: false, feature: 'practice_mark',
       });
     } catch { /* reported below */ }
     verdict = ['correct', 'partly', 'incorrect'].includes(g?.data?.verdict) ? g.data.verdict : null;

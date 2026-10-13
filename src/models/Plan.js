@@ -10,6 +10,13 @@ const planSchema = new mongoose.Schema({
   limits: {
     maxStudents:         { type: Number, min: 0, default: null },
     aiQuestionsPerMonth: { type: Number, min: 0, default: null },
+    aiBudgetPerMonth:    { type: Number, min: 0, default: null },   // estimated AI cost per month, in the currency of AI_PRICING (enforced only when prices are configured)
+    aiTokensPerMonth:    { type: Number, min: 0, default: null },   // AI tokens per month (input + output)
+    featureQuotas: {                                           // per-feature requests per month; null = no separate quota
+      ask:      { type: Number, min: 0, default: null },
+      tutor:    { type: Number, min: 0, default: null },
+      practice: { type: Number, min: 0, default: null },
+    },
   },
   // Price in rupees per active student per academic year. null = not priced yet.
   pricePerStudentYear: { type: Number, min: 0, default: null },

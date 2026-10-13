@@ -240,7 +240,7 @@ describe('AI Tutor chat', () => {
   });
 
   test('the reply language follows the student: Hindi in, Hindi asked for', () => {
-    expect(systemPrompt({ role: 'student', cls: '7', mode: 'tutor', language: 'hi' })).toMatch(/Reply in Hindi in Devanagari/);
+    expect(systemPrompt({ role: 'student', cls: '7', mode: 'tutor', language: 'hi' })).toMatch(/Reply in Hindi \(Devanagari\)/);
     expect(systemPrompt({ role: 'student', cls: '7', mode: 'guided', language: 'en' })).toMatch(/GUIDED LEARNING mode/);
   });
 

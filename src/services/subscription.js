@@ -65,7 +65,12 @@ function resolveFeatures(plan, sub = {}) {
 
 function resolveLimits(plan, sub = {}) {
   const pick = (key) => (sub.limits?.[key] != null ? sub.limits[key] : (plan?.limits?.[key] ?? null));
-  return { maxStudents: pick('maxStudents'), aiQuestionsPerMonth: pick('aiQuestionsPerMonth') };
+  const quota = (key) => (sub.limits?.featureQuotas?.[key] != null ? sub.limits.featureQuotas[key] : (plan?.limits?.featureQuotas?.[key] ?? null));
+  return {
+    maxStudents: pick('maxStudents'), aiQuestionsPerMonth: pick('aiQuestionsPerMonth'),
+    aiBudgetPerMonth: pick('aiBudgetPerMonth'), aiTokensPerMonth: pick('aiTokensPerMonth'),
+    featureQuotas: { ask: quota('ask'), tutor: quota('tutor'), practice: quota('practice') },
+  };
 }
 
 // Billing state from status and dates.

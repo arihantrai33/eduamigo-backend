@@ -3,6 +3,7 @@ const cron = require('node-cron');
 
 const Note = require('../models/Note');
 const NoteEmbedding = require('../models/NoteEmbedding');
+const aiUsage = require('../services/aiUsage');
 const ai = require('../services/ai');
 const { schoolIdsWithFeature } = require('../services/subscription');
 
@@ -87,7 +88,8 @@ async function processNote(note, deps = {}) {
     }
 
     const chunks = chunkText(rawText);
-    const vectors = await embed(chunks.map((c) => `${note.subject}: ${c}`), note.title);
+    // The embeddings are paid for by the note's school: recorded against it in the AI usage ledger.
+    const vectors = await aiUsage.within({ school: note.school, feature: 'embeddings' }, () => embed(chunks.map((c) => `${note.subject}: ${c}`), note.title));
     if (vectors.length !== chunks.length) throw new Error('Embedding count mismatch');
 
     // Replace any partial results from an earlier failed attempt, then insert everything at once.

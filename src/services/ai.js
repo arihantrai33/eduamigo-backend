@@ -3,6 +3,13 @@ const { GoogleGenerativeAI, TaskType } = require('@google/generative-ai');
 
 const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.6-flash';
+const aiUsage = require('./aiUsage');
+
+// Embeddings and the old revision chat go straight to Gemini (not through assistant/llm.js), so they record their own usage.
+// Gemini does not return token counts for embeddings, so those figures are estimates (flagged as such in the ledger).
+function meter(feature, model, input, output, started, ok = true) {
+  aiUsage.record({ feature, provider: 'gemini', model, inputTokens: input, outputTokens: output, estimated: true, ms: Date.now() - started, ok });
+}
 
 let client;
 function gemini() {
@@ -12,9 +19,16 @@ function gemini() {
 }
 
 async function embedQuery(text) {
+  const started = Date.now();
   const model = gemini().getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await model.embedContent({ content: { role: 'user', parts: [{ text }] }, taskType: TaskType.RETRIEVAL_QUERY });
-  return result.embedding.values;
+  try {
+    const result = await model.embedContent({ content: { role: 'user', parts: [{ text }] }, taskType: TaskType.RETRIEVAL_QUERY });
+    meter('embeddings', EMBEDDING_MODEL, aiUsage.roughTokens(text), 0, started);
+    return result.embedding.values;
+  } catch (err) {
+    meter('embeddings', EMBEDDING_MODEL, 0, 0, started, false);
+    throw err;
+  }
 }
 
 // Embeds many chunks in batches (far fewer API calls than one request per chunk).
@@ -23,13 +37,21 @@ async function embedDocuments(texts, title) {
   const out = [];
   for (let i = 0; i < texts.length; i += 50) {
     const batch = texts.slice(i, i + 50);
-    const result = await model.batchEmbedContents({
-      requests: batch.map((text) => ({
-        content: { role: 'user', parts: [{ text }] },
-        taskType: TaskType.RETRIEVAL_DOCUMENT,
-        ...(title ? { title } : {}),
-      })),
-    });
+    const started = Date.now();
+    let result;
+    try {
+      result = await model.batchEmbedContents({
+        requests: batch.map((text) => ({
+          content: { role: 'user', parts: [{ text }] },
+          taskType: TaskType.RETRIEVAL_DOCUMENT,
+          ...(title ? { title } : {}),
+        })),
+      });
+    } catch (err) {
+      meter('embeddings', EMBEDDING_MODEL, 0, 0, started, false);
+      throw err;
+    }
+    meter('embeddings', EMBEDDING_MODEL, aiUsage.roughTokens(batch.join('')), 0, started);
     out.push(...result.embeddings.map((e) => e.values));
   }
   return out;
@@ -39,11 +61,24 @@ async function embedDocuments(texts, title) {
 async function streamChat({ systemInstruction, history, message }) {
   const model = gemini().getGenerativeModel({ model: CHAT_MODEL, systemInstruction });
   const chat = model.startChat({ history });
+  const started = Date.now();
   const result = await chat.sendMessageStream(message);
+  const inputText = `${systemInstruction || ''}${(history || []).map((h) => h.parts?.[0]?.text || '').join('')}${message}`;
   return (async function* pieces() {
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      if (text) yield text;
+    let all = '';
+    let ok = true;
+    try {
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) { all += text; yield text; }
+      }
+    } catch (err) { ok = false; throw err; } finally {
+      let usage = null;
+      try { usage = (await result.response).usageMetadata; } catch { /* optional */ }
+      aiUsage.record({
+        feature: 'revision_legacy', provider: 'gemini', model: CHAT_MODEL, ok, ms: Date.now() - started, estimated: !usage,
+        inputTokens: usage?.promptTokenCount ?? aiUsage.roughTokens(inputText), outputTokens: usage?.candidatesTokenCount ?? aiUsage.roughTokens(all),
+      });
     }
   }());
 }

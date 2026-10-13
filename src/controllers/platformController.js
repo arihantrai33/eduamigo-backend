@@ -89,6 +89,9 @@ exports.savePlan = asyncHandler(async (req, res) => {
     limits: {
       maxStudents: body.limits && 'maxStudents' in body.limits ? numberOrNull(body.limits.maxStudents, 'Max students') : (existing?.limits?.maxStudents ?? null),
       aiQuestionsPerMonth: body.limits && 'aiQuestionsPerMonth' in body.limits ? numberOrNull(body.limits.aiQuestionsPerMonth, 'AI questions per month') : (existing?.limits?.aiQuestionsPerMonth ?? null),
+      aiBudgetPerMonth: body.limits && 'aiBudgetPerMonth' in body.limits ? numberOrNull(body.limits.aiBudgetPerMonth, 'AI budget per month') : (existing?.limits?.aiBudgetPerMonth ?? null),
+      aiTokensPerMonth: body.limits && 'aiTokensPerMonth' in body.limits ? numberOrNull(body.limits.aiTokensPerMonth, 'AI tokens per month') : (existing?.limits?.aiTokensPerMonth ?? null),
+      featureQuotas: Object.fromEntries(['ask', 'tutor', 'practice'].map((k) => [k, body.limits?.featureQuotas && k in body.limits.featureQuotas ? numberOrNull(body.limits.featureQuotas[k], `${k} quota`) : (existing?.limits?.featureQuotas?.[k] ?? null)])),
     },
     pricePerStudentYear: 'pricePerStudentYear' in body ? numberOrNull(body.pricePerStudentYear, 'Price') : (existing?.pricePerStudentYear ?? null),
     isActive: body.isActive !== undefined ? !!body.isActive : (existing?.isActive ?? true),
@@ -274,6 +277,11 @@ exports.updateSubscription = asyncHandler(async (req, res) => {
   if (body.limits && typeof body.limits === 'object') {
     if ('maxStudents' in body.limits) s.limits.maxStudents = numberOrNull(body.limits.maxStudents, 'Max students');
     if ('aiQuestionsPerMonth' in body.limits) s.limits.aiQuestionsPerMonth = numberOrNull(body.limits.aiQuestionsPerMonth, 'AI questions per month');
+    if ('aiBudgetPerMonth' in body.limits) s.limits.aiBudgetPerMonth = numberOrNull(body.limits.aiBudgetPerMonth, 'AI budget per month');
+    if ('aiTokensPerMonth' in body.limits) s.limits.aiTokensPerMonth = numberOrNull(body.limits.aiTokensPerMonth, 'AI tokens per month');
+    for (const k of ['ask', 'tutor', 'practice']) {
+      if (body.limits.featureQuotas && k in body.limits.featureQuotas) s.limits.featureQuotas[k] = numberOrNull(body.limits.featureQuotas[k], `${k} quota`);
+    }
   }
   if (body.status !== undefined) {
     if (!SUBSCRIPTION_STATUSES.includes(body.status)) throw new HttpError(400, `Status must be one of: ${SUBSCRIPTION_STATUSES.join(', ')}`);

@@ -8,6 +8,7 @@ const { usageThisMonth, recordUsage } = require('../services/subscription');
 const practice = require('../learning/practice');
 const { buildPlan, practiceAccuracy } = require('../learning/planner');
 const { formatDay, toDayKey } = require('../utils/dates');
+const aiUsage = require('../services/aiUsage');
 
 async function ownStudent(req) {
   const student = await studentForUser(req.user);
@@ -22,15 +23,24 @@ async function ownSession(req) {
 }
 
 // POST /api/learning/practice  { subject, topic?, count?, difficulty?, formats?, focus?: 'weak' }
+// Counted as an AI question only when a set was made: a failed generation costs the school tokens (the usage ledger has them)
+// but is not a question the student got.
 exports.createPractice = asyncHandler(async (req, res) => {
   const student = await ownStudent(req);
   const allowance = req.entitlements?.limits?.aiQuestionsPerMonth;
   if (allowance != null && (await usageThisMonth(req.schoolId, 'ai_questions')) >= allowance) {
     throw new HttpError(429, 'Your school has used this month\'s AI questions. The limit resets on the 1st.', { code: 'PLAN_LIMIT' });
   }
-  await recordUsage(req.schoolId, 'ai_questions');
-  const session = await practice.createSet({ schoolId: req.schoolId, user: req.user, student, input: req.body || {} });
-  res.status(201).json({ success: true, data: practice.publicSession(session) });
+  await aiUsage.assertAllowed({ schoolId: req.schoolId, entitlements: req.entitlements, group: 'practice' });
+  const release = aiUsage.acquire(req.user._id, 'practice');
+  try {
+    const session = await aiUsage.within({ school: req.schoolId, user: req.user._id, feature: 'practice' },
+      () => practice.createSet({ schoolId: req.schoolId, user: req.user, student, input: req.body || {} }));
+    await recordUsage(req.schoolId, 'ai_questions');
+    res.status(201).json({ success: true, data: practice.publicSession(session) });
+  } finally {
+    release();
+  }
 });
 
 // GET /api/learning/practice   (recent sets)   GET /api/learning/practice/:id
@@ -45,7 +55,10 @@ exports.getPractice = asyncHandler(async (req, res) => {
 // POST /api/learning/practice/:id/answer  { questionId, answer }
 exports.answer = asyncHandler(async (req, res) => {
   const session = await ownSession(req);
-  const result = await practice.markAnswer({ session, questionId: String(req.body?.questionId || ''), answer: req.body?.answer });
+  const result = await aiUsage.within({ school: req.schoolId, user: req.user._id, feature: 'practice_mark' }, () => practice.markAnswer({
+    session, questionId: String(req.body?.questionId || ''), answer: req.body?.answer,
+    beforeModel: () => aiUsage.assertAllowed({ schoolId: req.schoolId, entitlements: req.entitlements, group: 'practice' }),
+  }));
   res.json({ success: true, data: { ...result, summary: practice.summarize(session) } });
 });
 

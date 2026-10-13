@@ -102,9 +102,38 @@ async function findMaterials({ schoolId, cls, section, subject = null, query, li
   return { passages, method, checked: true, error };
 }
 
+// The student's own notes for a "revise my notes" request: no search words are needed, so the newest notes of the class (and
+// section, plus whole-class notes) are taken, one passage-sized opening part from each, up to `limit` notes. Same shape as
+// findMaterials(). Only Notes-type material is revised ("revise my notes"); assignments and papers are left out.
+async function recentMaterials({ schoolId, cls, section, subject = null, limit = 4 }) {
+  if (!schoolId || !cls) return { passages: [], method: 'recent', checked: false, error: null };
+  try {
+    const q = { school: schoolId, class: String(cls), section: { $in: ['', section || ''] }, type: 'Notes' };
+    if (subject) q.subject = new RegExp(`^${String(subject).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const notes = await Note.find(q).sort({ createdAt: -1 }).limit(limit).select('title type subject').lean();
+    if (!notes.length) return { passages: [], method: 'recent', checked: true, error: null };
+    const first = await NoteEmbedding.find({ school: schoolId, noteId: { $in: notes.map((n) => n._id) }, chunkIndex: 0 }).select('noteId chunkText chunkIndex').lean();
+    const byNote = new Map(first.map((c) => [String(c.noteId), c]));
+    const passages = notes.filter((n) => byNote.has(String(n._id))).map((n, i) => ({
+      ref: `S${i + 1}`, noteId: String(n._id), title: n.title, type: n.type || 'Notes', subject: n.subject, part: 1, text: String(byNote.get(String(n._id)).chunkText).slice(0, PASSAGE_CHARS), score: null,
+    }));
+    return { passages, method: 'recent', checked: true, error: null };
+  } catch (err) {
+    return { passages: [], method: 'recent', checked: false, error: err.message };
+  }
+}
+
+// Changes whenever the class's notes change (added, edited or removed): part of the tutor cache key, so a cached generic
+// answer is dropped as soon as a teacher uploads notes that might now cover it.
+async function notesStamp({ schoolId, cls, section }) {
+  const q = { school: schoolId, class: String(cls), section: { $in: ['', section || ''] } };
+  const [count, latest] = await Promise.all([Note.countDocuments(q), Note.findOne(q).sort({ updatedAt: -1 }).select('updatedAt').lean()]);
+  return `${count}:${latest?.updatedAt ? new Date(latest.updatedAt).getTime() : 0}`;
+}
+
 // Subjects that have material for this class (for the subject picker).
 async function subjectsWithMaterial({ schoolId, cls, section }) {
   return Note.distinct('subject', { school: schoolId, class: String(cls), section: { $in: ['', section || ''] } });
 }
 
-module.exports = { findMaterials, subjectsWithMaterial };
+module.exports = { findMaterials, recentMaterials, notesStamp, subjectsWithMaterial };

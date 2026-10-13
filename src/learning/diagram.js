@@ -6,6 +6,8 @@
 //   {"type":"numberline","min":-5,"max":5,"step":1,"points":[{"value":-2,"label":"A"}],"ranges":[{"from":1,"to":3,"label":"x > 1"}]}
 //   {"type":"bar","title":"Rainfall","labels":["Jan","Feb"],"values":[12,30],"unit":"mm"}
 //   {"type":"graph","expr":"x^2 - 1","xMin":-3,"xMax":3,"title":"y = x² − 1"}
+//   {"type":"graph","series":[{"expr":"x","label":"y = x"},{"expr":"x^2","label":"y = x²"}],"xMin":-2,"xMax":2,"xLabel":"x","yLabel":"y"}
+//   {"type":"conceptmap","center":"Photosynthesis","branches":[{"label":"Needs","children":["Light","Water","CO2"]},{"label":"Makes","children":["Glucose","Oxygen"]}]}
 //   {"type":"flow","title":"Photosynthesis","steps":["Light is absorbed","Water is split","Glucose is made"]}
 //   {"type":"cycle","title":"Water cycle","steps":["Evaporation","Condensation","Precipitation","Collection"]}
 //   {"type":"table","headers":["Planet","Moons"],"rows":[["Earth","1"],["Mars","2"]]}
@@ -35,18 +37,34 @@ const VALIDATORS = {
   },
   graph(d) {
     const xMin = num(d.xMin) ?? -5; const xMax = num(d.xMax) ?? 5;
-    if (xMax <= xMin || xMax - xMin > 200 || typeof d.expr !== 'string' || d.expr.length > 80) return null;
-    const points = [];
-    for (let i = 0; i <= 60; i += 1) {
-      const x = xMin + ((xMax - xMin) * i) / 60;
-      const xv = { f: x };
-      const y = evaluate(d.expr, { x: xv });
-      if (!y.ok) { if (/unknown name|unexpected|incomplete/.test(y.error)) return null; continue; } // gaps (1/x at 0) are skipped
-      const yv = Number(y.text);
-      if (Number.isFinite(yv) && Math.abs(yv) < 1e6) points.push([Math.round(x * 1000) / 1000, Math.round(yv * 1000) / 1000]);
+    if (xMax <= xMin || xMax - xMin > 200) return null;
+    // One expression, or up to three lines with a label each (shown as a legend).
+    const specs = Array.isArray(d.series) && d.series.length ? d.series.slice(0, 3) : [{ expr: d.expr, label: d.label }];
+    const series = [];
+    for (const spec of specs) {
+      if (typeof spec?.expr !== 'string' || spec.expr.length > 80) return null;
+      const points = [];
+      for (let i = 0; i <= 60; i += 1) {
+        const x = xMin + ((xMax - xMin) * i) / 60;
+        const y = evaluate(spec.expr, { x: { f: x } });
+        if (!y.ok) { if (/unknown name|unexpected|incomplete/.test(y.error)) return null; continue; } // gaps (1/x at 0) are skipped
+        const yv = Number(y.text);
+        if (Number.isFinite(yv) && Math.abs(yv) < 1e6) points.push([Math.round(x * 1000) / 1000, Math.round(yv * 1000) / 1000]);
+      }
+      if (points.length < 5) return null;
+      series.push({ expr: str(spec.expr), label: str(spec.label, 30) || `y = ${str(spec.expr)}`, points });
     }
-    if (points.length < 5) return null;
-    return { type: 'graph', expr: str(d.expr), xMin, xMax, points, title: str(d.title) || `y = ${str(d.expr)}` };
+    return {
+      type: 'graph', expr: series[0].expr, xMin, xMax, points: series[0].points, series,
+      xLabel: str(d.xLabel, 20), yLabel: str(d.yLabel, 20), title: str(d.title) || (series.length === 1 ? series[0].label : ''),
+    };
+  },
+  conceptmap(d) {
+    const center = str(d.center, 40);
+    const branches = (Array.isArray(d.branches) ? d.branches : []).slice(0, 6).map((b) => ({
+      label: str(b?.label, 30), children: (Array.isArray(b?.children) ? b.children : []).slice(0, 3).map((c) => str(c, 30)).filter(Boolean),
+    })).filter((b) => b.label);
+    return center && branches.length >= 2 ? { type: 'conceptmap', center, branches, title: str(d.title) } : null;
   },
   flow(d) {
     const steps = (Array.isArray(d.steps) ? d.steps : []).slice(0, 8).map((s) => str(s, 90)).filter(Boolean);
@@ -67,7 +85,8 @@ function describe(d) {
   switch (d.type) {
     case 'numberline': return `Number line from ${d.min} to ${d.max}${d.points.length ? `, marking ${d.points.map((p) => `${p.label ? `${p.label} at ` : ''}${p.value}`).join(', ')}` : ''}${d.ranges.length ? `, shading ${d.ranges.map((r) => `${r.from} to ${r.to}`).join(' and ')}` : ''}.`;
     case 'bar': return `Bar chart${d.title ? ` of ${d.title}` : ''}: ${d.labels.map((l, i) => `${l} ${d.values[i]}${d.unit ? ` ${d.unit}` : ''}`).join(', ')}.`;
-    case 'graph': return `Graph of ${d.title} for x from ${d.xMin} to ${d.xMax}.`;
+    case 'graph': return `Graph of ${d.series.length > 1 ? d.series.map((x) => x.label).join(' and ') : (d.title || d.series[0].label)} for x from ${d.xMin} to ${d.xMax}.`;
+    case 'conceptmap': return `Concept map of ${d.center}: ${d.branches.map((b) => `${b.label}${b.children.length ? ` (${b.children.join(', ')})` : ''}`).join('; ')}.`;
     case 'flow': return `${d.title ? `${d.title}: ` : ''}${d.steps.map((s, i) => `step ${i + 1}, ${s}`).join('; ')}.`;
     case 'cycle': return `${d.title ? `${d.title}, ` : ''}a cycle: ${d.steps.join(', then ')}, and back to ${d.steps[0]}.`;
     case 'table': return `Table with columns ${d.headers.join(', ')} and ${d.rows.length} rows.`;

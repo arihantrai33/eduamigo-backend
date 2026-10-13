@@ -4,6 +4,7 @@ const retrieval = require('../services/retrieval');
 const { HttpError, asyncHandler } = require('../utils/http');
 const { studentForUser } = require('../services/directory');
 const { usageThisMonth, recordUsage } = require('../services/subscription');
+const aiUsage = require('../services/aiUsage');
 
 const MIN_SCORE = Number(process.env.REVISION_MIN_SCORE || 0.75);
 const MAX_QUESTION = 1000;
@@ -83,7 +84,7 @@ Student: ${question}`;
 
 // POST /api/revision/ask  { question, subject?, mode?: "explain"|"quiz", history?: [{role, text}] }
 // Response: text/plain stream. First line is JSON {"sources":[...]} and the rest is the answer.
-const askRevisionQuestion = asyncHandler(async (req, res) => {
+const askRevisionInner = async (req, res) => {
   const question = String(req.body?.question || '').trim();
   if (!question) throw new HttpError(400, 'Question is required');
   if (question.length > MAX_QUESTION) throw new HttpError(400, `Please keep your question under ${MAX_QUESTION} characters`);
@@ -142,6 +143,12 @@ const askRevisionQuestion = asyncHandler(async (req, res) => {
     if (!closed) res.write('\n\n_The answer was interrupted. Please ask again._');
   }
   res.end();
+};
+
+// The old notes-only revision chat stays available; it now counts against the school's AI limits and is recorded like the rest.
+const askRevisionQuestion = asyncHandler(async (req, res) => {
+  await aiUsage.assertAllowed({ schoolId: req.schoolId, entitlements: req.entitlements, group: 'tutor' });
+  return aiUsage.within({ school: req.schoolId, user: req.user._id, feature: 'revision_legacy' }, () => askRevisionInner(req, res));
 });
 
 module.exports = { askRevisionQuestion, buildSystemPrompt, sanitizeHistory, retrievalQuery, levelGuide };

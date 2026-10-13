@@ -11,6 +11,8 @@ const { usageThisMonth, recordUsage } = require('../services/subscription');
 const { teach } = require('../learning/tutor');
 const { subjectsWithMaterial } = require('../learning/materials');
 const { upcomingExams } = require('../learning/planner');
+const aiUsage = require('../services/aiUsage');
+const llm = require('../assistant/llm');
 
 const MAX_MESSAGE = 2000;
 
@@ -45,48 +47,58 @@ exports.chat = asyncHandler(async (req, res) => {
 
   const student = await ownStudent(req);
   await assertAllowance(req);
+  // The school's AI limits (budget, tokens, tutor quota) and one answer at a time per student: refused before anything is paid for.
+  await aiUsage.assertAllowed({ schoolId: req.schoolId, entitlements: req.entitlements, group: 'tutor' });
+  const release = aiUsage.acquire(req.user._id, 'tutor');
+  try {
+    let conv = null;
+    if (req.body?.conversationId) {
+      assertId(req.body.conversationId);
+      conv = await LearningConversation.findOne({ _id: req.body.conversationId, school: req.schoolId, user: req.user._id });
+      if (!conv) throw new HttpError(404, 'This conversation was not found. Start a new chat.');
+    } else {
+      conv = new LearningConversation({ school: req.schoolId, user: req.user._id, student: student._id, title: titleFrom(message), subject, mode });
+    }
+    const history = conv.turns.map((t) => ({ role: t.role, text: t.text }));
+    const subjects = await subjectsWithMaterial({ schoolId: req.schoolId, cls: student.class, section: student.section });
 
-  let conv = null;
-  if (req.body?.conversationId) {
-    assertId(req.body.conversationId);
-    conv = await LearningConversation.findOne({ _id: req.body.conversationId, school: req.schoolId, user: req.user._id });
-    if (!conv) throw new HttpError(404, 'This conversation was not found. Start a new chat.');
-  } else {
-    conv = new LearningConversation({ school: req.schoolId, user: req.user._id, student: student._id, title: titleFrom(message), subject, mode });
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    const controller = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    const write = (event) => { if (!res.writableEnded && !controller.signal.aborted) res.write(`${JSON.stringify(event)}\n`); };
+
+    // Counted as one AI question only when the model was asked: fixed replies and cached answers are free.
+    let counted = false;
+    const result = await aiUsage.within({ school: req.schoolId, user: req.user._id, feature: 'tutor', voice }, () => teach({
+      role: 'student', student, schoolId: req.schoolId, message, history, mode, subject, subjects, spoken: voice, signal: controller.signal,
+      topic: conv.topic?.topic ? { subject: conv.topic.subject, topic: conv.topic.topic } : null, conversationLanguage: conv.language,
+      emit: (event) => {
+        if (event.type === 'meta') { write({ ...event, conversationId: String(conv._id) }); return; }
+        if (event.type === 'delta' && !event.free && !counted) { counted = true; recordUsage(req.schoolId, 'ai_questions').catch(() => {}); }
+        if (event.type === 'final') return; // written after saving, below
+        write(event);
+      },
+    }));
+
+    // The student's question is kept even when no answer came; an answer is kept only when it finished.
+    conv.turns.push({ role: 'user', text: message.slice(0, 8000), meta: voice ? { voice: true } : {} });
+    if (result.type === 'final') {
+      conv.turns.push({ role: 'assistant', text: result.text.slice(0, 8000) || '…', meta: { confidence: result.confidence, sources: result.used, checks: result.checks, diagrams: result.diagrams } });
+      if (result.topic?.topic) conv.topic = result.topic; // what "this" means in the next message
+    }
+    if (conv.turns.length > LearningConversation.MAX_TURNS) conv.turns = conv.turns.slice(-LearningConversation.MAX_TURNS);
+    conv.mode = mode;
+    if (subject) conv.subject = subject;
+    if (result.language) conv.language = result.language;
+    try { await conv.save(); } catch { /* the answer was already given; history is best effort */ }
+    if (result.type === 'final') write({ ...result, conversationId: String(conv._id) });
+    res.end();
+  } finally {
+    release();
   }
-  const history = conv.turns.map((t) => ({ role: t.role, text: t.text }));
-
-  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders?.();
-  const controller = new AbortController();
-  res.on('close', () => { if (!res.writableEnded) controller.abort(); });
-  const write = (event) => { if (!res.writableEnded && !controller.signal.aborted) res.write(`${JSON.stringify(event)}\n`); };
-
-  let counted = false;
-  const result = await teach({
-    role: 'student', student, schoolId: req.schoolId, message, history, mode, subject, spoken: voice, signal: controller.signal,
-    emit: async (event) => {
-      if (event.type === 'meta') { write({ ...event, conversationId: String(conv._id) }); return; }
-      if (event.type === 'delta' && !counted) { counted = true; recordUsage(req.schoolId, 'ai_questions').catch(() => {}); }
-      if (event.type === 'final') return; // written after saving, below
-      write(event);
-    },
-  });
-
-  // The student's question is kept even when no answer came; an answer is kept only when it finished.
-  conv.turns.push({ role: 'user', text: message.slice(0, 8000), meta: voice ? { voice: true } : {} });
-  if (result.type === 'final') {
-    conv.turns.push({ role: 'assistant', text: result.text.slice(0, 8000) || '…', meta: { confidence: result.confidence, sources: result.used, checks: result.checks, diagrams: result.diagrams } });
-  }
-  if (conv.turns.length > LearningConversation.MAX_TURNS) conv.turns = conv.turns.slice(-LearningConversation.MAX_TURNS);
-  conv.mode = mode;
-  if (subject) conv.subject = subject;
-  if (result.language) conv.language = result.language;
-  try { await conv.save(); } catch { /* the answer was already given; history is best effort */ }
-  if (result.type === 'final') write({ ...result, conversationId: String(conv._id) });
-  res.end();
 });
 
 // GET /api/learning/conversations
@@ -131,6 +143,7 @@ exports.context = asyncHandler(async (req, res) => {
       capabilities: {
         // Web research needs a search provider; none is configured, so the tutor never claims to have searched the web.
         webResearch: false,
+        ai: { available: llm.available(), reason: llm.unavailableReason() },
         historyDays: Number(process.env.LEARNING_HISTORY_DAYS || 180),
       },
     },
