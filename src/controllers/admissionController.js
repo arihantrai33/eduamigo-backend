@@ -5,6 +5,7 @@ const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../uti
 const { normalizeClass, normalizeSection } = require('../utils/classes');
 const academic = require('../services/academic');
 const { createStudentWithAccounts } = require('../services/studentService');
+const { toDayKey, formatDay } = require('../utils/dates');
 
 const { STATUSES, SOURCES } = Admission;
 const FIELDS = ['classApplied', 'studentName', 'gender', 'dateOfBirth', 'previousSchool', 'parentName', 'parentPhone',
@@ -139,6 +140,7 @@ exports.admit = asyncHandler(async (req, res) => {
       rollNumber, admissionNo: req.body?.admissionNo || undefined, gender: a.gender || undefined, dateOfBirth: a.dateOfBirth, address: a.address,
       parentName: a.parentName, parentPhone: a.parentPhone, parentEmail: a.parentEmail,
       class: a.classApplied, section,
+      admittedOn: formatDay(toDayKey()), // admitted today, by this action
     });
     claimed.student = student._id;
     claimed.history.push({ status: 'Admitted', note: `Admitted to Class ${student.class}-${student.section}, roll ${student.rollNumber}`, by: req.user._id });

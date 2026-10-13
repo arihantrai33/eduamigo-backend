@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { HttpError, asyncHandler, assertId, pick, escapeRegex } = require('../utils/http');
 const { parseClassKey, normalizeClass, normalizeSection } = require('../utils/classes');
 const { createStudentWithAccounts } = require('../services/studentService');
+const { parseAdmittedOn } = require('../services/admissionDate');
 const { studentForUser, resolveChild, teacherForUser, canAccessStudent } = require('../services/directory');
 const { temporaryPassword, hashPassword } = require('../services/credentials');
 const School = require('../models/School');
@@ -14,7 +15,7 @@ const StudentEnrollment = require('../models/StudentEnrollment');
 const { pageParams, paged } = require('../utils/paginate');
 const { hasPermission } = require('../config/permissions');
 
-const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
+const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'admittedOn', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'class', 'section'];
 
 // GET /students — admin/teacher (teachers only see their assigned classes). Optional ?page=&limit=
@@ -121,8 +122,14 @@ exports.updateStudent = asyncHandler(async (req, res) => {
       throw new HttpError(409, `Admission number ${update.admissionNo} is already used by another student`);
     }
   }
-  const before = await Student.findOne({ _id: req.params.id, school: req.schoolId }).select('class section rollNumber photoKey').lean();
+  const before = await Student.findOne({ _id: req.params.id, school: req.schoolId }).select('class section rollNumber photoKey dateOfBirth admittedOn').lean();
   if (!before) throw new HttpError(404, 'Student not found');
+  // Date of admission: checked against the date of birth being saved (or the one on record).
+  if (update.admittedOn !== undefined || (update.dateOfBirth && before.admittedOn)) {
+    const born = update.dateOfBirth || before.dateOfBirth;
+    const admitted = update.admittedOn !== undefined ? update.admittedOn : before.admittedOn?.toISOString().slice(0, 10);
+    update.admittedOn = parseAdmittedOn(admitted, born);
+  }
   if (update.class !== undefined || update.section !== undefined) {
     await academic.assertClassSection(req.schoolId, update.class ?? before.class, update.section ?? before.section);
   }

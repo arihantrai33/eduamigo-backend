@@ -171,14 +171,21 @@ async function transferCertificate(schoolId, studentId) {
     School.findById(schoolId).select('name address city phone email principal branding.logoUrl').lean(),
     StudentEnrollment.find({ school: schoolId, student: student._id }).sort({ session: 1 }).lean(),
   ]);
+  // Facts the certificate states but the school has not recorded. They print as "Not recorded" and the screen asks
+  // for them; nothing is guessed (the date of admission is never the date the record was created).
+  const missing = [];
+  if (!student.admittedOn) missing.push('admittedOn');
+  if (!student.dateOfBirth) missing.push('dateOfBirth');
   return {
     tcNumber: student.exit.tcNumber,
     issuedAt: student.exit.tcIssuedAt,
     school,
+    missing,
     student: {
+      _id: student._id,
       name: student.name, admissionNo: student.admissionNo, dateOfBirth: student.dateOfBirth || null,
       gender: student.gender || '', parentName: student.parentName || '', address: student.address || '',
-      admittedOn: student.createdAt, lastClass: student.exit.lastClass, leftOn: student.exit.date,
+      admittedOn: student.admittedOn || null, lastClass: student.exit.lastClass, leftOn: student.exit.date,
       reason: student.exit.reason || (student.exit.status === 'graduated' ? 'Passed out' : ''),
       status: student.exit.status,
     },

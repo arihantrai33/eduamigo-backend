@@ -14,6 +14,11 @@ const studentSchema = new mongoose.Schema({
   section:      { type: String, required: true, trim: true },
   gender:       { type: String, enum: ['Male', 'Female', 'Other'] },
   dateOfBirth:  { type: Date },
+  // The date the school admitted the student (calendar day, stored as midnight UTC like other day fields).
+  // null means "not recorded": older and imported records have none, and it is never filled in from createdAt,
+  // which is only when the record was made in EduAmigo. Set by the admin, by a bulk upload column, or by
+  // Admissions when an application is admitted (services/admissionDate.js).
+  admittedOn:   { type: Date, default: null },
   address:      { type: String, trim: true },
   parentName:   { type: String, trim: true },
   parentPhone:  { type: String, trim: true },

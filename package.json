@@ -9,6 +9,7 @@
     "dev": "nodemon server.js",
     "test:watch": "jest --watch",
     "migrate": "node src/scripts/migrate.js",
+    "migrate:admission-dates": "node src/scripts/migrateAdmissionDates.js",
     "create-school": "node src/scripts/createSchool.js",
     "backup": "node src/scripts/backup.js",
     "create-platform-admin": "node src/scripts/createPlatformAdmin.js",

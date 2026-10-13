@@ -10,6 +10,7 @@ const { assertStudentCapacity } = require('./subscription');
 const academic = require('./academic');
 const StudentEnrollment = require('../models/StudentEnrollment');
 const { withKeyLock, isDuplicateKey } = require('../utils/concurrency');
+const { parseAdmittedOn } = require('./admissionDate');
 
 const STUDENT_FIELDS = ['name', 'admissionNo', 'email', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'address',
   'parentName', 'parentPhone', 'parentEmail'];
@@ -33,6 +34,9 @@ async function createOnce(school, input, extras = {}) {
   if (!data.name || !data.phone || !data.class || !data.section) {
     throw new HttpError(400, 'Name, phone (or parent mobile), class and section are required');
   }
+  // Date of admission: only when given (form, upload column "admittedOn" or "admissionDate", Admissions).
+  const admittedOn = parseAdmittedOn(input.admittedOn ?? input.admissionDate, data.dateOfBirth);
+  if (admittedOn) data.admittedOn = admittedOn;
   for (const [key, label] of [['email', 'Student email'], ['parentEmail', 'Parent email']]) {
     if (data[key] && !/^\S+@\S+\.\S+$/.test(data[key])) throw new HttpError(400, `${label} is not valid`);
   }
