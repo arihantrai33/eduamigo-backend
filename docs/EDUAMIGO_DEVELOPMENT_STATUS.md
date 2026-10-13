@@ -87,6 +87,11 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   pressed twice, HR checks required fields, three hand-rolled dialogs moved to the shared one, dialogs ask before
   discarding typed-in changes, and the Add Student/Teacher/Parent pages warn before the tab is closed or reloaded.
   Playwright 24/24, build ok, 0 new lint messages. Frontend commits 2ab6301..bb32559.
+- 2026-10-13: owner console (`eduamigo-console`, local commit 8b35e3a) reviewed after recording its scope. On phones
+  the sidebar never collapsed and every screen scrolled sideways; it is now a top bar (0 sideways scroll on all 8
+  routes at 375 and 1440 px, 0 JS errors). Turning a school off and voiding an invoice now ask first; invoice actions
+  report the result; "Schools" no longer lights up with "Add a school". Void is checked by lint/build only (the demo
+  plans have no price, so no invoice can be created).
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
@@ -106,8 +111,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 - Not done: physical phones, signed release builds, store listings and review, deployment (paused until authorised).
 
 ## Next actions (resume here)
-1. Review the separate `eduamigo-console` repository (owner console): document its scope first.
-2. W4 leftovers: print check of report card, receipt and TC; generic "Error" fallbacks.
-3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
-4. Security: Content-Security-Policy and the web token storage decision.
-5. W9: final handover document.
+1. W4 leftovers: print check of report card, receipt and TC; generic "Error" fallbacks; owner console has no
+   automated tests and Void needs a browser check with a priced plan.
+2. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
+3. Security: Content-Security-Policy and the web token storage decision.
+4. W9: final handover document.
