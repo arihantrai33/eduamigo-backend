@@ -111,6 +111,28 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   - Local commits, none pushed (no upstream on any branch): frontend `feature/responsive-product` dea2606, 95bf32e,
     403714f, 7091a85, e3983ff; console `main` ad35921; backend `hardening/pilot-readiness` this status update.
     Working trees clean except the owner's untracked `docs/UNIFIEDAI_ARCHITECTURE_GUIDE.md` (left untouched).
+- 2026-10-13: owner decisions carried out (details: frontend `docs/EDUAMIGO_WEB_UX_AUDIT.md`, "Owner decisions").
+  - Date of admission: new optional `Student.admittedOn` (null = not recorded; never taken from createdAt). It is set
+    by the add/edit forms, a bulk upload column, or Admissions "admit". It must be a valid past date, not before
+    birth. The transfer certificate returns it as recorded plus a `missing` list, and the screen prints "Not
+    recorded" and asks for the real date.
+  - Migration `npm run migrate:admission-dates`: dry run by default; `--apply` fills only students admitted through
+    Admissions, from the "Admitted" step's day. It was **run only in tests, not on any real database**; production
+    needs the owner's approval and a backup first.
+  - Back/Forward: guarded without changing the router. useBlocker needs a data router (checked in React Router
+    7.18.4). A popstate listener added before BrowserRouter stops the move, restores the address, asks, and repeats
+    the move on Leave. Verified in Chrome. A data-router migration is not needed and is not planned.
+  - Admin menu keyboard access: links and buttons, focus kept after moving, visible ring, skip link, phone menu as a
+    dialog.
+  - Printing: Chrome verified. Safari 26.5.2 is installed but automation is off (its "Allow remote automation"
+    setting, not changed), so it is not verified. Firefox is not installed, so it is not verified. A grey band under
+    printed documents was found in Chrome and fixed.
+  - Also fixed: the student edit form's date of birth was never shown or saved (wrong field key); the certificate
+    overflowed phones.
+  - Results: backend 733/733; frontend Playwright 42/42; unsaved-changes tests 32/32 over 4 repeats; sweep 150
+    screenshots, 0 JS errors, 0 sideways scroll; builds ok; 0 lint messages on changed lines.
+  - Local commits (not pushed): backend 6ea4038 (+ this update); frontend 16f3531, 3ff48d3, 7ed0f18, 7cae7d3,
+    86983f4. Console unchanged since ad35921.
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
@@ -119,11 +141,11 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   (Fixed 2026-10-13, frontend 837b4d7: the 48 icon-only back, send and close buttons that showed ← ➤ × now use line
   icons and all have screen-reader labels.)
 - (Fixed 2026-10-13, frontend 2ab6301: the student results page now uses the shared tab bar with Learn current.)
-- Unsaved-change warnings do not cover the browser's Back/Forward buttons (would need a data router). Session expiry
-  on a dirty form: the browser asks, but the session is already cleared.
-- Transfer certificate "Date of admission" is the student record's creation date (no admission date field exists);
-  wrong for students imported later. Owner decision: add a field, or rename the line.
-- Printing checked in Chrome only.
+- Unsaved changes: Back/Forward guard verified in Chrome only. Session expiry on a dirty form: the browser asks, but
+  the session is already cleared.
+- Date of admission: existing and imported students show "Not recorded" until the school enters the real date; the
+  migration has not been run on real data.
+- Printing verified in Chrome only (Safari not automated, Firefox not installed).
 - Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
   verified on a phone yet.
 - iOS links (`eduamigo://`): iOS asks "Open in EduAmigo?"; the scheme is verified, tapping Open is a manual check.
@@ -133,8 +155,9 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 - Not done: physical phones, signed release builds, store listings and review, deployment (paused until authorised).
 
 ## Next actions (resume here)
-1. Owner decisions: transfer certificate admission date; whether to move to a data router so Back/Forward can be
-   guarded too.
+1. Owner checks: print a receipt, a report card and a certificate in Safari (or turn on Safari ▸ Settings ▸ Developer ▸
+   "Allow remote automation" if it should be automated); approve running `migrate:admission-dates` on real data when
+   ready (after a backup).
 2. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 3. Security: Content-Security-Policy and the web token storage decision.
 4. W9: final handover document.
