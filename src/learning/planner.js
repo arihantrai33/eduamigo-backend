@@ -34,8 +34,9 @@ async function practiceAccuracy({ schoolId, userId }) {
     const topicOf = new Map(s.questions.map((q) => [q.id, q.topic || s.topic]));
     for (const a of s.attempts) {
       if (a.verdict === 'revealed') continue;
-      const key = `${s.subject}|${topicOf.get(a.questionId) || s.topic || ''}`.toLowerCase();
-      stats[key] = stats[key] || { right: 0, total: 0 };
+      const topic = topicOf.get(a.questionId) || s.topic || '';
+      const key = `${s.subject}|${topic}`.toLowerCase(); // matched without case; shown as first written
+      stats[key] = stats[key] || { right: 0, total: 0, subject: s.subject, topic };
       stats[key].total += 1;
       if (a.verdict === 'correct') stats[key].right += 1;
       else if (a.verdict === 'partly') stats[key].right += 0.5;

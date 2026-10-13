@@ -108,10 +108,8 @@ exports.progress = asyncHandler(async (req, res) => {
     LearningConversation.countDocuments({ school: req.schoolId, user: req.user._id }),
     RevisionPlan.findOne({ school: req.schoolId, user: req.user._id, active: true }).sort({ updatedAt: -1 }).lean(),
   ]);
-  const topics = Object.entries(stats).map(([key, v]) => {
-    const [subject, topic] = key.split('|');
-    return { subject, topic, right: v.right, total: v.total, accuracy: Math.round((v.right / v.total) * 100) };
-  }).sort((a, b) => a.accuracy - b.accuracy);
+  const topics = Object.values(stats).map((v) => ({ subject: v.subject, topic: v.topic, right: v.right, total: v.total, accuracy: Math.round((v.right / v.total) * 100) }))
+    .sort((a, b) => a.accuracy - b.accuracy);
   const today = toDayKey();
   res.json({
     success: true,

@@ -378,6 +378,8 @@ describe('Practice & Assessment', () => {
     const res = await create();
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('AI_UNAVAILABLE');
+    // A 503 written for the student keeps its words (the error handler hides other 5xx messages).
+    expect(res.body.message).toMatch(/Practice questions need the AI/);
     expect(await PracticeSession.countDocuments({ school: A.school._id, user: A.studentUser._id })).toBe(1);
   });
 });
@@ -429,7 +431,19 @@ describe('Revision Planner and Learning Progress', () => {
     expect((await api().patch(`/api/learning/plan/${p._id}/items/${studies[0].id}`).set(auth(A.otherStudentUser)).send({ done: true })).status).toBe(404);
 
     const progress = (await api().get('/api/learning/progress').set(auth(A.studentUser))).body.data;
-    expect(progress.weak).toEqual([expect.objectContaining({ subject: 'maths', topic: 'decimals', accuracy: 33 })]);
+    expect(progress.weak).toEqual([expect.objectContaining({ subject: 'Maths', topic: 'Decimals', accuracy: 33 })]);
     expect(progress.plan).toMatchObject({ done: 1 });
+  });
+});
+
+describe('Practice marking when the AI fails', () => {
+  test('a short answer that cannot be marked is not recorded as wrong', async () => {
+    jsons.push({ questions: [{ format: 'short', prompt: 'What does the denominator tell you?', answer: 'The number of equal parts.', points: ['equal parts'], hint: 'h', solution: 's' }] });
+    const s = (await api().post('/api/learning/practice').set(auth(A.studentUser)).send({ subject: 'Mathematics', formats: ['short'] })).body.data;
+    global.fetch = jest.fn(async () => ({ ok: false, status: 500, text: async () => 'down', headers: { get: () => null } }));
+    const r = await api().post(`/api/learning/practice/${s._id}/answer`).set(auth(A.studentUser)).send({ questionId: s.questions[0].id, answer: 'parts' });
+    expect(r.status).toBe(503);
+    expect(r.body.message).toMatch(/could not be marked just now. Nothing was recorded/);
+    expect((await PracticeSession.findById(s._id)).attempts).toHaveLength(0);
   });
 });
