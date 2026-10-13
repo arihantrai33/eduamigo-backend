@@ -77,14 +77,26 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   Full sweep after the work: 150 screenshots, 0 JavaScript errors, 0 routes with page-level sideways scroll;
   Playwright 19/19. Frontend commits b15be6f..c87c491.
 
+- 2026-10-13 (later): owner decisions applied and the remaining web work. On phones the student and parent home
+  header now scrolls with the page (desktop unchanged). The results screen uses the shared tab bar (Home, Bus, Learn,
+  Chat, Me) with Learn as the current tab; no label was renamed. The last five admin screens (Chat, ID cards, Ask
+  insights, Teacher Profile, Transfer Certificate) are on the design system; Teacher Profile "Edit Profile" used to
+  open a route that does not exist and now opens the edit dialog. Record tables (students, teachers, parents, fees,
+  fee structure, admissions, results, salaries, HR, library) become one labelled card per row on phones; report tables
+  keep scrolling. Forms: silent delete/pin/approve/mark-paid failures now show a message, leave approval cannot be
+  pressed twice, HR checks required fields, three hand-rolled dialogs moved to the shared one, dialogs ask before
+  discarding typed-in changes, and the Add Student/Teacher/Parent pages warn before the tab is closed or reloaded.
+  Playwright 24/24, build ok, 0 new lint messages. Frontend commits 2ab6301..bb32559.
+
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
   Fees); they are responsive but not yet visually unified with the dashboards. Example: on the teacher's leave screen
   the "Total" balance number is teal on a teal card and hard to read.
   (Fixed 2026-10-13, frontend 837b4d7: the 48 icon-only back, send and close buttons that showed ← ➤ × now use line
   icons and all have screen-reader labels.)
-- The student results page has its own tab bar (Home, Bus, Learn, Result, Me); every other student screen shows Home, Bus,
-  Learn, Chat, Me. Unifying it changes a visible tab, so it waits for the owner's decision.
+- (Fixed 2026-10-13, frontend 2ab6301: the student results page now uses the shared tab bar with Learn current.)
+- Unsaved-change warnings cover dialogs and tab close/reload, not moving to another screen inside the app
+  (`BrowserRouter` cannot block navigation). About 15 error messages fall back to the word "Error" on network failures.
 - Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
   verified on a phone yet.
 - iOS links (`eduamigo://`): iOS asks "Open in EduAmigo?"; the scheme is verified, tapping Open is a manual check.
@@ -94,9 +106,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 - Not done: physical phones, signed release builds, store listings and review, deployment (paused until authorised).
 
 ## Next actions (resume here)
-1. Owner decision: unify the student results tab bar (see Known gaps).
-2. W4 (largely done 2026-10-13, see the web UX audit): owner decision on phone home headers scrolling away; table card
-   layouts on phones; form validation review; remaining admin headers (Chat, ID cards, Ask, Teacher Profile, TC).
+1. Review the separate `eduamigo-console` repository (owner console): document its scope first.
+2. W4 leftovers: print check of report card, receipt and TC; generic "Error" fallbacks.
 3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 4. Security: Content-Security-Policy and the web token storage decision.
 5. W9: final handover document.
