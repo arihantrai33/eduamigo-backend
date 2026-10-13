@@ -447,3 +447,30 @@ describe('Practice marking when the AI fails', () => {
     expect((await PracticeSession.findById(s._id)).attempts).toHaveLength(0);
   });
 });
+
+describe('worked answers without a check block', () => {
+  test('the calculation behind the final answer is extracted and re-computed by the server', async () => {
+    streams.push(['Selling price is 90% of the marked price.\n45 = 0.9 × MP\nMP = 45 ÷ 0.9 = 50\n**Answer:** The marked price was ₹50.']);
+    jsons.push({ checks: [{ type: 'value', expr: '45 / 0.9', answer: '50' }] });
+    let { ev } = await events(A.studentUser, { message: 'A pen costs ₹45 after a 10% discount. What was the marked price?' });
+    let final = ev.find((e) => e.type === 'final');
+    expect(final.checks).toEqual([expect.objectContaining({ status: 'passed' })]);
+    expect(final.confidence.level).toBe('high');
+    expect(final.timings.verifyMs).toEqual(expect.any(Number));
+    expect(calls[calls.length - 1].messages[0].content).toMatch(/Never correct the solution; copy its final answer/);
+
+    // A wrong final answer: the extracted expression does not give it, so the answer is flagged.
+    streams.push(['MP = 45 ÷ 0.9 = 55\n**Answer:** ₹55.']);
+    jsons.push({ checks: [{ type: 'value', expr: '45 / 0.9', answer: '55' }] });
+    ({ ev } = await events(A.studentUser, { message: 'A pen costs ₹45 after a 10% discount. Marked price?' }));
+    final = ev.find((e) => e.type === 'final');
+    expect(final.checks[0]).toMatchObject({ status: 'failed' });
+    expect(final.confidence.level).toBe('needs_verification');
+  });
+
+  test('no extra call for answers without numbers', async () => {
+    streams.push(['Photosynthesis is how plants make food.']);
+    await events(A.studentUser, { message: 'what is photosynthesis' });
+    expect(calls).toHaveLength(1); // only the streamed answer
+  });
+});

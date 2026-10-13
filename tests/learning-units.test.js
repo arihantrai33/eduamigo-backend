@@ -96,3 +96,13 @@ describe('practice answer keys', () => {
     expect(cleanQuestion({ format: 'short', prompt: 'Define a noun.', answer: 'A naming word.' }).error).toMatch(/marking points/);
   });
 });
+
+describe('clarifying questions versus answers that end with a question', () => {
+  const { finish } = require('../src/learning/tutor');
+  const base = { passages: [], materialsChecked: true, studentContext: true };
+  test('a short question back gets no reliability note; an explanation ending in a check question does', () => {
+    expect(finish('Which chapter do you mean?', base).confidence).toBeNull();
+    const answer = 'Gravity is the force that pulls objects towards each other. The Earth pulls everything towards its centre, which is why things fall down.\n\nCan you think of one example of gravity at home?';
+    expect(finish(answer, base).confidence).toMatchObject({ level: 'moderate' });
+  });
+});

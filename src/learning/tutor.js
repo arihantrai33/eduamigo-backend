@@ -84,13 +84,35 @@ function cleanHistory(history) {
 // The search query: a follow-up ("explain the second step") means little alone, so recent questions are included.
 const searchQuery = (message, history) => [...cleanHistory(history).filter((t) => t.role === 'user').slice(-2).map((t) => t.content), message].join('\n').slice(-1500);
 
+// A worked numerical answer without a check block (the model does not always add one): one short JSON call asks only for the
+// calculation behind the final answer; the server then evaluates it itself. The model never says "correct" here: it writes
+// an expression, and mathcheck.js decides.
+const NUMERIC_QUESTION = /\d/;
+const FINAL_NUMBER = /(=|answer|uttar|उत्तर|total|price|area|is)\s*[^.\n]{0,40}\d/i;
+const CHECK_SYSTEM = `You extract the calculation behind the FINAL answer of a worked school maths solution, so a program can re-check it.
+Return JSON only: {"checks":[{"type":"value","expr":"<plain arithmetic that produces the final answer, using only numbers and + - * / ^ ( ) sqrt % >","answer":"<the final number the solution gives, no units>"}]}
+or for a solved equation {"checks":[{"type":"equation","equation":"<equation>","variable":"x","answer":"<root(s)>"}]}.
+Return {"checks":[]} when there is no single numerical final answer. Never correct the solution; copy its final answer.`;
+
+async function deriveChecks(question, answer, signal) {
+  if (!NUMERIC_QUESTION.test(question) || !FINAL_NUMBER.test(answer) || signal?.aborted) return [];
+  try {
+    const out = await llm.completeJson({ system: CHECK_SYSTEM, user: `Question: ${String(question).slice(0, 600)}\n\nSolution:\n${String(answer).slice(0, 2500)}`, maxTokens: 200, temperature: 0 });
+    return (Array.isArray(out.data?.checks) ? out.data.checks : []).slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 // Finishes an answer: hidden blocks out, checks run, diagrams validated, sources matched, reliability rated.
-function finish(raw, { passages, materialsChecked, materialsError, studentContext }) {
+function finish(raw, { passages, materialsChecked, materialsError, studentContext, extraChecks = [] }) {
   const c = extractChecks(raw);
   const d = extractDiagrams(c.text);
-  const checks = c.checks.map(runCheck);
+  const checks = [...c.checks, ...extraChecks].map(runCheck);
   const used = citedPassages(d.text, passages);
-  const clarifying = /\?\s*$/.test(d.text) && d.text.length < 400 && !checks.length && !used.length;
+  // A clarifying question is short, one paragraph, and asks something back. A full explanation that ends with a question
+  // to check understanding is still an answer and gets its reliability note.
+  const clarifying = /\?\s*$/.test(d.text) && d.text.length < 220 && !/\n\s*\n/.test(d.text) && !checks.length && !used.length;
   return {
     text: d.text,
     diagrams: d.diagrams,
@@ -160,8 +182,14 @@ async function teach({ role, student = null, schoolId, message, history = [], mo
     }
     raw += '\n\n_The answer was interrupted. Please ask again for the rest._';
   }
+  let extraChecks = [];
+  if (!extractChecks(raw).checks.length) {
+    const v0 = Date.now();
+    extraChecks = await deriveChecks(message, raw, signal);
+    timings.verifyMs = Date.now() - v0;
+  }
   timings.totalMs = Date.now() - t0;
-  const done = finish(raw, { passages: materials.passages, materialsChecked: materials.checked, materialsError: materials.error, studentContext });
+  const done = finish(raw, { passages: materials.passages, materialsChecked: materials.checked, materialsError: materials.error, studentContext, extraChecks });
   const final = { type: 'final', ...done, timings, provider, language };
   emit(final);
   return final;
