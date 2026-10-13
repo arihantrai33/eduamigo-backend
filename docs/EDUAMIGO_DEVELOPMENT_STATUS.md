@@ -71,8 +71,10 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
-  Fees); they are responsive but not yet visually unified with the dashboards. About 35 screens use text arrows (← ➤) as
-  back and send buttons, many without a label for screen readers, instead of the app's line icons.
+  Fees); they are responsive but not yet visually unified with the dashboards. Example: on the teacher's leave screen
+  the "Total" balance number is teal on a teal card and hard to read.
+  (Fixed 2026-10-13, frontend 837b4d7: the 48 icon-only back, send and close buttons that showed ← ➤ × now use line
+  icons and all have screen-reader labels.)
 - The student results page has its own tab bar (Home, Bus, Learn, Result, Me); every other student screen shows Home, Bus,
   Learn, Chat, Me. Unifying it changes a visible tab, so it waits for the owner's decision.
 - Push: the backend sends through Firebase; the apps need the Firebase files and an APNs key (owner's accounts). Not
@@ -85,7 +87,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
 
 ## Next actions (resume here)
 1. Owner decision: unify the student results tab bar (see Known gaps).
-2. W4: unify internal screens portal by portal (shared page header, line icons for back/send, tokens instead of literals).
+2. W4: unify internal screens portal by portal (shared page header, tokens instead of literals, contrast fixes).
+   Visible redesigns are shown to the owner as screenshots before they are applied.
 3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 4. Security: Content-Security-Policy and the web token storage decision.
 5. W9: final handover document.
