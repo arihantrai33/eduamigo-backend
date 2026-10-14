@@ -234,6 +234,21 @@ describe('AI Tutor chat', () => {
     expect(calls[calls.length - 1].messages.at(-1).content).not.toContain('PICTURE REQUESTED');
   });
 
+  test('a spoken question gets the teacher-talking style (Hindi words in Devanagari); a typed one does not', async () => {
+    const system = () => calls[calls.length - 1].messages[0].content;
+    streams.push(['ठीक है।']);
+    await events(A.studentUser, { message: 'Photosynthesis kya hota hai, mujhe aasan tareeke se samjhao', voice: true });
+    expect(system()).toContain('SPOKEN ANSWER');
+    expect(system()).toMatch(/Write every Hindi word in Devanagari/);
+    streams.push(['Okay.']);
+    await events(A.studentUser, { message: 'What is a fraction? Explain simply.', voice: true });
+    expect(system()).toContain('SPOKEN ANSWER');
+    expect(system()).not.toMatch(/Devanagari/);
+    streams.push(['Okay.']);
+    await events(A.studentUser, { message: 'What is a fraction? Explain simply.' });
+    expect(system()).not.toContain('SPOKEN ANSWER');
+  });
+
   test('follow-ups keep the conversation: the earlier turns are sent with the new question', async () => {
     streams.push(['A fraction is part of a whole.']);
     const first = await events(A.studentUser, { message: 'what is a fraction' });

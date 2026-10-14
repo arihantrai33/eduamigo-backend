@@ -152,6 +152,14 @@ names, links and dates taken from the search results.
 - Added later: a stale or duplicate send is ignored, Escape stops speaking/listening/the answer, starting the mic during an
   answer interrupts it, an answer that arrives only as final text is still read, and `?voicedebug=1` shows the measured
   delay on the device (first text, first sound, both counted from the end of speech).
+- Voice quality (2026-10-14, after owner feedback that Hindi/Hinglish sounded foreign and like reading): the cause was that
+  a Hinglish answer was spoken by the English voice and written like a document. Now (1) Hindi and Hinglish answers use the
+  best installed Hindi voice (natural/neural/premium/Google ranked first, robotic voices never), (2) a voice question gets a
+  spoken-teacher prompt: short sentences, a natural opener, one example, no lists or labels, a closing question, and Hindi
+  in Devanagari with English school words in English letters, (3) rate 0.92 (Hindi) / 0.97 (English). Quality still depends
+  on the voices installed on the device (Edge's Natural/Neural Hindi voices are best; Chrome uses Google/Apple voices). A
+  device with no Hindi voice is told so. A studio-quality voice would need a provider-billed speech service (not
+  implemented, needs approval and cost metering).
 - **Not tested:** real speech recognition (no microphone in headless tests), Hindi and Hinglish recognition quality,
   mobile browsers, and the Android and iOS apps (their web views may not offer SpeechRecognition; typing is the
   fallback there). Hinglish is not a separate recognition language: "English (India)" usually writes Hindi words in
