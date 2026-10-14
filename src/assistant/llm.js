@@ -2,7 +2,8 @@
 //
 //   ASSISTANT_PROVIDERS   order to try, default "azure,gemini" (unconfigured providers are skipped)
 //   ASSISTANT_AI=off      turns model calls off; the assistant still works on keywords and templates
-//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000
+//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000 (for streamed answers: time to the first piece)
+//   ASSISTANT_STREAM_TIMEOUT_MS  cap on a whole streamed answer, default 60000
 //
 //   Azure OpenAI: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT (e.g. gpt-4.1-mini),
 //                 AZURE_OPENAI_API_VERSION (default 2024-10-21)
@@ -24,6 +25,9 @@ const health = new Map(); // provider -> { failures, skipUntil }
 const cache = new Map();  // key -> { at, value }
 
 const timeoutMs = () => Number(process.env.ASSISTANT_TIMEOUT_MS || 10000);
+// A streamed answer may take longer than one ordinary call: timeoutMs() applies to the connection and the first piece, this to
+// the whole answer. (Before, the short limit cut every long answer, Hindi ones especially, and the fallback then failed the same way.)
+const streamTimeoutMs = () => Math.max(timeoutMs(), Number(process.env.ASSISTANT_STREAM_TIMEOUT_MS || 60000));
 
 const PROVIDERS = {
   azure: {
@@ -172,7 +176,7 @@ const STREAMERS = {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '');
     const version = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
     const url = `${endpoint}/openai/deployments/${encodeURIComponent(process.env.AZURE_OPENAI_DEPLOYMENT)}/chat/completions?api-version=${version}`;
-    const signals = [AbortSignal.timeout(timeoutMs()), signal].filter(Boolean);
+    const signals = [AbortSignal.timeout(streamTimeoutMs()), signal].filter(Boolean);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': process.env.AZURE_OPENAI_API_KEY },
@@ -208,7 +212,7 @@ const STREAMERS = {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
-    const model = client.getGenerativeModel({ model: PROVIDERS.gemini.model(), systemInstruction: system }, { timeout: timeoutMs() });
+    const model = client.getGenerativeModel({ model: PROVIDERS.gemini.model(), systemInstruction: system }, { timeout: streamTimeoutMs() });
     const contents = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
     const result = await model.generateContentStream({
       contents, generationConfig: { temperature, maxOutputTokens: Math.max(maxTokens * 4, 1024) },
@@ -236,8 +240,11 @@ async function stream({ messages, maxTokens = 900, temperature = 0.3, signal, fe
     if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
     const started = Date.now();
     const meter = { usage: null };
+    // One controller per attempt: a provider that stays silent is cut off, not left running in the background.
+    const attempt = new AbortController();
+    const attemptSignal = signal ? AbortSignal.any([signal, attempt.signal]) : attempt.signal;
     try {
-      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal, meter });
+      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal: attemptSignal, meter });
       // Read the first piece here, so a provider that fails or stays silent is skipped before anything is shown.
       const it = pieces[Symbol.asyncIterator]();
       const first = await withTimeout(it.next(), timeoutMs());
@@ -267,6 +274,7 @@ async function stream({ messages, maxTokens = 900, temperature = 0.3, signal, fe
         }()),
       };
     } catch (err) {
+      attempt.abort();
       aiUsage.record({ feature, provider: name, model: PROVIDERS[name].model(), ok: false, estimated: true, ms: Date.now() - started });
       if (signal?.aborted) throw err;
       const failures = h.failures + 1;

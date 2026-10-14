@@ -249,6 +249,27 @@ describe('AI Tutor chat', () => {
     expect(system()).not.toContain('SPOKEN ANSWER');
   });
 
+  test('a long answer is not cut by the short first-token timeout (it used to fail after 10 s, then fail again on the fallback)', async () => {
+    process.env.ASSISTANT_TIMEOUT_MS = '80'; // first piece must arrive quickly
+    process.env.ASSISTANT_STREAM_TIMEOUT_MS = '5000'; // the whole answer may take longer
+    const slow = async function* body() {
+      for (const p of ['Pehla hissa. ', 'Doosra hissa. ', 'Teesra hissa.']) {
+        await new Promise((r) => setTimeout(r, 90)); // slower than the first-piece limit between pieces
+        yield enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}\n\n`);
+      }
+      yield enc.encode('data: [DONE]\n\n');
+    };
+    global.fetch = jest.fn(async (url, opts) => {
+      // The first piece comes at once; the provider honours the request's abort signal like the real one does.
+      const gen = slow();
+      return { ok: true, body: (async function* b() { yield enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Shuru. ' } }] })}\n\n`); for await (const c of gen) { if (opts.signal?.aborted) throw new Error('aborted'); yield c; } }()) };
+    });
+    const { ev } = await events(A.studentUser, { message: 'what is a fraction' });
+    expect(ev.find((e) => e.type === 'error')).toBeUndefined();
+    expect(ev.find((e) => e.type === 'final').text).toContain('Teesra hissa.');
+    delete process.env.ASSISTANT_TIMEOUT_MS; delete process.env.ASSISTANT_STREAM_TIMEOUT_MS;
+  });
+
   test('follow-ups keep the conversation: the earlier turns are sent with the new question', async () => {
     streams.push(['A fraction is part of a whole.']);
     const first = await events(A.studentUser, { message: 'what is a fraction' });
