@@ -111,13 +111,13 @@ async function recentMaterials({ schoolId, cls, section, subject = null, limit =
     const q = { school: schoolId, class: String(cls), section: { $in: ['', section || ''] }, type: 'Notes' };
     if (subject) q.subject = new RegExp(`^${String(subject).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
     const notes = await Note.find(q).sort({ createdAt: -1 }).limit(limit).select('title type subject').lean();
-    if (!notes.length) return { passages: [], method: 'recent', checked: true, error: null };
+    if (!notes.length) return { passages: [], method: 'recent', checked: true, error: null, notesFound: 0 };
     const first = await NoteEmbedding.find({ school: schoolId, noteId: { $in: notes.map((n) => n._id) }, chunkIndex: 0 }).select('noteId chunkText chunkIndex').lean();
     const byNote = new Map(first.map((c) => [String(c.noteId), c]));
     const passages = notes.filter((n) => byNote.has(String(n._id))).map((n, i) => ({
       ref: `S${i + 1}`, noteId: String(n._id), title: n.title, type: n.type || 'Notes', subject: n.subject, part: 1, text: String(byNote.get(String(n._id)).chunkText).slice(0, PASSAGE_CHARS), score: null,
     }));
-    return { passages, method: 'recent', checked: true, error: null };
+    return { passages, method: 'recent', checked: true, error: null, notesFound: notes.length };
   } catch (err) {
     return { passages: [], method: 'recent', checked: false, error: err.message };
   }

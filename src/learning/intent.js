@@ -69,6 +69,11 @@ const TEXT = {
     hinglish: 'Questions kis topic par chahiye? Jaise "Fractions" ya "Photosynthesis". Bata dijiye, main practice set kar dunga.',
     hi: 'प्रश्न किस विषय पर चाहिए? जैसे "भिन्न" या "प्रकाश संश्लेषण"। बताइए, मैं अभ्यास तैयार कर दूँगा।',
   },
+  notes_not_ready: {
+    en: 'Your teachers have added notes for your class, but their text is not ready for the AI yet (it may still be processing, or the file could not be read). I cannot revise them right now. Tell me a subject or topic and I can revise it from general knowledge, but that will not be from your school\'s notes.',
+    hinglish: 'Aapke teachers ne notes add kiye hain, par unka text abhi AI ke liye ready nahi hai (ho sakta hai processing chal rahi ho, ya file padhi na ja saki ho). Abhi main unhe revise nahi kara sakta. Subject ya topic bataiye, main general knowledge se revise kara dunga, par wo aapke school ke notes se nahi hoga.',
+    hi: 'आपके शिक्षकों ने नोट्स जोड़े हैं, पर उनका टेक्स्ट अभी AI के लिए तैयार नहीं है (प्रोसेसिंग चल रही हो सकती है, या फ़ाइल पढ़ी नहीं जा सकी)। अभी मैं उन्हें रिवाइज़ नहीं करा सकता। विषय या टॉपिक बताइए, मैं सामान्य ज्ञान से रिवाइज़ करा दूँगा, पर वह आपके स्कूल के नोट्स से नहीं होगा।',
+  },
   no_notes: {
     en: 'No notes have been uploaded for your class yet, so I cannot revise "your notes". Tell me a subject or topic and I can revise it from general knowledge, but that will not be from your school\'s notes.',
     hinglish: 'Aapki class ke liye abhi koi notes upload nahi hue hain, isliye main "aapke notes" revise nahi kara sakta. Subject ya topic bataiye, main general knowledge se revise kara dunga, par wo aapke school ke notes se nahi hoga.',

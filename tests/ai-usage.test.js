@@ -317,6 +317,14 @@ describe('what the student asks for: intent, context and language', () => {
     expect(await AssistantTicket.countDocuments({})).toBe(0);
   });
 
+  test('notes that exist but have no readable text yet are not reported as "not uploaded"; no model is called', async () => {
+    await Note.create({ school: A.school._id, title: 'Scanned chapter', subject: 'Science', class: '10', section: 'A', type: 'Notes', processing: { status: 'pending' } });
+    const { ev } = await events(A.studentUser, { message: 'Mujhe mere notes revise karwa do' });
+    expect(finalOf(ev).text).toMatch(/ready nahi/);
+    expect(finalOf(ev).text).not.toMatch(/koi notes upload nahi hue/);
+    expect(calls).toHaveLength(0);
+  });
+
   test('a request to contact a teacher is answered with what the tutor can do, and nothing is created or sent', async () => {
     const { ev } = await events(A.studentUser, { message: 'Tell my teacher I could not understand algebra' });
     expect(finalOf(ev)).toMatchObject({ intent: 'contact_teacher', provider: null });

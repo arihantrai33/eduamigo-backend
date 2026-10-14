@@ -224,6 +224,16 @@ describe('AI Tutor chat', () => {
     expect(final.text).not.toMatch(/script|svg/);
   });
 
+  test('asking to draw something tells the model the app draws it; an ordinary question does not', async () => {
+    streams.push(['Here is the cycle.\n```diagram\n{"type":"cycle","steps":["Evaporation","Condensation","Precipitation"]}\n```']);
+    const { ev } = await events(A.studentUser, { message: 'Draw a diagram of the water cycle' });
+    expect(calls[calls.length - 1].messages.at(-1).content).toContain('PICTURE REQUESTED');
+    expect(ev.find((e) => e.type === 'final').diagrams).toHaveLength(1);
+    streams.push(['A fraction is part of a whole.']);
+    await events(A.studentUser, { message: 'what is a fraction' });
+    expect(calls[calls.length - 1].messages.at(-1).content).not.toContain('PICTURE REQUESTED');
+  });
+
   test('follow-ups keep the conversation: the earlier turns are sent with the new question', async () => {
     streams.push(['A fraction is part of a whole.']);
     const first = await events(A.studentUser, { message: 'what is a fraction' });
