@@ -149,6 +149,9 @@ names, links and dates taken from the search results.
 - **Tested** with a scripted stand-in for the speech services (`e2e/learning.spec.js`): privacy notice, the spoken
   question in the same chat (`voice: true`), the answer read without symbols, permission denied, silence, mute,
   stopping speech, unsupported browser, and that latency is recorded.
+- Added later: a stale or duplicate send is ignored, Escape stops speaking/listening/the answer, starting the mic during an
+  answer interrupts it, an answer that arrives only as final text is still read, and `?voicedebug=1` shows the measured
+  delay on the device (first text, first sound, both counted from the end of speech).
 - **Not tested:** real speech recognition (no microphone in headless tests), Hindi and Hinglish recognition quality,
   mobile browsers, and the Android and iOS apps (their web views may not offer SpeechRecognition; typing is the
   fallback there). Hinglish is not a separate recognition language: "English (India)" usually writes Hindi words in
@@ -191,32 +194,92 @@ English, Hinglish, Hindi, maths, spoken, follow-up) and 6 understanding calls. N
   `ASSISTANT_AI=off`.
 
 ## 10. Tests and results (2026-10-14)
-- Backend `npm test`: **773/773** (41 suites; 40 new in `learning.test.js` and `learning-units.test.js`).
-- Frontend `npm run test:e2e`: **55/55**, including 13 new in `learning.spec.js` and `learning-integration.spec.js`.
-- Build ok. 0 lint messages on changed lines.
-- Responsive sweep on the test servers: 150 screenshots, 0 JS errors, 0 page-level sideways scroll.
-- Live provider checks, run by hand and not part of any suite:
-  - the latency run above;
-  - two answers read for quality (Hinglish fractions, a discount problem). Both were correct; the discount answer was
-    checked by the server (45 / (90/100) = 50).
+- Backend `npm test`: **804/804** (42 suites). New: `ai-usage.test.js` (26 tests: metering, limits, cache, concurrency,
+  admin summary, intents, language, zero use) and more in `learning.test.js`.
+- Frontend `npm run test:e2e` (own backend and web server on 8110/5184, `ASSISTANT_AI=off`, mocked AI answers): **68/68**,
+  including `learning-completion.spec.js` (follow-up buttons, duplicate send, Escape, voice timing, AI-off banner,
+  graph legend, concept map, long cycle steps, re-teach, admin AI usage tab).
+- Build ok; ESLint clean on the changed frontend files (the backend has no ESLint configuration).
+- Mocked tests and the real-provider run (section 14) are separate evidence. Routine tests never call a provider.
 
 ## 11. Dependencies, configuration, approvals
 - No new packages.
-- New optional settings:
+- Optional settings:
   - `LEARNING_VECTOR_SEARCH` (`auto`/`on`/`off`);
-  - `LEARNING_HISTORY_DAYS` (default 180; conversations are deleted automatically by a TTL index).
-- New collections: `learningconversations`, `practicesessions`, `revisionplans`. They need no migration.
-- Plan usage: tutor answers and practice sets count against the school's monthly `aiQuestionsPerMonth`.
-- Needs approval:
-  - a web search provider;
-  - any change to which providers or models are used;
-  - deploying any of this.
+  - `LEARNING_HISTORY_DAYS` (default 180; conversations are deleted automatically by a TTL index);
+  - `AI_PRICING` (JSON, see section 13; nothing is priced without it);
+  - `AI_WARN_AT` (default 0.8), `AI_MAX_CONCURRENT_PER_USER` (default 1), `AI_USAGE_DAYS` (ledger retention).
+- New collections: `learningconversations`, `practicesessions`, `revisionplans`, `aiusages`. No migration is needed.
+- Needs approval: a web search provider; any change to providers or models (including a stronger model for hard
+  questions); a provider-billed voice service; deploying any of this.
 
 ## 12. Remaining work, safest next step
-1. Have a teacher and two or three students try the AI Tutor and Practice locally on the demo, with real notes uploaded
-   (needs the note processing job and a Gemini key for embeddings, or the BM25 path with chunk text).
-2. Try voice on a real Android phone and an iPhone in Chrome and Safari, and record the latency attributes.
-3. Write a labelled evaluation set for study questions (correctness, language, honesty about sources). There is no
-   accuracy number yet.
-4. The wider Ask upgrade (section 1). Web research once a provider is approved.
-5. Page numbers: store the page with each chunk when notes are processed.
+1. Teacher uploads real notes locally, then check "revise my notes" with the real provider (the demo's only note has no
+   processed text, so this was only verified with a mocked provider).
+2. Try voice on a real Android phone and an iPhone (Chrome, Safari) with `?voicedebug=1` and record the timings.
+3. Set `AI_PRICING` on the real deployment from the provider's current price page (only then can a cost budget be
+   enforced), and set provider-side spend limits too.
+4. A labelled evaluation set for study questions (there is no accuracy number yet).
+5. Web research and provider-billed voice, once approved. Page numbers per chunk.
+
+## 13. Usage metering and cost control
+**What is counted.** Every provider call (and every answer served from the cache, as a cache hit with no tokens) writes
+one `AiUsage` row: school, user, month, feature (`ask`, `tutor`, `tutor_verify`, `practice`, `practice_verify`,
+`practice_mark`, `embeddings`, `revision_legacy`), provider, model, tokens in/out, whether the tokens were estimated
+(only when the provider sent none), voice flag, duration, ok/failed, estimated cost. **No question, answer or key is
+stored.** Rows expire by TTL. Nothing is recorded unless a call is made, so ordinary ERP use (fees, attendance, notices,
+reading the Learning screens) adds no row and no cost; a school that never uses the AI has no variable AI charge.
+
+**Cost is an estimate.** `estimate = tokens x price`, with prices only from `AI_PRICING`:
+`{"currency":"USD","models":{"azure:gpt-4.1-mini":{"inputPer1M":<n>,"outputPer1M":<n>}}}`. There are no built-in prices.
+Unpriced calls show "not priced". The provider's actual invoice is not retrieved (`actualProviderBilling: null`); the
+provider's own billing page and spend limit are a separate control from this app-side metering.
+
+**Limits per school** (set by the platform owner on the plan or the school, `PATCH /api/platform/schools/:id/subscription`):
+`aiQuestionsPerMonth` (existing), `aiBudgetPerMonth` (only enforced when prices are configured; otherwise the admin page
+says it cannot be enforced), `aiTokensPerMonth`, and `featureQuotas {ask, tutor, practice}`. A question counts once; the
+calculation check and answer-key check calls inside it count towards tokens and budget only.
+- At 80% a warning appears for the school admin. At 100% paid calls stop: the AI Tutor and Practice answer HTTP 429
+  `AI_LIMIT` with a plain message; EduAmigo Ask keeps working on keywords (`ai.used:false`).
+- Per person: one AI answer at a time (`AI_BUSY` 429 for an overlapping request), the existing rate limiter, an output
+  token cap per answer, and no automatic retry beyond the provider fallback.
+- The generic-answer cache is keyed by school, class, language, mode, message and the school's notes version, so nothing
+  crosses schools and a changed note drops the cached answer.
+- Routing: model-free paths come first (intent replies for practice/plan/contact-teacher, cache hits, Ask's keyword
+  router). There is **one** configured model; a stronger model for hard questions is **not implemented** and needs approval.
+
+**Admin view.** `GET /api/ai-usage/summary?month=YYYY-MM` (school admin with `assistant.insights`; other roles 403, no
+token 401) and the admin page Ask > "AI usage and cost": month, calls, tokens, estimated cost or "not priced", cache
+hits, failed calls, per-feature table, limits with state, alerts, the voice note, and the "not the provider's invoice" note.
+
+**Voice.** Spoken questions use the browser's own speech service (not billed by EduAmigo's provider). A provider-billed
+voice session is not implemented; if one is added it must be metered as `audioSeconds` and given its own limit.
+
+## 14. Real-provider smoke test (2026-10-14, local, isolated)
+Isolated demo backend on port 8110 (temporary data), `ASSISTANT_AI` not set to off, Azure OpenAI gpt-4.1-mini from the
+existing `.env` (no key printed), `LEARNING_VECTOR_SEARCH=off`. About 25 provider calls in total.
+
+| Scenario | Result |
+|---|---|
+| English question (photosynthesis) | Answered by Azure; first text 1.8 to 2.7 s, whole answer 3.7 to 4.4 s; "Moderate confidence" because no school notes matched. |
+| "explain it again in a simpler way" | Same conversation; a new analogy, not a repeat; first text about 1.0 s. |
+| Hinglish "Mujhe mere notes revise karwa do" | Hinglish reply, intent `revise_notes`, no model call, no ticket. The demo note has no processed text, so the reply says the notes are not ready (before the fix it wrongly said "not uploaded"). **Revision from real notes with the real provider: not verified** (mocked only). |
+| Maths: 3x + 7 = 25 | Correct steps, x = 6; server check "passed: equation", High confidence. |
+| Diagram: "draw the water cycle" | **First run failed**: the model said "I cannot draw" and returned no diagram. Fixed (the prompt tells the model the app draws diagrams). After the fix a validated `cycle` diagram came back; "plot y = 2x + 1" returned a validated graph. |
+| Practice set (3 questions, easy) | Created; keys not in the response; 1 to 2 generated questions were dropped by the key checks. |
+| Provider failure (second isolated backend, endpoint unreachable) | Tutor: plain "could not answer, nothing was guessed"; practice: 503, no session saved, progress unchanged; Ask: keyword answer. Failed calls recorded with 0 tokens. |
+
+**Metering and limits (same run).** The admin summary showed provider-reported token counts per feature. After a token
+limit was set at 85% of usage the summary showed a warning; below usage the AI Tutor and Practice returned 429
+`AI_LIMIT`, Ask answered from keywords, and **0 provider calls** were made while blocked; removing the limit restored
+answers. Overlapping tutor requests from one student: the second got 429 `AI_BUSY`. 13 ordinary read and ERP requests
+changed the call count 3 to 3. Cost showed "not priced" because `AI_PRICING` was not set (no price was invented).
+
+**Browser (local Chrome, real AI, own web server on 5184).** `/student/learn` loaded the tutor input with the context
+request answered 200 and no "AI is off" banner; a typed question showed its first text after about 2.4 s; a graph was
+drawn from validated data with no HTML/SVG/code fences in the log. Voice used a **scripted** speech stand-in (no
+microphone): first text 1,130 ms and first sound 1,147 ms after the scripted end of speech, a measurement of the app's
+own delay only, **not of real speech recognition or a phone**.
+
+**Not verified:** a real microphone, Hindi/Hinglish recognition, mobile browsers, provider-billed voice, a stronger
+model, image upload, web research, the provider's actual invoice, and a cost budget with real prices.

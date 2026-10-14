@@ -152,6 +152,20 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
     - Voice latency is recorded in the app but not yet measured on a real device.
   - Local commits (not pushed): backend 47e82ab, 9823698, 80ec694 (+ docs); frontend f5f5cfe (+ docs).
 
+- 2026-10-14 AI Learning Assistant completion, voice and usage-based cost control (local only, not pushed). Details:
+  `docs/EDUAMIGO_LEARNING_AI.md` sections 13 and 14.
+  - Why tests said "no AI provider": the test servers run with `ASSISTANT_AI=off` (switched off, not unconfigured). The
+    messages now say which it is; the Learning screen shows a banner.
+  - Built: intent and follow-up handling, language mirroring, graphs/concept maps/cycles drawn from validated data,
+    TEACH to PRACTICE to EVALUATE to REVISE (difficulty and re-teach only on enough evidence), per-call usage ledger,
+    per-school token/budget/feature limits with warning and hard stop, one answer at a time per person, admin usage
+    page and API.
+  - Real provider smoke test (Azure gpt-4.1-mini, isolated backend): English, simpler follow-up, maths, graph, cycle,
+    practice and a provider failure worked; the first run found "I cannot draw" for a diagram request and a wrong
+    "no notes uploaded" message, both fixed.
+  - Tests: backend 804/804; frontend 68/68 (own ports 8110/5184).
+  - Local commits (not pushed): backend 90d6b6b, 1340dbb, 415735f, 856090c; frontend d5fe97e, 7e3ee69, 15a0310.
+
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
   Fees); they are responsive but not yet visually unified with the dashboards. Example: on the teacher's leave screen
@@ -165,7 +179,11 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
   migration has not been run on real data.
 - Printing verified in Chrome only (Safari not automated, Firefox not installed).
 - AI:
-  - Voice not tried with real speech or on phones.
+  - Voice not tried with real speech or on phones (only a scripted stand-in and a real-AI run with it).
+  - Cost: `AI_PRICING` is not set anywhere, so cost shows "not priced" and a cost budget cannot be enforced; the
+    provider's real invoice is not read. Provider-side spend limits are a separate setting for the owner.
+  - No stronger-model routing (one model is configured), no provider-billed voice, no image or graph upload.
+  - "Revise my notes" checked with real provider only without notes; with real notes it is mocked-tested.
   - No labelled accuracy set for study answers.
   - Web research not built.
   - Notes have no page numbers.
@@ -183,7 +201,8 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
    "Allow remote automation" if it should be automated); approve running `migrate:admission-dates` on real data when
    ready (after a backup).
 2. Learning AI pilot on the local demo with real uploaded notes, a teacher and a few students; voice on a real Android
-   phone and iPhone; a labelled study-question evaluation set. Approval needed for a web search provider.
+   phone and iPhone; set `AI_PRICING` and provider spend limits before any school is given a cost budget; a labelled
+   study-question evaluation set. Approval needed for a web search provider, a stronger model or provider-billed voice.
 3. W6: end-to-end tests for exams to report card, timetable, transport, library and admissions.
 4. Security: Content-Security-Policy and the web token storage decision.
 5. W9: final handover document.
