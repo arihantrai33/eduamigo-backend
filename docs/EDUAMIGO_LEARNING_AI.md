@@ -337,3 +337,11 @@ host gave a "network" message in 1.4 s after 3 tries; a wrong key on the real en
 not the student's. There is no in-app fallback resolver (it would need an HTTP agent package, which needs approval). The Gemini
 fallback shares the same DNS, so it does not help during a DNS outage. The failure messages were checked in the app with mocked
 failures and with real DNS and key failures, but not with a flaky ISP resolver in the loop.
+
+**Follow-up (2026-10-15): practice generation timed out.** Generating a set of practice questions asks for about 3,500 tokens and
+takes 15 to 26 s with the real provider (measured: 5 English questions 15 s, 5 maths 26 s, 3 science 15 s), but one-shot calls had
+the same 10 s limit as a quick reply, so every set failed with "took too long" after three tries, and the three timeouts put Azure
+into its one-minute cooling off (so every other request then said "busy"). A call now gets 20 ms per requested token when that is more
+than the ordinary limit (so about 60 s for a practice set, never more than the stream cap); short calls keep 10 s. Test:
+`ai-resilience.test.js` ("a call that asks for a lot of output gets more time"). Remaining: a set takes 15 to 26 s because
+generation and the answer-key check run one after the other; making that faster is a separate improvement.

@@ -258,6 +258,27 @@ describe('retrying a one-shot call (Ask, practice)', () => {
   });
 });
 
+describe('a call that asks for a lot of output gets more time', () => {
+  // A provider that answers after 250 ms and honours the abort signal like the real one.
+  const slowOk = (opts) => new Promise((resolve, reject) => {
+    const t = setTimeout(() => resolve(jsonOk('{"questions":[]}')), 250);
+    opts.signal.addEventListener('abort', () => { clearTimeout(t); reject(opts.signal.reason || new Error('aborted')); });
+  });
+
+  test('practice-sized output (3500 tokens) is not cut by the 10 s style limit; a short call is', async () => {
+    process.env.ASSISTANT_TIMEOUT_MS = '100'; // stands in for the 10 s default
+    process.env.ASSISTANT_STREAM_TIMEOUT_MS = '5000';
+    script(slowOk);
+    const big = await inSchool('practice', () => llm.complete({ system: 's', user: 'q', maxTokens: 3500, cache: false, feature: 'practice' }));
+    expect(big.text).toContain('questions');
+    expect(fetchCalls).toBe(1);
+    process.env.ASSISTANT_RETRIES = '0';
+    script(slowOk);
+    const err = await failure(() => inSchool('practice', () => llm.complete({ system: 's', user: 'q', maxTokens: 2, cache: false, feature: 'practice' })));
+    expect(err).toMatchObject({ reason: 'timeout' });
+  });
+});
+
 describe('what the student sees', () => {
   test('a temporary network problem: a retryable error that says so', async () => {
     script(netErr('EAI_AGAIN'));

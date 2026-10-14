@@ -2,7 +2,8 @@
 //
 //   ASSISTANT_PROVIDERS   order to try, default "azure,gemini" (unconfigured providers are skipped)
 //   ASSISTANT_AI=off      turns model calls off; the assistant still works on keywords and templates
-//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000 (for streamed answers: time to the first piece)
+//   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000 (for streamed answers: time to the first piece; a call that asks for
+//                         more than 500 tokens gets 20 ms per token instead, up to the stream cap)
 //   ASSISTANT_STREAM_TIMEOUT_MS  cap on a whole streamed answer, default 60000
 //   ASSISTANT_RETRIES     extra tries of one provider after a transient failure (DNS, connection, timeout, 429, 5xx), default 2
 //   ASSISTANT_RETRY_BASE_MS  first wait before a retry, default 300 (then x3, with jitter)
@@ -33,6 +34,9 @@ const timeoutMs = () => Number(process.env.ASSISTANT_TIMEOUT_MS || 10000);
 // A streamed answer may take longer than one ordinary call: timeoutMs() applies to the connection and the first piece, this to
 // the whole answer. (Before, the short limit cut every long answer, Hindi ones especially, and the fallback then failed the same way.)
 const streamTimeoutMs = () => Math.max(timeoutMs(), Number(process.env.ASSISTANT_STREAM_TIMEOUT_MS || 60000));
+// How long one non-streamed call may take: the ordinary limit, longer for calls that ask for a lot of output (a set of practice
+// questions is a few thousand tokens and takes tens of seconds), never longer than a whole streamed answer may take.
+const callTimeoutMs = (maxTokens) => Math.min(streamTimeoutMs(), Math.max(timeoutMs(), Number(maxTokens || 0) * 20));
 const maxRetries = () => (process.env.ASSISTANT_RETRIES === undefined ? 2 : Math.max(0, Number(process.env.ASSISTANT_RETRIES)));
 const retryBudgetMs = () => Number(process.env.ASSISTANT_RETRY_BUDGET_MS || 25000);
 const NETWORK_KINDS = new Set(['dns', 'connect', 'reset']); // the machine's or the network's fault, not the provider's
@@ -41,7 +45,7 @@ const PROVIDERS = {
   azure: {
     configured: () => !!(process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_DEPLOYMENT),
     model: () => process.env.AZURE_OPENAI_DEPLOYMENT,
-    async call({ system, user, json, maxTokens, temperature }) {
+    async call({ system, user, json, maxTokens, temperature, timeout }) {
       const endpoint = process.env.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '');
       const version = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
       const url = `${endpoint}/openai/deployments/${encodeURIComponent(process.env.AZURE_OPENAI_DEPLOYMENT)}/chat/completions?api-version=${version}`;
@@ -53,7 +57,7 @@ const PROVIDERS = {
           temperature, max_tokens: maxTokens,
           ...(json ? { response_format: { type: 'json_object' } } : {}),
         }),
-        signal: AbortSignal.timeout(timeoutMs()),
+        signal: AbortSignal.timeout(timeout || timeoutMs()),
       });
       if (!res.ok) {
         const err = Object.assign(new Error(`Azure OpenAI ${res.status}: ${redact((await res.text()).slice(0, 200))}`), { status: res.status });
@@ -70,15 +74,15 @@ const PROVIDERS = {
   gemini: {
     configured: () => !!process.env.GEMINI_API_KEY,
     model: () => process.env.ASSISTANT_GEMINI_MODEL || require('../services/ai').CHAT_MODEL,
-    async call({ system, user, json, maxTokens, temperature }) {
+    async call({ system, user, json, maxTokens, temperature, timeout }) {
       const { GoogleGenerativeAI } = require('@google/generative-ai');
       const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = client.getGenerativeModel({ model: PROVIDERS.gemini.model(), systemInstruction: system }, { timeout: timeoutMs() });
+      const model = client.getGenerativeModel({ model: PROVIDERS.gemini.model(), systemInstruction: system }, { timeout: timeout || timeoutMs() });
       const result = await withTimeout(model.generateContent({
         contents: [{ role: 'user', parts: [{ text: user }] }],
         // Gemini 3 models spend output tokens on internal reasoning too, so the budget is larger than the answer.
         generationConfig: { temperature, maxOutputTokens: Math.max(maxTokens * 4, 1024), ...(json ? { responseMimeType: 'application/json' } : {}) },
-      }), timeoutMs());
+      }), timeout || timeoutMs());
       const meta = result.response.usageMetadata || {};
       return { text: result.response.text(), usage: { input: meta.promptTokenCount || 0, output: meta.candidatesTokenCount || 0 } };
     },
@@ -164,7 +168,7 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
     try {
       // Transient failures (DNS, connection, timeout, 429, 5xx) are tried again a bounded number of times; see withRetries.
       const { value: out } = await withRetries(async () => {
-        const r = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
+        const r = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature, timeout: callTimeoutMs(maxTokens) });
         if (!r.text) throw new Error('empty response');
         return r;
       }, { deadline });
