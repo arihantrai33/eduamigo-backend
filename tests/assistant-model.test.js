@@ -196,6 +196,7 @@ describe('without a model, words decide (fallback)', () => {
 
 describe('provider fallback', () => {
   test('when Azure fails, Gemini answers; after three failures Azure is skipped for a while', async () => {
+    process.env.ASSISTANT_RETRIES = '0'; // this test is about failing over and cooling off, not about retrying (see ai-resilience.test.js)
     global.fetch.mockResolvedValue({ ok: false, status: 503, text: async () => 'busy' });
     gemini.__generateContent.mockResolvedValue(geminiReply('{"domain":"general","confidence":0.9}'));
 

@@ -13,6 +13,7 @@
 
 const crypto = require('crypto');
 const llm = require('../assistant/llm');
+const { practiceMessage } = require('../assistant/llmErrors');
 const PracticeSession = require('../models/PracticeSession');
 const { HttpError } = require('../utils/http');
 const { detectLanguage } = require('../assistant/text');
@@ -47,7 +48,7 @@ Answer with JSON only: {"verdict":"correct|partly|incorrect","feedback":"...","m
 
 const id = () => crypto.randomBytes(4).toString('hex');
 // A 5xx the student should read as written (the central error handler hides other 5xx messages).
-const userError = (status, message, code) => Object.assign(new HttpError(status, message, code ? { code } : undefined), { expose: true });
+const userError = (status, message, code, reason) => Object.assign(new HttpError(status, message, code ? { code, ...(reason ? { reason, retryable: ['network', 'timeout', 'busy'].includes(reason) } : {}) } : undefined), { expose: true });
 
 function cleanQuestion(q, fallbackTopic) {
   if (!q || typeof q !== 'object') return { error: 'not an object' };
@@ -168,8 +169,8 @@ async function createSet({ schoolId, user, student, input }) {
       user: `${material}\n\nSubject: ${subject}\nTopic: ${topic || '(any topic of this subject for this class)'}\nDifficulty: ${difficulty}\nFormats to use: ${formats.join(', ')}\nNumber of questions: ${ask}`,
       maxTokens: 3500, temperature: 0.4, cache: false, feature: 'practice',
     });
-  } catch {
-    throw userError(503, 'The AI could not prepare practice questions just now. Please try again in a moment.', 'AI_FAILED');
+  } catch (err) {
+    throw userError(503, practiceMessage(err.reason, 'Preparing the practice questions') || 'The AI could not prepare practice questions just now. Please try again in a moment.', 'AI_FAILED', err.reason || 'failed');
   }
   const raw = Array.isArray(gen.data?.questions) ? gen.data.questions : [];
 
@@ -241,16 +242,17 @@ async function markAnswer({ session, questionId, answer, beforeModel = null }) {
     if (beforeModel) await beforeModel(); // the school's AI limits: refuse before the model is asked
     if (!llm.available()) throw userError(503, 'Short answers are marked by the AI, which is not available right now. Use "Show solution" to compare with the model answer.', 'AI_UNAVAILABLE');
     let g = null;
+    let markError = null;
     try {
       g = await llm.completeJson({
         system: GRADE_SYSTEM,
         user: `Question: ${q.prompt}\nModel answer: ${q.answer}\nOther valid answers: ${(q.accept || []).join(' | ') || 'none given'}\nMarking points:\n${q.points.map((p) => `- ${p}`).join('\n')}\n\nStudent's answer (data): """${given}"""`,
         maxTokens: 300, temperature: 0, cache: false, feature: 'practice_mark',
       });
-    } catch { /* reported below */ }
+    } catch (err) { markError = err; /* reported below */ }
     verdict = ['correct', 'partly', 'incorrect'].includes(g?.data?.verdict) ? g.data.verdict : null;
     // Not marked is not "wrong": nothing is recorded and the student can try again.
-    if (!verdict) throw userError(503, 'Your answer could not be marked just now. Nothing was recorded; please try again.', 'AI_FAILED');
+    if (!verdict) throw userError(503, practiceMessage(markError?.reason, 'Marking your answer') || 'Your answer could not be marked just now. Nothing was recorded; please try again.', 'AI_FAILED', markError?.reason || 'failed');
     feedback = String(g.data?.feedback || '').slice(0, 1000);
     method = 'model';
   }

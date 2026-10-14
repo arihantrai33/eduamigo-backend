@@ -42,7 +42,7 @@ beforeEach(async () => {
   await clear();
   A = await seedSchool('Alpha School');
   B = await seedSchool('Beta School');
-  process.env = { ...ENV, ASSISTANT_AI: 'on', ASSISTANT_PROVIDERS: 'azure', AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com', AZURE_OPENAI_API_KEY: 'k', AZURE_OPENAI_DEPLOYMENT: 'gpt-test', GEMINI_API_KEY: '', LEARNING_VECTOR_SEARCH: 'off' };
+  process.env = { ...ENV, ASSISTANT_AI: 'on', ASSISTANT_PROVIDERS: 'azure', AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com', AZURE_OPENAI_API_KEY: 'k', AZURE_OPENAI_DEPLOYMENT: 'gpt-test', GEMINI_API_KEY: '', LEARNING_VECTOR_SEARCH: 'off', ASSISTANT_RETRY_BASE_MS: '1' };
   delete process.env.AI_PRICING;
   llm.resetForTests(); cache.clear(); aiUsage.resetForTests();
   calls = []; streams = []; jsons = []; streamUsage = { prompt: 123, completion: 45 }; hold = null;

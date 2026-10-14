@@ -4,17 +4,22 @@
 //   ASSISTANT_AI=off      turns model calls off; the assistant still works on keywords and templates
 //   ASSISTANT_TIMEOUT_MS  per-call timeout, default 10000 (for streamed answers: time to the first piece)
 //   ASSISTANT_STREAM_TIMEOUT_MS  cap on a whole streamed answer, default 60000
+//   ASSISTANT_RETRIES     extra tries of one provider after a transient failure (DNS, connection, timeout, 429, 5xx), default 2
+//   ASSISTANT_RETRY_BASE_MS  first wait before a retry, default 300 (then x3, with jitter)
+//   ASSISTANT_RETRY_BUDGET_MS  the most time all tries and providers may take before the first answer, default 25000
+//   Wrong keys (401/403), wrong endpoint or deployment (404) and refused requests (400/422) are never retried: see llmErrors.js.
 //
 //   Azure OpenAI: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT (e.g. gpt-4.1-mini),
 //                 AZURE_OPENAI_API_VERSION (default 2024-10-21)
 //   Gemini:       GEMINI_API_KEY, ASSISTANT_GEMINI_MODEL (default: the app's GEMINI_CHAT_MODEL, see services/ai.js)
 //
-// A provider that fails 3 times in a row is skipped for a minute, so a slow or broken provider
+// A provider that fails 3 times in a row (not counting network failures, which are not its fault) is skipped for a minute, so a slow or broken provider
 // does not make every question wait for its timeout. Identical requests are answered from a
 // short-lived cache.
 
 const crypto = require('crypto');
 const aiUsage = require('../services/aiUsage');
+const { AiError, classify, reasonOf, backoffMs, redact, sleep } = require('./llmErrors');
 
 const FAILURE_LIMIT = 3;
 const COOL_OFF_MS = 60 * 1000;
@@ -28,6 +33,9 @@ const timeoutMs = () => Number(process.env.ASSISTANT_TIMEOUT_MS || 10000);
 // A streamed answer may take longer than one ordinary call: timeoutMs() applies to the connection and the first piece, this to
 // the whole answer. (Before, the short limit cut every long answer, Hindi ones especially, and the fallback then failed the same way.)
 const streamTimeoutMs = () => Math.max(timeoutMs(), Number(process.env.ASSISTANT_STREAM_TIMEOUT_MS || 60000));
+const maxRetries = () => (process.env.ASSISTANT_RETRIES === undefined ? 2 : Math.max(0, Number(process.env.ASSISTANT_RETRIES)));
+const retryBudgetMs = () => Number(process.env.ASSISTANT_RETRY_BUDGET_MS || 25000);
+const NETWORK_KINDS = new Set(['dns', 'connect', 'reset']); // the machine's or the network's fault, not the provider's
 
 const PROVIDERS = {
   azure: {
@@ -48,7 +56,7 @@ const PROVIDERS = {
         signal: AbortSignal.timeout(timeoutMs()),
       });
       if (!res.ok) {
-        const err = new Error(`Azure OpenAI ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        const err = Object.assign(new Error(`Azure OpenAI ${res.status}: ${redact((await res.text()).slice(0, 200))}`), { status: res.status });
         if (res.status === 429) err.retryAfterMs = Math.min(Number(res.headers.get('retry-after') || 1) * 1000, 4000);
         throw err;
       }
@@ -79,9 +87,38 @@ const PROVIDERS = {
 
 function withTimeout(promise, ms) {
   let timer;
-  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms); });
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error(`timed out after ${ms} ms`), { code: 'ETIMEOUT' })), ms); });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
+
+// Runs fn(), and again after a short growing wait when it failed for a reason that can pass by itself (llmErrors.classify). Stops at
+// once for a wrong key, a wrong endpoint or a refused request, when the person cancelled, after maxRetries(), or when the time
+// budget (`deadline`) would be exceeded. The last error carries `kind` and `attempts`.
+async function withRetries(fn, { deadline, signal } = {}) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return { value: await fn(attempt), attempts: attempt + 1 };
+    } catch (err) {
+      const c = classify(err);
+      err.kind = c.kind; err.errCode = c.code; err.attempts = attempt + 1;
+      const wait = c.kind === 'rate_limit' ? Math.min(err.retryAfterMs ?? 1000, 4000) : backoffMs(attempt);
+      if (signal?.aborted || !c.retryable || attempt >= maxRetries() || Date.now() + wait >= deadline) throw err;
+      await sleep(wait, signal);
+      attempt += 1;
+    }
+  }
+}
+
+// One line for the server log: the kind of failure, never the request, a key or the endpoint's address.
+const describe = (err) => `${err.kind || classify(err).kind}${err.errCode ? ` (${err.errCode})` : ''} after ${err.attempts || 1} attempt${(err.attempts || 1) === 1 ? '' : 's'}: ${redact(err.message)}`;
+const noteFailure = (name, h, err) => {
+  const failures = NETWORK_KINDS.has(err.kind) ? 0 : h.failures + 1;
+  health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
+};
+const failedAll = (errors) => new AiError(`All language model providers failed (${errors.map((e) => e.text).join('; ')})`, {
+  reason: reasonOf(errors.map((e) => e.kind)), kinds: errors.map((e) => e.kind), attempts: errors.reduce((n, e) => n + (e.attempts || 1), 0),
+});
 
 function order() {
   const names = String(process.env.ASSISTANT_PROVIDERS || 'azure,gemini').split(',').map((s) => s.trim()).filter((n) => PROVIDERS[n]);
@@ -119,21 +156,18 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
   }
 
   const errors = [];
+  const deadline = Date.now() + retryBudgetMs();
   for (const name of order()) {
     const h = health.get(name) || { failures: 0, skipUntil: 0 };
-    if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
+    if (h.skipUntil > Date.now()) { errors.push({ text: `${name}: cooling off`, kind: 'server' }); continue; }
     const started = Date.now();
     try {
-      // A rate-limit answer (429) means "wait a moment": one short wait and one retry before giving up on the provider.
-      let out;
-      try {
-        out = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
-      } catch (err) {
-        if (!err.retryAfterMs) throw err;
-        await new Promise((resolve) => setTimeout(resolve, err.retryAfterMs));
-        out = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
-      }
-      if (!out.text) throw new Error('empty response');
+      // Transient failures (DNS, connection, timeout, 429, 5xx) are tried again a bounded number of times; see withRetries.
+      const { value: out } = await withRetries(async () => {
+        const r = await PROVIDERS[name].call({ system, user, json, maxTokens, temperature });
+        if (!r.text) throw new Error('empty response');
+        return r;
+      }, { deadline });
       health.set(name, { failures: 0, skipUntil: 0 });
       const value = { text: out.text, provider: name, model: PROVIDERS[name].model(), usage: out.usage };
       if (useCache) cacheSet(key, value);
@@ -146,13 +180,13 @@ async function complete({ system, user, json = false, maxTokens = 400, temperatu
     } catch (err) {
       // A failed call is still a request. What the provider billed for it (if anything) is unknown, so no tokens are claimed.
       aiUsage.record({ feature, provider: name, model: PROVIDERS[name].model(), ok: false, estimated: true, ms: Date.now() - started });
-      const failures = h.failures + 1;
-      health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
-      errors.push(`${name}: ${err.message}`);
-      if (process.env.NODE_ENV !== 'test') console.error(`[assistant] ${name} failed: ${err.message}`);
+      err.kind = err.kind || classify(err).kind;
+      noteFailure(name, h, err);
+      errors.push({ text: `${name}: ${err.kind}`, kind: err.kind, attempts: err.attempts });
+      if (process.env.NODE_ENV !== 'test') console.error(`[assistant] ${name} failed: ${describe(err)}`);
     }
   }
-  throw new Error(`All language model providers failed (${errors.join('; ')})`);
+  throw failedAll(errors);
 }
 
 // complete() for JSON answers. Returns the parsed object, or null if the model did not return valid JSON.
@@ -184,7 +218,11 @@ const STREAMERS = {
       body: JSON.stringify({ messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } }),
       signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
     });
-    if (!res.ok || !res.body) throw new Error(`Azure OpenAI ${res.status}`);
+    if (!res.ok || !res.body) {
+      const err = Object.assign(new Error(`Azure OpenAI ${res.status}`), { status: res.status });
+      if (res.status === 429) err.retryAfterMs = Math.min(Number(res.headers.get('retry-after') || 1) * 1000, 4000);
+      throw err;
+    }
     return (async function* pieces() {
       const decoder = new TextDecoder();
       let buffer = '';
@@ -235,20 +273,33 @@ const STREAMERS = {
 async function stream({ messages, maxTokens = 900, temperature = 0.3, signal, feature } = {}) {
   if (!available()) throw new Error('No language model is configured');
   const errors = [];
+  const deadline = Date.now() + retryBudgetMs();
   for (const name of order()) {
     const h = health.get(name) || { failures: 0, skipUntil: 0 };
-    if (h.skipUntil > Date.now()) { errors.push(`${name}: cooling off`); continue; }
+    if (h.skipUntil > Date.now()) { errors.push({ text: `${name}: cooling off`, kind: 'server' }); continue; }
     const started = Date.now();
-    const meter = { usage: null };
-    // One controller per attempt: a provider that stays silent is cut off, not left running in the background.
-    const attempt = new AbortController();
-    const attemptSignal = signal ? AbortSignal.any([signal, attempt.signal]) : attempt.signal;
+    let meter = { usage: null };
+    let attempt = null;
     try {
-      const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal: attemptSignal, meter });
-      // Read the first piece here, so a provider that fails or stays silent is skipped before anything is shown.
-      const it = pieces[Symbol.asyncIterator]();
-      const first = await withTimeout(it.next(), timeoutMs());
-      if (first.done) throw new Error('empty response');
+      // Connecting and the first piece of the answer, tried again after a transient failure. Each try has its own abort
+      // controller and a time limit (so a stalled DNS lookup or connection is cut off, not left hanging), and a failed try is
+      // aborted. After the first piece a failure is not retried: the caller has already shown part of the answer.
+      const { value: got } = await withRetries(async () => {
+        meter = { usage: null };
+        attempt = new AbortController();
+        const attemptSignal = signal ? AbortSignal.any([signal, attempt.signal]) : attempt.signal;
+        const left = Math.max(50, Math.min(timeoutMs(), deadline - Date.now()));
+        try {
+          return await withTimeout((async () => {
+            const pieces = await STREAMERS[name]({ messages, maxTokens, temperature, signal: attemptSignal, meter });
+            const it = pieces[Symbol.asyncIterator]();
+            const first = await it.next();
+            if (first.done) throw new Error('empty response');
+            return { it, first };
+          })(), left);
+        } catch (err) { attempt.abort(); throw err; }
+      }, { deadline, signal });
+      const { it, first } = got;
       health.set(name, { failures: 0, skipUntil: 0 });
       const model = PROVIDERS[name].model();
       return {
@@ -274,16 +325,16 @@ async function stream({ messages, maxTokens = 900, temperature = 0.3, signal, fe
         }()),
       };
     } catch (err) {
-      attempt.abort();
+      attempt?.abort();
       aiUsage.record({ feature, provider: name, model: PROVIDERS[name].model(), ok: false, estimated: true, ms: Date.now() - started });
       if (signal?.aborted) throw err;
-      const failures = h.failures + 1;
-      health.set(name, { failures, skipUntil: failures >= FAILURE_LIMIT ? Date.now() + COOL_OFF_MS : 0 });
-      errors.push(`${name}: ${err.message}`);
-      if (process.env.NODE_ENV !== 'test') console.error(`[learning] ${name} stream failed: ${err.message}`);
+      err.kind = err.kind || classify(err).kind;
+      noteFailure(name, h, err);
+      errors.push({ text: `${name}: ${err.kind}`, kind: err.kind, attempts: err.attempts });
+      if (process.env.NODE_ENV !== 'test') console.error(`[learning] ${name} stream failed: ${describe(err)}`);
     }
   }
-  throw new Error(`All language model providers failed (${errors.join('; ')})`);
+  throw failedAll(errors);
 }
 
 // Why no model is available right now: 'off' (switched off with ASSISTANT_AI=off, as the local test servers are), 'no_provider'

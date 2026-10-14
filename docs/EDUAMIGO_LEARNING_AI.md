@@ -291,3 +291,49 @@ own delay only, **not of real speech recognition or a phone**.
 
 **Not verified:** a real microphone, Hindi/Hinglish recognition, mobile browsers, provider-billed voice, a stronger
 model, image upload, web research, the provider's actual invoice, and a cost budget with real prices.
+
+## 15. Network and provider failures (2026-10-15)
+**Incident.** The AI Tutor sometimes answered "could not answer just now". Investigation on the owner's Mac, without changing any
+network setting:
+- `npm run diagnose:ai` (new, `src/scripts/diagnoseAi.js`; reads `.env`, prints no key and no address, `--call` makes one
+  10-token request) measures DNS, TCP, TLS and HTTPS separately.
+- The cause was DNS. The ISP resolver (`103.47.13.78`) timed out 5 of 5 lookups, and at other times the system lookup of the
+  Azure host failed at once ("Could not resolve host") or took 5 to 8 s. Google (8.8.8.8) and Cloudflare (1.1.1.1) resolved the same
+  host 5 of 5 times in about 0.2 to 0.3 s. TCP (58 ms), TLS (216 ms) and HTTPS (401 without a key) were all fine, and one real
+  request with the real key returned HTTP 200 in 1.1 s, so the key, endpoint and deployment are correct.
+- Two earlier faults were separate and are fixed: the 10 s limit applied to the whole streamed answer (long answers were cut), and a
+  stalled connection was not cut off at the connection stage.
+
+**What the app now does** (`src/assistant/llmErrors.js`, `llm.js`):
+| Kind | Examples | Retried? |
+|---|---|---|
+| dns, connect, reset | ENOTFOUND, EAI_AGAIN, ECONNREFUSED, ETIMEDOUT, ECONNRESET | yes |
+| timeout | no answer in `ASSISTANT_TIMEOUT_MS` | yes |
+| rate_limit | HTTP 429 (waits the provider's retry-after, at most 4 s) | yes |
+| server | HTTP 500, 502, 503, 504; an empty answer | yes |
+| auth, config | HTTP 401/403 wrong key; 404 wrong endpoint or deployment | no |
+| bad_request, tls, unknown | 400/422; certificate problems | no |
+- At most `ASSISTANT_RETRIES` (default 2) extra tries per provider, waits 300 ms then 900 ms with jitter, and never beyond
+  `ASSISTANT_RETRY_BUDGET_MS` (default 25 s) before the first piece of an answer. Each try has its own abort controller and
+  time limit; a failed try is aborted. Nothing is retried after the first piece has been shown, or after the student stopped it.
+- Network failures do not put a provider into its one-minute cooling off (they are not the provider's fault); its own errors do.
+- A retried call that finally succeeds is one ledger row. A call that fails after its tries is one failed row with no tokens.
+- Logs say the kind, the system code and the number of attempts, for example `dns (ENOTFOUND) after 3 attempts`. Keys and addresses are
+  redacted (a check of the server logs found neither key).
+- The student is told the reason: `network` (temporary network problem on the server, try again), `timeout`, `busy` (429 or 5xx),
+  `config` (wrong key or setup: tell the administrator, no Try again), plus the existing `off` and `no_provider`. Practice returns the
+  same `reason` and `retryable` fields. The tutor screen shows a heading with an icon per reason and offers Try again only when it can
+  help; "AI limit reached" and "one answer at a time" are separate.
+
+**Verified.** Backend 842/842 (36 new in `ai-resilience.test.js`: classification of 20+ error shapes, retry counts, bounds, the time
+budget, timeouts, abort of failed tries, no retry after the first piece, no retry after cancel, cooling-off rules, messages, practice).
+Three deliberate bugs (retry a wrong key, count network failures towards cooling off, unbounded retries) were each caught. Frontend
+76/76 and build ok. Real runs on isolated backends: Azure answers in 1.3 s (short), 1.9 s (Hinglish voice), 5.6 s (long); an unresolvable
+host gave a "network" message in 1.4 s after 3 tries; a wrong key on the real endpoint gave "config" in 0.3 s after 1 try, with no retry.
+
+**Limitations.** The retry cannot make a dead resolver work: if the Mac's DNS fails for longer than about 25 s the student still sees the
+"temporary network problem" message (and Try again). The lasting fix is a working resolver on the machine or server (the Mac now lists
+8.8.8.8 first; the ISP's resolver is still in the list and still failing). In production the server's own network and resolver matter,
+not the student's. There is no in-app fallback resolver (it would need an HTTP agent package, which needs approval). The Gemini
+fallback shares the same DNS, so it does not help during a DNS outage. The failure messages were checked in the app with mocked
+failures and with real DNS and key failures, but not with a flaky ISP resolver in the loop.

@@ -15,7 +15,8 @@
     "create-platform-admin": "node src/scripts/createPlatformAdmin.js",
     "demo": "node src/scripts/demo.js",
     "assistant:eval": "node src/scripts/assistantEval.js",
-    "assistant:answers": "node src/scripts/assistantAnswerEval.js"
+    "assistant:answers": "node src/scripts/assistantAnswerEval.js",
+    "diagnose:ai": "node src/scripts/diagnoseAi.js"
   },
   "keywords": [],
   "author": "",

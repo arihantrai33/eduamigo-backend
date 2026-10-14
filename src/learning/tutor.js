@@ -18,6 +18,7 @@ const { levelGuide } = require('../controllers/revisionController');
 const { findMaterials, recentMaterials, notesStamp } = require('./materials');
 const { extractChecks, runCheck } = require('./mathcheck');
 const { extractDiagrams, TYPES: DIAGRAM_TYPES } = require('./diagram');
+const { studentMessage } = require('../assistant/llmErrors');
 const { rate, citedPassages } = require('./confidence');
 const intents = require('./intent');
 const cache = require('./cache');
@@ -305,7 +306,10 @@ async function teach({
   } catch (err) {
     if (signal?.aborted) return { type: 'cancelled' };
     if (!raw) {
-      const out = { type: 'error', code: 'AI_FAILED', message: 'The AI Tutor could not answer just now. Nothing was guessed; please try again.' };
+      // Why it failed, in words a student can act on: a temporary network problem and a busy service are worth a retry, a
+      // misconfigured server is not. (err.reason comes from llm.js; the details are in the server log, never in the message.)
+      const reason = err.reason || 'failed';
+      const out = { type: 'error', code: 'AI_FAILED', reason, retryable: !!err.retryable, message: studentMessage(reason, 'The AI Tutor') };
       emit(out);
       return out;
     }

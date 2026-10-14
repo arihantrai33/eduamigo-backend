@@ -37,7 +37,7 @@ beforeEach(async () => {
   await clear();
   A = await seedSchool('Alpha School');
   B = await seedSchool('Beta School');
-  process.env = { ...ENV, ASSISTANT_AI: 'on', ASSISTANT_PROVIDERS: 'azure', AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com', AZURE_OPENAI_API_KEY: 'k', AZURE_OPENAI_DEPLOYMENT: 'gpt-test', GEMINI_API_KEY: '', LEARNING_VECTOR_SEARCH: 'off' };
+  process.env = { ...ENV, ASSISTANT_AI: 'on', ASSISTANT_PROVIDERS: 'azure', AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com', AZURE_OPENAI_API_KEY: 'k', AZURE_OPENAI_DEPLOYMENT: 'gpt-test', GEMINI_API_KEY: '', LEARNING_VECTOR_SEARCH: 'off', ASSISTANT_RETRY_BASE_MS: '1' };
   llm.resetForTests();
   calls = []; streams = []; jsons = [];
   global.fetch = jest.fn(async (url, opts) => {
@@ -489,7 +489,7 @@ describe('Practice marking when the AI fails', () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 500, text: async () => 'down', headers: { get: () => null } }));
     const r = await api().post(`/api/learning/practice/${s._id}/answer`).set(auth(A.studentUser)).send({ questionId: s.questions[0].id, answer: 'parts' });
     expect(r.status).toBe(503);
-    expect(r.body.message).toMatch(/could not be marked just now. Nothing was recorded/);
+    expect(r.body.message).toMatch(/Marking your answer did not happen and nothing was recorded/);
     expect((await PracticeSession.findById(s._id)).attempts).toHaveLength(0);
   });
 });
@@ -560,7 +560,7 @@ describe('teach, practise, evaluate, revise', () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 500, text: async () => 'down', headers: { get: () => null } }));
     const res = await api().post('/api/learning/practice').set(auth(A.studentUser)).send({ subject: 'Mathematics', topic: 'Fractions' });
     expect(res.status).toBe(503);
-    expect(res.body.message).toMatch(/could not prepare practice questions/);
+    expect(res.body.message).toMatch(/busy or temporarily unavailable.*nothing was recorded/);
     expect(await PracticeSession.countDocuments({})).toBe(0);
     expect(await UsageCounter.countDocuments({ metric: 'ai_questions' })).toBe(0);
   });

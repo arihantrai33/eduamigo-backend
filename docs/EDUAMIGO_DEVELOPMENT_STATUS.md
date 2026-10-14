@@ -165,6 +165,9 @@ Mobile toolchains on this Mac at the start: Xcode 16.4 only. Since installed wit
     "no notes uploaded" message, both fixed.
   - Tests: backend 804/804; frontend 68/68 (own ports 8110/5184).
   - Local commits (not pushed): backend 90d6b6b, 1340dbb, 415735f, 856090c; frontend d5fe97e, 7e3ee69, 15a0310.
+- 2026-10-15 AI network reliability. The intermittent "could not answer just now" was the Mac's ISP DNS resolver timing out (public
+  resolvers and TCP/TLS/HTTPS were fine; the key and deployment work). Added failure classification, bounded retries with a time budget,
+  reason-specific student messages, and `npm run diagnose:ai`. Backend 842/842, frontend 76/76. Details: `docs/EDUAMIGO_LEARNING_AI.md` section 15.
 
 ## Known gaps (honest list)
 - Most internal screens still use their original inline styles and colours (e.g. green/orange page headers on Students and
