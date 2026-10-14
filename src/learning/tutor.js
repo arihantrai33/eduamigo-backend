@@ -176,8 +176,8 @@ function finish(raw, { passages, materialsChecked, materialsError, studentContex
 }
 
 const UNAVAILABLE = {
-  off: 'The AI is switched off on this server (ASSISTANT_AI=off), so the AI Tutor cannot answer. Your question was not answered by a guess. Ask the person who runs the server to switch it on.',
-  no_provider: 'No AI provider is configured on this server, so the AI Tutor cannot answer. Your question was not answered by a guess. Ask the person who runs the server to add one.',
+  off: 'The AI is switched off on this server, so the AI Tutor cannot answer. Your question was not answered by a guess. Ask your school or the person who runs the server to switch it on.',
+  no_provider: 'No AI provider is configured on this server, so the AI Tutor cannot answer. Your question was not answered by a guess. Ask your school or the person who runs the server to add one.',
 };
 
 // teach() streams one answer. emit(event) receives:
