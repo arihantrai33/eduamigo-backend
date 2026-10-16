@@ -13,6 +13,7 @@ const { subjectsWithMaterial } = require('../learning/materials');
 const { upcomingExams } = require('../learning/planner');
 const aiUsage = require('../services/aiUsage');
 const llm = require('../assistant/llm');
+const speech = require('../learning/speech');
 
 const MAX_MESSAGE = 2000;
 
@@ -144,8 +145,22 @@ exports.context = asyncHandler(async (req, res) => {
         // Web research needs a search provider; none is configured, so the tutor never claims to have searched the web.
         webResearch: false,
         ai: { available: llm.available(), reason: llm.unavailableReason() },
+        // A natural (neural) spoken voice for answers; when false the app speaks with the device's own voice.
+        voice: { natural: speech.available() },
         historyDays: Number(process.env.LEARNING_HISTORY_DAYS || 180),
       },
     },
   });
+});
+
+// One short piece of the tutor's answer, spoken in a natural voice (audio/wav). The text is what the screen already shows; it
+// counts against the school's AI budget like any other model call. A 503 tells the app to use the device's voice instead.
+exports.speak = asyncHandler(async (req, res) => {
+  const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim();
+  if (!text) throw new HttpError(400, 'There is nothing to say');
+  if (text.length > speech.MAX_CHARS) throw new HttpError(400, `Send at most ${speech.MAX_CHARS} characters at a time`);
+  if (!speech.available()) throw Object.assign(new HttpError(503, 'The natural voice is not switched on for this server.', { code: 'VOICE_OFF' }), { expose: true });
+  await aiUsage.assertAllowed({ schoolId: req.schoolId, entitlements: req.entitlements, group: null });
+  const out = await aiUsage.within({ school: req.schoolId, user: req.user._id, feature: 'voice_out', voice: true }, () => speech.synthesize({ text }));
+  res.set({ 'Content-Type': out.mime, 'Cache-Control': 'private, max-age=600', 'X-Voice-Cached': out.cached ? '1' : '0' }).send(out.audio);
 });

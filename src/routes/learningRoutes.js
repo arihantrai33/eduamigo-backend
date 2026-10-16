@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { authorizeRoles } = require('../middleware/authMiddleware');
-const { revisionLimiter } = require('../middleware/rateLimit');
+const { revisionLimiter, speechLimiter } = require('../middleware/rateLimit');
 const c = require('../controllers/learningController');
 const p = require('../controllers/practiceController');
 
@@ -10,6 +10,7 @@ router.use(authorizeRoles('student'));
 
 router.get('/context', c.context);
 router.post('/chat', revisionLimiter, c.chat);
+router.post('/speak', speechLimiter, c.speak);
 router.get('/conversations', c.listConversations);
 router.delete('/conversations', c.clearConversations);
 router.get('/conversations/:id', c.getConversation);

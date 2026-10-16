@@ -18,6 +18,7 @@ const { levelGuide } = require('../controllers/revisionController');
 const { findMaterials, recentMaterials, notesStamp } = require('./materials');
 const { extractChecks, runCheck } = require('./mathcheck');
 const { extractDiagrams, TYPES: DIAGRAM_TYPES } = require('./diagram');
+const { SUBJECTS: DRAWING_SUBJECTS } = require('./drawings');
 const { studentMessage } = require('../assistant/llmErrors');
 const { rate, citedPassages } = require('./confidence');
 const intents = require('./intent');
@@ -50,8 +51,9 @@ function resolveLanguage(message, conversationLanguage) {
 }
 
 // Words that ask for a drawing (English and Hinglish). Only a hint to the model; the diagram itself is still validated by the app.
-const PICTURE_WORDS = /\b(draw|drawing|diagram|graph|plot|chart|number ?line|flow ?chart|concept map|mind map|picture|figure|chitra|naksha)\b/i;
-const wantsPicture = (message) => PICTURE_WORDS.test(String(message || ''));
+const PICTURE_WORDS = /\b(draw|drawing|sketch|illustrate|illustration|diagram|graph|plot|chart|number ?line|flow ?chart|concept map|mind map|picture|figure|chitra|naksha|tasveer|photo|ray diagram)\b/i;
+const IMAGE_ASK = /\b(image|pic|photo)\b.*\b(bana|banao|dikha|dikhao|de|do|dena|create|make|show|generate|draw)\b|\b(bana|banao|dikha|dikhao|create|make|show|generate|draw)\b.*\b(image|pic|photo)\b/i;
+const wantsPicture = (message) => PICTURE_WORDS.test(String(message || '')) || IMAGE_ASK.test(String(message || ''));
 
 // How a spoken answer must sound: a teacher talking to one student, not a document being read. For Hindi and Hinglish the
 // Hindi words are written in Devanagari (school and technical words stay in English letters), because a Hindi voice pronounces
@@ -64,7 +66,7 @@ function spokenStyle(language) {
   return `SPOKEN ANSWER (the student asked by voice and will HEAR this, so talk like a friendly teacher sitting next to them, not like a document being read)
 - Short natural sentences, about 12 to 18 words each. One idea at a time. Warm, calm, encouraging.
 - Talk to the student directly with a natural opener and connectors ("Dekho", "Samjho", "Chalo", "Ab", "Isliye", or in English "Look", "Now", "So"). Use one form of address (aap or tum) throughout.
-- No bullet points, numbered lists, headings, bold, tables or labels such as "Brief explanation:". Say the order in words: first, then, after that, finally.
+- No headings, bold, tables or labels such as "Brief explanation:". For steps or parts, use a short numbered list where each point is one complete sentence that begins with a connector ("First, ...", "Next, ...", "Finally, ..."); the app reads each point with a pause.
 - Use one everyday example. Say equations and numbers the way a teacher says them aloud ("two x plus three equals eleven"). Do not spell out symbols.
 - Do not mention sources, links or the checking process out loud. End with one short question to check understanding or to offer the next step.
 `;
@@ -78,6 +80,7 @@ function systemPrompt({ role, cls, mode, language, brief, spoken }) {
   return `You are the EduAmigo AI Tutor. You are talking to ${who}
 
 TEACHING
+- Teach like an excellent teacher at the board: say what the idea is in one line, then explain it point by point (a numbered list for steps or parts, short bullets for features), give one everyday example, and end with a one-line takeaway or one question to check understanding. Keep each point to one clear sentence.
 - Answer the actual question. A quick doubt gets a direct, short answer; do not force a lesson structure on it.
 - When teaching a concept: a clear explanation first, then one example, then (only for concepts, not quick facts) one short question to check understanding.
 - If the student says they do not understand, or asks for it simpler, do NOT repeat yourself: use a different approach (a new everyday example, an analogy, smaller steps, or a picture as a diagram) and start from basics.
@@ -103,11 +106,14 @@ MATHS AND CALCULATIONS
 - You cannot see pictures, graphs or photos. If the student refers to one ("this graph", "the figure"), ask them to type the equation, the numbers or the question; then you can plot or solve it. If the question is unclear or a number is missing, ask for that detail instead of solving.
 
 PICTURES
-- Add a picture only when it really helps understanding (a function or comparison of functions, a number line, a chart, the steps of a process, a cycle, how ideas connect, a comparison table). Most answers need none. Add at most ONE block:
+- Add a picture when it really helps understanding, and ALWAYS when the student asks you to draw, sketch, show a diagram or a picture. Most other answers need none. Add at most ONE block, and the explanation beside it must refer to the labels in it. Put the block right after the sentence that introduces it, never after your closing question. Use a flow for a process with steps in order (photosynthesis, digestion) and a cycle ONLY for something that really returns to its start (water cycle, carbon cycle):
 \`\`\`diagram
 {"type":"<${DIAGRAM_TYPES.join('|')}>", ...}
 \`\`\`
   numberline: min, max, step, points [{value,label}], ranges [{from,to,label}]; bar: labels, values, unit; graph: expr (in x) or series [{expr,label}] (up to 3 lines), xMin, xMax, xLabel, yLabel; flow: steps (short phrases); cycle: steps (each a name of at most 3 words, like \"Evaporation\"; put explanations in the text, not in the steps); table: headers, rows; conceptmap: center, branches [{label, children}]. Add "alt": one sentence describing it. Never write HTML, SVG or code for pictures.
+  Ray diagrams for a convex or concave lens: {"type":"lens","kind":"convex","u":20,"f":15,"unit":"cm"} (u = object distance, f = focal length, both positive; the app works out the image and draws the rays correctly, so never compute them yourself in the block).
+  Ready-made labelled drawings (always prefer these, they are exact): {"type":"labeled","subject":"<${DRAWING_SUBJECTS.join('|')}>"} (optionally "parts":["Nucleus","Vacuole"] to label only some parts; the labels are fixed: plant cell has Nucleus, Cytoplasm, Cell membrane, Chloroplast, Cell wall, Large vacuole, Mitochondrion; animal cell has Nucleus, Cytoplasm, Mitochondrion, Cell membrane, Ribosome, Golgi body; atom has Nucleus, Proton (+), Neutron, Electron (-), Orbit (shell); earth_layers has Crust, Mantle, Outer core, Inner core; circuit has Cell (battery), Bulb, Switch, Wire, Direction of current). After the drawing, explain the parts one by one in a numbered list in the same order and with the same names as the labels.
+  Any other labelled drawing, only when none of the above fits (a heart, the heart, a circuit, a triangle, a magnet, the Sun-Earth-Moon, a food chain): {"type":"scene","title":"...","h":60,"elements":[...]} on a canvas 100 wide and h tall (30 to 80), origin at the top left, y grows downward. Each element is one of {"t":"line","x1","y1","x2","y2","arrow":true,"dash":true}, {"t":"curve","x1","y1","cx","cy","x2","y2"} (a smooth bend through control point cx,cy), {"t":"circle","cx","cy","r","fill":"green"}, {"t":"ellipse","cx","cy","rx","ry"}, {"t":"rect","x","y","w","h","r"}, {"t":"poly","points":[[x,y],...],"closed":true} or {"t":"text","x","y","text":"Nucleus","size":3.6,"anchor":"middle"}. Colours are names only: ink, brand, green, orange, red, blue, grey (set "color" for the outline and "fill" for the inside). Draw the real shape (outline first, then the inner parts), keep parts apart so labels do not overlap, put each label next to what it names (a short line from the label to the part), keep text inside 4..96 across, and use 12 to 40 elements.
 
 CONTEXT NOTE
 - At the very end of every teaching answer (not of a clarifying question) add one hidden line naming what the conversation is about now, so the next message can refer to it:
@@ -293,7 +299,7 @@ async function teach({
   let interrupted = false;
   try {
     const m0 = Date.now();
-    const out = await llm.stream({ messages, maxTokens: brief || spoken ? 450 : 1100, temperature: 0.3, signal, feature: 'tutor' });
+    const out = await llm.stream({ messages, maxTokens: (brief || spoken) && !wantsPicture(message) ? 450 : 1300, temperature: 0.3, signal, feature: 'tutor' });
     provider = out.provider;
     let first = true;
     for await (const piece of out.pieces) {

@@ -28,7 +28,7 @@ const periodOf = (d = new Date()) => d.toISOString().slice(0, 7);
 const QUOTA_GROUPS = { ask: ['ask'], tutor: ['tutor'], practice: ['practice', 'practice_mark'] };
 const FEATURE_LABELS = {
   ask: 'EduAmigo Ask', tutor: 'AI Tutor', tutor_verify: 'Tutor calculation check', practice: 'Practice questions',
-  practice_verify: 'Practice answer-key check', practice_mark: 'Practice marking', embeddings: 'Notes search index', revision_legacy: 'Revise with AI (old)',
+  practice_verify: 'Practice answer-key check', practice_mark: 'Practice marking', voice_out: 'Spoken answers (natural voice)', embeddings: 'Notes search index', revision_legacy: 'Revise with AI (old)',
 };
 
 // Runs fn with a school and feature attached, so every model call inside is recorded against them.

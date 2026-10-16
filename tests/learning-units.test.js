@@ -49,6 +49,49 @@ describe('calculation checker', () => {
   });
 });
 
+describe('drawings: scene and lens', () => {
+  test('a lens ray diagram is worked out from the lens formula, not taken from the model', () => {
+    const real = validate({ type: 'lens', kind: 'convex', u: 20, f: 15, unit: 'cm' });
+    expect(real.type).toBe('scene');
+    expect(real.caption).toMatch(/image at 60 cm on the other side; real, inverted, magnified \(magnification -3\)/);
+    expect(validate({ type: 'lens', kind: 'convex', u: 10, f: 15 }).caption).toMatch(/image at 30 cm on the same side as the object; virtual, upright, magnified/);
+    expect(validate({ type: 'lens', kind: 'concave', u: 20, f: 15 }).caption).toMatch(/image at 8\.57 cm.*virtual, upright, diminished/);
+    expect(validate({ type: 'lens', kind: 'convex', u: 15, f: 15 })).toBeNull(); // image at infinity
+    expect(validate({ type: 'lens', u: -3, f: 15 })).toBeNull();
+    expect(real.elements.every((e) => ['line', 'curve', 'circle', 'text'].includes(e.t))).toBe(true);
+    expect(real.alt).toContain('Convex lens');
+  });
+
+  test('ready-made labelled drawings: the model only picks the subject; unknown subjects and part names are handled', () => {
+    for (const subject of ['plant_cell', 'animal_cell', 'atom', 'earth_layers', 'circuit']) {
+      const d = validate({ type: 'labeled', subject });
+      expect(d.type).toBe('scene');
+      expect(d.elements.filter((e) => e.t === 'text').length).toBeGreaterThanOrEqual(4);
+    }
+    const plant = validate({ type: 'labeled', subject: 'Plant cell' });
+    expect(plant.elements.filter((e) => e.t === 'text').map((e) => e.text)).toEqual(['Nucleus', 'Cytoplasm', 'Cell membrane', 'Chloroplast', 'Cell wall', 'Large vacuole', 'Mitochondrion']);
+    const some = validate({ type: 'labeled', subject: 'plant_cell', parts: ['nucleus', 'Large vacuole', 'Ghost part'] });
+    expect(some.elements.filter((e) => e.t === 'text').map((e) => e.text)).toEqual(['Nucleus', 'Large vacuole']);
+    expect(validate({ type: 'labeled', subject: 'dinosaur' })).toBeNull();
+  });
+
+  test('a scene keeps only known shapes, colour names and coordinates inside the canvas', () => {
+    const d = validate({ type: 'scene', title: 'Cell', h: 500, elements: [
+      { t: 'rect', x: 10, y: 5, w: 80, h: 40, r: 6, color: 'green', fill: true },
+      { t: 'text', x: 50, y: 25, text: '<script>Nucleus</script>', color: 'purple' },
+      { t: 'circle', cx: 1e9, cy: 20, r: 3 },
+      { t: 'html', x: 1 }, { t: 'line', x1: 'a', y1: 0, x2: 1, y2: 1 }, { t: 'line', x1: 0, y1: 0, x2: 5, y2: 5, arrow: true },
+    ] });
+    expect(d.h).toBe(80);
+    expect(d.elements.map((e) => e.t)).toEqual(['rect', 'text', 'circle', 'line']);
+    expect(d.elements[0]).toMatchObject({ color: 'green', fill: 'green', w: 80 });
+    expect(d.elements[1].text).not.toMatch(/[<>]/);
+    expect(d.elements[1].color).toBe('ink');
+    expect(d.elements[2].cx).toBe(105);
+    expect(validate({ type: 'scene', elements: [{ t: 'line', x1: 0, y1: 0, x2: 1, y2: 1 }] })).toBeNull(); // too little to be a drawing
+  });
+});
+
 describe('diagram validation', () => {
   test('known shapes are cleaned and described; anything else is dropped', () => {
     expect(validate({ type: 'numberline', min: -5, max: 5, points: [{ value: 2, label: 'A' }, { value: 99 }] })).toMatchObject({ points: [{ value: 2, label: 'A' }], alt: expect.stringContaining('A at 2') });

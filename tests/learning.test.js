@@ -234,6 +234,18 @@ describe('AI Tutor chat', () => {
     expect(calls[calls.length - 1].messages.at(-1).content).not.toContain('PICTURE REQUESTED');
   });
 
+  test('"draw an image to explain this" and similar are picture requests; a lens block is drawn by the app', async () => {
+    for (const message of ['can you able to draw a image for explaining this', 'ek image bana do lens ki', 'show me a sketch of a cell']) {
+      streams.push(['Look at the drawing.\n```diagram\n{"type":"lens","kind":"convex","u":20,"f":15}\n```']);
+      const { ev } = await events(A.studentUser, { message });
+      expect(calls[calls.length - 1].messages.at(-1).content).toContain('PICTURE REQUESTED');
+      expect(ev.find((e) => e.type === 'final').diagrams[0]).toMatchObject({ type: 'scene', caption: expect.stringContaining('real, inverted, magnified') });
+    }
+    streams.push(['The image distance v is found from the lens formula.']);
+    await events(A.studentUser, { message: 'what is image distance in a lens' });
+    expect(calls[calls.length - 1].messages.at(-1).content).not.toContain('PICTURE REQUESTED');
+  });
+
   test('a spoken question gets the teacher-talking style (Hindi words in Devanagari); a typed one does not', async () => {
     const system = () => calls[calls.length - 1].messages[0].content;
     streams.push(['ठीक है।']);

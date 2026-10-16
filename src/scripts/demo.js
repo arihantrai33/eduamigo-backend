@@ -29,7 +29,7 @@ process.env.API_USER_PER_MINUTE = process.env.API_USER_PER_MINUTE || '100000';
   const file = path.join(__dirname, '../../.env');
   if (fs.existsSync(file)) {
     const parsed = require('dotenv').parse(fs.readFileSync(file));
-    const AI_KEYS = /^(AZURE_OPENAI_|ASSISTANT_|GEMINI_)/;
+    const AI_KEYS = /^(AZURE_OPENAI_|AZURE_SPEECH_|ASSISTANT_|GEMINI_)/;
     for (const [k, v] of Object.entries(parsed)) if (AI_KEYS.test(k) && process.env[k] === undefined) process.env[k] = v;
   }
 }

@@ -99,4 +99,12 @@ const apiLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please slow down and try again in a minute.' },
 });
 
-module.exports = { loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };
+// The natural voice is asked for one short piece at a time, several per answer, so it has its own, larger allowance.
+const speechLimiter = make('speech', {
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.SPEECH_HOURLY_LIMIT || 300),
+  keyGenerator: (req) => String(req.user?._id || ipKeyGenerator(req.ip)),
+  message: { success: false, message: 'You have reached the hourly limit for the spoken voice. Answers are still shown on screen.' },
+});
+
+module.exports = { loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };
