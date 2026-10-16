@@ -55,6 +55,7 @@ function pushSoon(school, filter, payload) {
 }
 
 const toUser = (school, userId, payload) => pushSoon(school, { _id: userId }, payload);
+const toUsers = (school, userIds, payload) => pushSoon(school, { _id: { $in: userIds } }, payload);
 const toRole = (school, role, payload) => pushSoon(school, role === 'all' ? {} : { role }, payload);
 
 // Called when the app signs in on a device. A device belongs to one person at a time: when someone else signs in on
@@ -74,4 +75,4 @@ async function unregisterDevice(user, schoolId, token) {
   await User.updateOne({ _id: user._id, school: schoolId }, { $pull: { devices: { token: String(token || '') } } });
 }
 
-module.exports = { sendToUsers, toUser, toRole, registerDevice, unregisterDevice, setMessaging, liveTokens, MAX_DEVICES };
+module.exports = { sendToUsers, toUser, toUsers, toRole, registerDevice, unregisterDevice, setMessaging, liveTokens, MAX_DEVICES };

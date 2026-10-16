@@ -104,3 +104,32 @@ test('a token is required, and a person cannot register a device for someone els
   await api().delete('/api/users/fcm-token').set(auth(B.parentUser)).send({ fcmToken: 'tok-mine' });
   expect(await devicesOf(A.parentUser)).toEqual(['tok-mine']);
 });
+
+test('scheduling an exam pushes to the class students and their parents, not other sections or schools', async () => {
+  // Exam notices were saved in the app but never pushed (they bypassed services/notify).
+  await register(A.studentUser, 'tok-a-student');
+  await register(A.parentUser, 'tok-a-parent');
+  await register(A.otherStudentUser, 'tok-a-section-b');
+  await register(A.teacherUser, 'tok-a-teacher');
+  await register(B.studentUser, 'tok-b-student');
+  const date = new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10);
+  const exam = { title: 'Science Mid Term', examType: 'Mid Term', subject: 'Science', class: '10', section: 'A', date, totalMarks: 100 };
+  const created = await api().post('/api/exams').set(auth(A.admin)).send(exam);
+  expect(created.status).toBe(201);
+  await settle();
+  expect(sent).toHaveLength(1);
+  expect(sent[0].tokens.sort()).toEqual(['tok-a-parent', 'tok-a-student']);
+  expect(sent[0].notification.title).toBe('Exam scheduled: Science');
+  expect(sent[0].data).toEqual({ type: 'Exam', examId: String(created.body.data._id) });
+});
+
+test('an exam is still saved and announced in the app when the push fails', async () => {
+  push.setMessaging({ sendEachForMulticast: jest.fn(async () => { throw new Error('FCM unavailable'); }) });
+  await register(A.studentUser, 'tok-a-student');
+  const date = new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10);
+  const res = await api().post('/api/exams').set(auth(A.admin)).send({ title: 'Maths Unit Test', subject: 'Mathematics', class: '10', section: 'A', date, totalMarks: 50 });
+  expect(res.status).toBe(201);
+  await settle();
+  const Notification = require('../src/models/Notification');
+  expect(await Notification.countDocuments({ recipient: A.studentUser._id, type: 'Exam' })).toBe(1);
+});

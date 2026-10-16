@@ -10,6 +10,7 @@ const { EXAM_TYPES, TERMS, normalizeExamType, termForDate } = require('../config
 const Mark = require('../models/Mark');
 const { studentForUser, canAccessStudent, teacherForUser, resolveChild, parentUserIdsForStudent } = require('../services/directory');
 const Notification = require('../models/Notification');
+const push = require('../services/push');
 
 function withAverage(results) {
   const avg = results.length
@@ -128,6 +129,8 @@ async function notifyExamAudience(exam, title, message) {
   await Notification.insertMany([...recipients].map((recipient) => ({
     school: exam.school, recipient, title, message, type: 'Exam', targetRole: 'all',
   })));
+  // The same people on their phones (only those who were just told in the app; a failed push never fails the save).
+  push.toUsers(exam.school, [...recipients], { title, body: message, data: { type: 'Exam', examId: exam._id } });
   return recipients.size;
 }
 const safeNotify = (...args) => notifyExamAudience(...args).catch((err) => console.error('Exam notification failed:', err.message));
