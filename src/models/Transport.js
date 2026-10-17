@@ -7,6 +7,7 @@ const stopSchema = new mongoose.Schema({
   order:         { type: Number, required: true },
   status:        { type: String, enum: ['Pending', 'Live', 'Departed'], default: 'Pending' },
   estimatedTime: { type: String },
+  arrivedAt:     { type: Date },
   departedAt:    { type: Date },
 });
 
@@ -28,6 +29,19 @@ const transportSchema = new mongoose.Schema({
   currentStopIndex: { type: Number, default: 0 },
   tripStartedAt:    { type: Date },
   tripEndedAt:      { type: Date },
+  // Live tracking (see services/busTracking.js). `direction` is 'pickup' (home to school, stops in order) or 'drop'
+  // (school to home, stops reversed). `route` is the road geometry between the stops, built once per trip.
+  direction:        { type: String, enum: ['pickup', 'drop'], default: 'pickup' },
+  tripId:           { type: String },
+  route:            { points: { type: [[Number]], default: undefined }, source: String, key: String, meters: Number },
+  live: {
+    lat: Number, lng: Number, heading: Number, speedKmh: Number, avgKmh: Number, accuracy: Number,
+    at: Number,          // when the phone took the reading (ms)
+    receivedAt: Number,  // when the server got it (ms)
+    routeMeters: Number, offRoute: Boolean,
+  },
+  // Messages already sent for this trip ("start", "near:<studentId>", "arrived:<studentId>", "end"), so nobody is told twice.
+  tripNotices:      [String],
   stops:            [stopSchema],
   assignedStudents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Student' }],
   boardedStudents:  [{ type: mongoose.Schema.Types.ObjectId, ref: 'Student' }],

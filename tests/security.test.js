@@ -210,7 +210,7 @@ describe('chat', () => {
 });
 
 describe('transport', () => {
-  test('parents get a tracking id, never the driver token', async () => {
+  test('parents get the bus id to watch, never the driver token', async () => {
     const bus = await api().post('/api/transport').set(auth(A.admin))
       .send({ busNumber: 'DL 1 AB 1234', driverName: 'Ram', driverPhone: '9999999999', routeName: 'North' });
     expect(bus.status).toBe(201);
@@ -220,7 +220,8 @@ describe('transport', () => {
     const res = await api().get('/api/transport/my-child-bus').set(auth(A.parentUser));
     expect(res.status).toBe(200);
     const stored = await Transport.findById(bus.body.data._id);
-    expect(res.body.data.firebasePath).toBe(stored.trackingId);
+    expect(res.body.data.busId).toBe(String(stored._id));
+    expect(res.body.data.firebasePath).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toContain(stored.driverToken);
     expect(stored.driverToken.length).toBeGreaterThan(20);
   });

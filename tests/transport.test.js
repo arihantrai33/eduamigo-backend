@@ -1,8 +1,4 @@
-const updates = [];
-jest.mock('../src/config/firebase', () => ({
-  db: { ref: (path) => ({ update: async (data) => { updates.push({ path, data }); } }) },
-}));
-
+// Driver trip basics (the live tracking itself is in bus-tracking.test.js). Nothing here needs Firebase any more.
 const { api, connect, disconnect, clear, auth, seedSchool } = require('./helpers');
 
 let A;
@@ -12,7 +8,6 @@ beforeAll(connect);
 afterAll(disconnect);
 beforeEach(async () => {
   await clear();
-  updates.length = 0;
   A = await seedSchool('Alpha School');
   bus = (await api().post('/api/transport').set(auth(A.admin))
     .send({ busNumber: 'UP16 1234', driverName: 'Ram', driverPhone: '9', routeName: 'North' })).body.data;
@@ -20,20 +15,20 @@ beforeEach(async () => {
     .send({ stops: [{ name: 'Gate 1', latitude: 28.6, longitude: 77.3 }, { name: 'School', latitude: 28.7, longitude: 77.4 }] });
 });
 
-test('driver trip lifecycle is published to the tracking path, never the driver token', async () => {
+test('driver trip lifecycle: start, readings, stop done, end; the driver token is never sent to viewers', async () => {
   const token = bus.driverToken;
   const early = await api().post(`/api/transport/driver/${token}/update-location`).send({ lat: 28.6, lng: 77.3 });
   expect(early.status).toBe(409);
+  expect(early.body.code).toBe('TRIP_NOT_ACTIVE');
 
   await api().patch(`/api/transport/driver/${token}/start-trip`).expect(200);
-  await api().post(`/api/transport/driver/${token}/update-location`).send({ lat: 28.61, lng: 77.31 }).expect(200);
+  const read = await api().post(`/api/transport/driver/${token}/update-location`).send({ lat: 28.6, lng: 77.3 }).expect(200);
+  expect(read.body.data.accepted).toBe(1);
   const stop = await api().patch(`/api/transport/driver/${token}/stop-done`).expect(200);
   expect(stop.body.data.currentStopIndex).toBe(1);
   await api().patch(`/api/transport/driver/${token}/end-trip`).expect(200);
-
-  expect(updates.map((u) => u.path)).toEqual(Array(4).fill(`transport/${bus.trackingId}`));
-  expect(updates[1].data.location).toMatchObject({ lat: 28.61, lng: 77.31 });
-  expect(updates[3].data).toMatchObject({ busStatus: 'Completed', location: null });
+  const after = await api().post(`/api/transport/driver/${token}/location`).send({ points: [{ lat: 28.6, lng: 77.3 }] });
+  expect(after.status).toBe(409);
 });
 
 test('invalid coordinates and unknown driver codes are rejected', async () => {
@@ -45,5 +40,6 @@ test('invalid coordinates and unknown driver codes are rejected', async () => {
 test('driver view does not expose the driver token back', async () => {
   const res = await api().get(`/api/transport/driver/${bus.driverToken}`).expect(200);
   expect(res.body.data.driverToken).toBeUndefined();
-  expect(res.body.data.trackingId).toBe(bus.trackingId);
+  expect(res.body.data.busId).toBe(bus._id);
+  expect(res.body.data.route).toBeUndefined();
 });

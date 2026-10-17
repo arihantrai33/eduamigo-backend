@@ -31,6 +31,8 @@ const studentSchema = new mongoose.Schema({
   photoKey:     { type: String },
   school:       { type: mongoose.Schema.Types.ObjectId, ref: 'School', default: null },
   bus:          { type: mongoose.Schema.Types.ObjectId, ref: 'Transport', default: null },
+  // The stop (_id inside the bus's stops) where this student gets on and off; parents are alerted when the bus is near it.
+  busStopId:    { type: mongoose.Schema.Types.ObjectId, default: null },
   userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   parentUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   isActive:     { type: Boolean, default: true },

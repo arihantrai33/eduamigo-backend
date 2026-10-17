@@ -107,4 +107,13 @@ const speechLimiter = make('speech', {
   message: { success: false, message: 'You have reached the hourly limit for the spoken voice. Answers are still shown on screen.' },
 });
 
-module.exports = { loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };
+// A driver's phone sends a batch of GPS readings every few seconds: generous per driver code, so a stuck loop cannot flood the API.
+const driverLocationLimiter = make('driverLocation', {
+  windowMs: 60 * 1000,
+  limit: () => Number(process.env.DRIVER_LOCATION_PER_MINUTE || 90),
+  keyGenerator: (req) => `${String(req.params.token || '').slice(0, 40)}`,
+  message: { success: false, message: 'Too many location updates. The app will retry shortly.' },
+});
+
+module.exports = {
+  driverLocationLimiter, loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };

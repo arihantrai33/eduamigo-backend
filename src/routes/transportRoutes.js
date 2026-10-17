@@ -7,6 +7,9 @@ const { protect, authorizeRoles, requirePermission, requireFeature } = require('
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 const { studentForUser, resolveChild } = require('../services/directory');
 const { entitlementsFor } = require('../services/subscription');
+const tracking = require('../services/busTracking');
+const BusTripPoint = require('../models/BusTripPoint');
+const { driverLocationLimiter } = require('../middleware/rateLimit');
 
 // Driver token: long random secret (hard to guess), still easy to type from a card: "BUS12-8F3K-9QZ2-..."
 const makeDriverToken = (busNumber) => {
@@ -28,18 +31,21 @@ async function ensureTracking(bus) {
   return bus;
 }
 
-function firebaseDb() {
-  // Loaded lazily so the API can run (and be tested) without Firebase credentials.
-  return require('../config/firebase').db;
-}
+// ---------------- Live tracking: who may watch ----------------
 
-async function publish(bus, data) {
-  try {
-    await firebaseDb().ref(`transport/${firebasePathFor(bus)}`).update({ ...data, updatedAt: Date.now() });
-  } catch (err) {
-    console.error('Firebase update failed:', err.message);
+// A student or parent may watch only the bus their child is assigned to; staff need the transport permission.
+const viewerAccess = asyncHandler(async (req, res, next) => {
+  assertId(req.params.busId, 'bus id');
+  const exists = await Transport.exists({ _id: req.params.busId, school: req.schoolId });
+  if (!exists) throw new HttpError(404, 'Bus not found');
+  if (req.user.role === 'student' || req.user.role === 'parent') {
+    const student = req.user.role === 'student' ? await studentForUser(req.user) : (await resolveChild(req.user, req.query.studentId)).child;
+    if (!student?.bus || String(student.bus) !== String(req.params.busId)) throw new HttpError(404, 'No bus assigned');
+    req.watching = student;
+    return next();
   }
-}
+  return requirePermission('transport.manage')(req, res, next);
+});
 
 // ---------------- Parent / student ----------------
 
@@ -52,9 +58,8 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
   if (!student.bus) throw new HttpError(404, 'No bus assigned');
 
   const bus = await Transport.findOne({ _id: student.bus, school: req.schoolId })
-    .select('busNumber driverName driverPhone routeName busStatus stops currentStopIndex trackingId');
+    .select('busNumber driverName driverPhone routeName busStatus stops currentStopIndex');
   if (!bus) throw new HttpError(404, 'No bus assigned');
-  await ensureTracking(bus);
 
   res.json({
     success: true,
@@ -65,7 +70,8 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
       driverPhone: bus.driverPhone,
       routeName: bus.routeName,
       busStatus: bus.busStatus,
-      firebasePath: firebasePathFor(bus),
+      busId: bus._id,
+      myStopId: student.busStopId || null,
       stops: bus.stops,
       currentStopIndex: bus.currentStopIndex,
       studentName: student.name,
@@ -134,7 +140,7 @@ router.post('/', protect, transportOn, requirePermission('transport.manage'), as
 
 router.get('/students', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   const students = await Student.find({ school: req.schoolId, isActive: true })
-    .select('name rollNumber class section bus').populate('bus', 'busNumber');
+    .select('name rollNumber class section bus busStopId').populate('bus', 'busNumber');
   res.json({ success: true, data: students });
 }));
 
@@ -170,6 +176,7 @@ router.put('/:id/stops', protect, transportOn, requirePermission('transport.mana
     { returnDocument: 'after', runValidators: true },
   );
   if (!bus) throw new HttpError(404, 'Bus not found');
+  tracking.forget(bus._id);
   res.json({ success: true, data: bus });
 }));
 
@@ -183,8 +190,18 @@ router.put('/:id/assign-students', protect, transportOn, requirePermission('tran
   if (students.length !== ids.length) throw new HttpError(400, 'One or more students do not belong to your school');
   if (ids.length > bus.capacity) throw new HttpError(400, `This bus has only ${bus.capacity} seats`);
 
-  await Student.updateMany({ bus: bus._id, school: req.schoolId }, { $set: { bus: null } });
-  await Student.updateMany({ _id: { $in: ids }, school: req.schoolId }, { $set: { bus: bus._id } });
+  // Students taken off this bus lose their stop; students arriving from another bus start without one (that stop was on the other bus).
+  await Student.updateMany({ bus: bus._id, school: req.schoolId, _id: { $nin: ids } }, { $set: { bus: null, busStopId: null } });
+  await Student.updateMany({ _id: { $in: ids }, school: req.schoolId, bus: { $ne: bus._id } }, { $set: { bus: bus._id, busStopId: null } });
+  // Where each student gets on and off: { stopIds: { <studentId>: <stopId> } }. A stop that is not on this bus clears it.
+  const stopIds = req.body?.stopIds && typeof req.body.stopIds === 'object' ? req.body.stopIds : {};
+  const known = new Set(bus.stops.map((x) => String(x._id)));
+  for (const id of ids) {
+    if (!(id in stopIds)) continue;
+    const stop = String(stopIds[id] || '');
+    await Student.updateOne({ _id: id, school: req.schoolId }, { $set: { busStopId: known.has(stop) ? stop : null } });
+  }
+  tracking.forget(bus._id);
   // A student can ride only one bus: remove them from other buses' lists.
   await Transport.updateMany({ school: req.schoolId, _id: { $ne: bus._id } }, { $pull: { assignedStudents: { $in: ids } } });
   bus.assignedStudents = ids;
@@ -203,69 +220,120 @@ router.delete('/:id', protect, transportOn, requirePermission('transport.manage'
   res.json({ success: true, message: 'Bus deleted' });
 }));
 
+// ---------------- Live tracking: viewers (parent, student, school staff) ----------------
+
+// All buses of the school that are on a trip, for the school's live view.
+router.get('/live', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
+  const buses = await Transport.find({ school: req.schoolId, busStatus: 'On Route' }).select('_id').lean();
+  const data = (await Promise.all(buses.map((b) => tracking.snapshotFor(b._id, { withRoute: false }, req.schoolId)))).filter(Boolean);
+  res.json({ success: true, data });
+}));
+
+// The current picture of one bus. Used first, and again every few seconds if the live stream cannot be kept open.
+router.get('/live/:busId', protect, transportOn, viewerAccess, asyncHandler(async (req, res) => {
+  const snap = await tracking.snapshotFor(req.params.busId, { withRoute: req.query.route !== '0' }, req.schoolId);
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, data: snap });
+}));
+
+// The same picture followed by every change as it happens, one JSON object per line. The first line is the snapshot; a
+// { type: "ping" } line every 15 seconds keeps the connection open through proxies and lets the screen notice a dead link.
+router.get('/live/:busId/stream', protect, transportOn, viewerAccess, asyncHandler(async (req, res) => {
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const write = (event) => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); };
+  const unsubscribe = tracking.subscribe(req.params.busId, write);
+  const beat = setInterval(() => write({ type: 'ping', serverTime: Date.now() }), 15000);
+  const done = () => { clearInterval(beat); unsubscribe(); };
+  res.on('close', done);
+  write(await tracking.snapshotFor(req.params.busId, undefined, req.schoolId));
+}));
+
+// Where a trip went (sampled every 15 seconds, kept 3 days), for the school office.
+router.get('/live/:busId/history', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
+  assertId(req.params.busId, 'bus id');
+  if (!(await Transport.exists({ _id: req.params.busId, school: req.schoolId }))) throw new HttpError(404, 'Bus not found');
+  const filter = { bus: req.params.busId, school: req.schoolId };
+  if (req.query.tripId) filter.tripId = String(req.query.tripId);
+  const points = await BusTripPoint.find(filter).sort({ at: 1 }).limit(3000).select('tripId lat lng speedKmh at -_id').lean();
+  res.json({ success: true, data: points });
+}));
+
 // ---------------- Driver (authenticated by the secret driver token) ----------------
 
-async function busForToken(token) {
-  const bus = await Transport.findOne({ driverToken: String(token || '') });
-  if (!bus) throw new HttpError(404, 'Invalid driver code');
-  // The driver app has no login, so the school's plan and billing state are checked here.
+// The driver app has no login, so the school's plan and billing state are checked from the token. Remembered for 20 seconds,
+// so a GPS reading every few seconds does not cost three database reads each time.
+const tokenCache = new Map();
+async function busForToken(token, { fresh = false } = {}) {
+  const key = String(token || '');
+  const hit = tokenCache.get(key);
+  let bus;
+  if (hit && !fresh && Date.now() - hit.at < 20000) {
+    bus = await Transport.findById(hit.id);
+    if (bus) return bus;
+  }
+  bus = await Transport.findOne({ driverToken: key });
+  if (!bus) { tokenCache.delete(key); throw new HttpError(404, 'Invalid driver code'); }
   const school = await require('../models/School').findById(bus.school).select('subscription isActive');
   const e = school ? await entitlementsFor(school) : null;
   if (!e || e.blocked || e.readOnly || !e.features.includes('transport')) {
     throw new HttpError(403, 'Bus tracking is not available for this school right now');
   }
-  return ensureTracking(bus);
+  tokenCache.set(key, { id: bus._id, at: Date.now() });
+  return bus;
 }
 
-router.get('/driver/:token', asyncHandler(async (req, res) => {
-  const bus = await busForToken(req.params.token);
-  await bus.populate('assignedStudents', 'name rollNumber class');
+const driverView = (bus) => {
   const out = bus.toObject();
-  delete out.driverToken;
-  res.json({ success: true, data: { ...out, trackingId: firebasePathFor(bus), firebasePath: firebasePathFor(bus) } });
+  delete out.driverToken; delete out.route; delete out.tripNotices; delete out.assignedStudents; delete out.boardedStudents;
+  return { ...out, stops: tracking.tripStops(bus).map((s) => ({ _id: s.id, name: s.name, latitude: s.lat, longitude: s.lng, status: s.status })), busId: bus._id };
+};
+
+// The driver's screen after opening the app or reloading it: which trip is running and where it has got to.
+router.get('/driver/:token', asyncHandler(async (req, res) => {
+  const bus = await busForToken(req.params.token, { fresh: true });
+  res.json({ success: true, data: driverView(bus) });
 }));
 
 router.patch('/driver/:token/start-trip', asyncHandler(async (req, res) => {
-  const bus = await busForToken(req.params.token);
-  bus.stops.forEach((stop) => { stop.status = 'Pending'; stop.departedAt = undefined; });
-  if (bus.stops.length) bus.stops[0].status = 'Live';
-  Object.assign(bus, { busStatus: 'On Route', currentStopIndex: 0, tripStartedAt: new Date(), tripEndedAt: undefined, boardedStudents: [] });
-  await bus.save();
-  await publish(bus, { busStatus: 'On Route', currentStopIndex: 0, tripStartedAt: Date.now() });
-  res.json({ success: true, data: { busStatus: bus.busStatus, currentStopIndex: 0, stops: bus.stops } });
+  const bus = await busForToken(req.params.token, { fresh: true });
+  if (!bus.stops.length) throw new HttpError(409, 'This bus has no stops yet. Ask the school to add the route.');
+  const st = await tracking.startTrip(bus, req.body?.direction);
+  res.json({ success: true, data: { busStatus: 'On Route', currentStopIndex: 0, direction: st.direction, tripId: st.tripId, routeSource: st.routeSource, stops: driverView(await Transport.findById(bus._id)).stops } });
 }));
 
-router.patch('/driver/:token/stop-done', asyncHandler(async (req, res) => {
+// A batch of GPS readings: { points: [{ lat, lng, accuracy, speed, heading, at }] }. One reading sent the old way
+// ({ lat, lng }) is accepted too. The reply tells the phone how far the trip has got, so its screen follows the server.
+const takeLocation = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const points = Array.isArray(body.points) ? body.points : [{ lat: body.lat, lng: body.lng, accuracy: body.accuracy, speed: body.speed, heading: body.heading, at: body.at }];
+  if (!points.length) throw new HttpError(400, 'No location was sent');
+  if (points.length > 60) throw new HttpError(400, 'Send at most 60 readings at a time');
+  if (!points.some((p) => Number(p?.lat) >= -90 && Number(p?.lat) <= 90 && Number(p?.lng) >= -180 && Number(p?.lng) <= 180)) throw new HttpError(400, 'Invalid coordinates');
   const bus = await busForToken(req.params.token);
+  const out = await tracking.ingest(bus._id, points);
+  if (out.notActive) throw new HttpError(409, 'Trip not active', { code: 'TRIP_NOT_ACTIVE' });
+  res.json({ success: true, data: out });
+});
+router.post('/driver/:token/location', driverLocationLimiter, takeLocation);
+router.post('/driver/:token/update-location', driverLocationLimiter, takeLocation);
+
+// "Reached the stop": moves on to the next one (the app does this by itself when the bus drives through the stop).
+router.patch('/driver/:token/stop-done', asyncHandler(async (req, res) => {
+  const bus = await busForToken(req.params.token, { fresh: true });
   if (bus.busStatus !== 'On Route') throw new HttpError(409, 'Trip has not started');
-  const idx = bus.currentStopIndex;
-  if (idx < bus.stops.length) {
-    bus.stops[idx].status = 'Departed';
-    bus.stops[idx].departedAt = new Date();
-    if (idx + 1 < bus.stops.length) bus.stops[idx + 1].status = 'Live';
-    bus.currentStopIndex = idx + 1;
-  }
-  await bus.save();
-  await publish(bus, { currentStopIndex: bus.currentStopIndex });
-  res.json({ success: true, data: { currentStopIndex: bus.currentStopIndex, stops: bus.stops } });
+  const st = await tracking.stateOf(bus._id, bus.school);
+  await tracking.advance(st);
+  const fresh = await Transport.findById(bus._id);
+  res.json({ success: true, data: { currentStopIndex: st.current, stops: driverView(fresh).stops } });
 }));
 
 router.patch('/driver/:token/end-trip', asyncHandler(async (req, res) => {
-  const bus = await busForToken(req.params.token);
-  Object.assign(bus, { busStatus: 'Completed', tripEndedAt: new Date(), boardedStudents: [] });
-  await bus.save();
-  await publish(bus, { busStatus: 'Completed', tripEndedAt: Date.now(), location: null });
+  const bus = await busForToken(req.params.token, { fresh: true });
+  await tracking.endTrip(bus);
   res.json({ success: true, message: 'Trip ended successfully' });
-}));
-
-router.post('/driver/:token/update-location', asyncHandler(async (req, res) => {
-  const lat = Number(req.body?.lat);
-  const lng = Number(req.body?.lng);
-  if (!(lat >= -90 && lat <= 90) || !(lng >= -180 && lng <= 180)) throw new HttpError(400, 'Invalid coordinates');
-  const bus = await busForToken(req.params.token);
-  if (bus.busStatus !== 'On Route') throw new HttpError(409, 'Trip not active');
-  await publish(bus, { location: { lat, lng, updatedAt: Date.now() } });
-  res.json({ success: true, message: 'Location updated' });
 }));
 
 module.exports = router;

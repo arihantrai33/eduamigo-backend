@@ -15,6 +15,7 @@ async function start() {
   if (process.env.DISABLE_JOBS !== 'true') {
     require('./src/jobs/feeReminder')();
     require('./src/jobs/noteProcessingJob')();
+    require('./src/jobs/busTrips')();
   }
 
   const port = process.env.PORT || 5000;
