@@ -88,3 +88,23 @@ test('inactive students are not counted', async () => {
   expect(d.counts.students).toBe(1);
   expect(d.attendance.totalStudents).toBe(1);
 });
+
+describe('a teacher is not given the office\'s school-wide lists', () => {
+  test('no class distribution, no recently enrolled students (with their fee status), no school-wide pending-leave count', async () => {
+    // A student of a class the teacher does not teach, with a fee status, enrolled most recently.
+    await Student.create({ name: 'Far Away', rollNumber: '9', class: '5', section: 'C', school: A.school._id, feeStatus: 'Pending', phone: '9000000099' });
+    const res = await api().get('/api/schools/me/dashboard').set(auth(A.teacherUser));
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    for (const key of ['classes', 'recentStudents', 'pendingLeaves', 'fees', 'attendance', 'activity']) expect({ key, value: d[key] }).toEqual({ key, value: undefined });
+    expect(d.counts?.students).toBeUndefined();
+    expect(JSON.stringify(d)).not.toContain('Far Away');
+  });
+
+  test('the office roles still get their sections', async () => {
+    const d = (await api().get('/api/schools/me/dashboard').set(auth(A.admin))).body.data;
+    expect(d.classes).toBeDefined();
+    expect(d.recentStudents).toBeDefined();
+    expect(d.pendingLeaves).toBeDefined();
+  });
+});

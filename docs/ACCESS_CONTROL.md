@@ -10,13 +10,34 @@ EduAmigo uses two layers of access control:
 `tests/access-matrix.test.js` tries every listed endpoint with every role and fails if the result does not
 match this table. Update the table, the config and the test together.
 
+## How a permission is decided now
+
+One function decides: `src/services/authorization.js` (`can`, `effectivePermissions`, `explain`, `scopeOf`). Controllers, routes and
+middleware never read the role table or compare a role name (`tests/authorization.test.js` fails if they do).
+
+1. The account type (`User.role`) gives a base set: the built-in role of the school, stored as data (`SchoolRole`, seeded per school).
+2. Extra roles (`User.extraRoles`) add permissions on top. The union is used; where scopes differ the widest wins; a family with no
+   scope is `none` (fail closed). Roles are read on every request, so a removed or switched-off role stops working on the next request.
+3. The plan removes permissions whose module the school has not bought.
+4. Scope (`school` / `assigned` / `own`) decides which records: `services/scope.js`. Subject-level actions (marks) use teaching
+   assignments when a teacher has any (`services/teaching.js`), otherwise the teacher's class and subject lists.
+
+Custom roles are managed at `/api/roles` (needs `roles.manage`; listing needs `roles.view`). A person can only give permissions and
+scopes they hold, cannot change or assign their own roles, and the administrator role cannot be an extra role. The last active
+administrator cannot be deactivated. Every change is in the audit log. Full table: the frontend repo's
+`docs/production-readiness/ROLE_PERMISSION_MATRIX.md`.
+
+The assistant (`src/assistant`) still decides by account type and does **not** widen for custom roles: a staff account or a teacher
+with a fee role gets no school-wide fee data through it (`tests/assistant-roles.test.js`).
+
 ## Roles
 
 | Role | Who | Portal |
 |---|---|---|
 | Admin | Principal, school administrator | Admin portal, everything in their school |
 | Accountant | Fee counter / accounts staff | Admin portal, finance screens only |
-| Teacher | Teaching staff | Teacher app, limited to assigned classes |
+| Staff | Office, library, transport, any non-teaching employee | Admin portal; sees only what the roles given to them allow (none by default) |
+| Teacher | Teaching staff | Teacher app, limited to assigned classes (extra roles open office screens) |
 | Student | Enrolled student | Student app, own data |
 | Parent | Guardian | Parent app, linked children only |
 | Driver | Bus driver | Driver screen, signs in with the bus driver code (no account) |

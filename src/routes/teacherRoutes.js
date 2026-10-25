@@ -9,6 +9,8 @@ const {
   updateTeacher,
   assignClass,
   removeClass,
+  getAssignments,
+  putAssignments,
   deleteTeacher
 } = require('../controllers/teacherController');
 const { protect, authorizeRoles, requirePermission } = require('../middleware/authMiddleware');
@@ -32,6 +34,8 @@ router.route('/:id')
 
 // Class assign/remove
 router.patch('/:id/assign-class', protect, requirePermission('teachers.manage'), assignClass);
+router.get('/:id/assignments', protect, requirePermission('teachers.manage'), getAssignments);
+router.put('/:id/assignments', protect, requirePermission('teachers.manage'), putAssignments);
 router.patch('/:id/remove-class', protect, requirePermission('teachers.manage'), removeClass);
 
 module.exports = router;

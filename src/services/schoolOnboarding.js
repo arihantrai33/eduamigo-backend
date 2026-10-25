@@ -3,6 +3,7 @@ const School = require('../models/School');
 const User = require('../models/User');
 const { temporaryPassword, hashPassword } = require('./credentials');
 const { findPlan } = require('./subscription');
+const { ensureSystemRoles } = require('./roles');
 const { FEATURES, DEFAULT_TRIAL_DAYS } = require('../config/features');
 const { HttpError } = require('../utils/http');
 
@@ -42,6 +43,7 @@ async function onboardSchool(input = {}) {
     },
   });
 
+  await ensureSystemRoles(school._id);
   const password = temporaryPassword();
   let admin;
   try {

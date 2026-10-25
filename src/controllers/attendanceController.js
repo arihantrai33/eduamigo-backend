@@ -3,6 +3,7 @@ const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { toDayKey } = require('../utils/dates');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
+const { classScope, coversClass } = require('../services/scope');
 const { saveClassAttendance, summarize, summarizeCounts } = require('../services/attendanceService');
 const { studentForUser, resolveChild, teacherForUser, canAccessStudent } = require('../services/directory');
 
@@ -16,8 +17,7 @@ function monthRange(month, year) {
 // POST /api/attendance/bulk  { date, class, section, records: [{ studentId, status, remarks }] }
 const markBulkAttendance = asyncHandler(async (req, res) => {
   const { date, class: cls, section, records } = req.body || {};
-  const teacher = req.user.role === 'teacher' ? await teacherForUser(req.user) : null;
-  const result = await saveClassAttendance({ user: req.user, school: req.schoolId, teacher, date, cls, section, records });
+  const result = await saveClassAttendance({ user: req.user, school: req.schoolId, date, cls, section, records });
   res.json({ success: true, message: 'Attendance saved successfully', ...result });
 });
 
@@ -27,9 +27,8 @@ const markAttendance = asyncHandler(async (req, res) => {
   assertId(studentId, 'studentId');
   const student = await Student.findOne({ _id: studentId, school: req.schoolId, isActive: true });
   if (!student) throw new HttpError(404, 'Student not found');
-  const teacher = req.user.role === 'teacher' ? await teacherForUser(req.user) : null;
   const result = await saveClassAttendance({
-    user: req.user, school: req.schoolId, teacher, date,
+    user: req.user, school: req.schoolId, date,
     cls: student.class, section: student.section, records: [{ studentId, status, remarks }],
   });
   res.status(201).json({ success: true, message: 'Attendance marked successfully', ...result });
@@ -55,10 +54,7 @@ const getStudentAttendance = asyncHandler(async (req, res) => {
 // GET /api/attendance/class/:className?section=A&date=YYYY-MM-DD
 const getClassAttendance = asyncHandler(async (req, res) => {
   const key = parseClassKey(req.params.className, req.query.section);
-  if (req.user.role === 'teacher') {
-    const teacher = await teacherForUser(req.user);
-    if (!teacherCoversClass(teacher, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
-  }
+  if (!coversClass(await classScope(req.user, 'academic'), key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
   const filter = { school: req.schoolId, class: key.class };
   if (key.section) filter.section = key.section;
   if (req.query.date) {

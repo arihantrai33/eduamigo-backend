@@ -1,16 +1,32 @@
 const Teacher = require('../models/Teacher');
 const User = require('../models/User');
+const { withPhotos } = require('../services/avatars');
 const { HttpError, asyncHandler, assertId, escapeRegex } = require('../utils/http');
 const { classKey, parseClassKey, normalizeClass } = require('../utils/classes');
 const { createTeacherWithAccount, normalizeTeacherInput } = require('../services/teacherService');
 const { teacherForUser } = require('../services/directory');
 const { assertClassSection } = require('../services/academic');
+const { can } = require('../services/authorization');
+const { assignmentsOf, replaceAssignments } = require('../services/teaching');
+const TeachingAssignment = require('../models/TeachingAssignment');
+const { audit } = require('../services/audit');
+
+// Salary and personal details are for those who manage staff; everyone else with access to the staff list does not get them.
+const staffProjection = (user) => (can(user, 'teachers.manage') ? '' : '-salary -dateOfBirth -address');
+
+// The teacher's own profile photo (set from their account) replaces any older one on the record.
+async function photoed(docs, schoolId) {
+  const list = Array.isArray(docs) ? docs : [docs];
+  const rows = await Teacher.find({ _id: { $in: list.map((d) => d._id) }, school: schoolId }).select('userId').lean();
+  const owner = new Map(rows.map((r) => [String(r._id), r.userId]));
+  return withPhotos(docs, (d) => owner.get(String(d._id)), schoolId);
+}
 
 // GET /api/teachers/me
 exports.getMe = asyncHandler(async (req, res) => {
   const teacher = await teacherForUser(req.user);
   if (!teacher) throw new HttpError(404, 'Teacher profile not found');
-  res.json({ success: true, data: teacher });
+  res.json({ success: true, data: await photoed(teacher, req.schoolId) });
 });
 
 // GET /api/teachers
@@ -19,18 +35,18 @@ exports.getTeachers = asyncHandler(async (req, res) => {
   const query = { school: req.schoolId, isActive: true };
   if (subject) query.subjects = String(subject);
   if (search) query.name = { $regex: escapeRegex(search), $options: 'i' };
-  const projection = req.user.role === 'admin' ? '' : '-salary -dateOfBirth -address';
+  const projection = staffProjection(req.user);
   const teachers = await Teacher.find(query).select(projection).sort({ name: 1 });
-  res.json({ success: true, count: teachers.length, data: teachers });
+  res.json({ success: true, count: teachers.length, data: await photoed(teachers, req.schoolId) });
 });
 
 // GET /api/teachers/:id
 exports.getTeacher = asyncHandler(async (req, res) => {
   assertId(req.params.id);
-  const projection = req.user.role === 'admin' ? '' : '-salary -dateOfBirth -address';
+  const projection = staffProjection(req.user);
   const teacher = await Teacher.findOne({ _id: req.params.id, school: req.schoolId }).select(projection);
   if (!teacher) throw new HttpError(404, 'Teacher not found');
-  res.json({ success: true, data: teacher });
+  res.json({ success: true, data: await photoed(teacher, req.schoolId) });
 });
 
 // GET /api/teachers/class/:class — teachers of a class ("10" or "10-A")
@@ -44,7 +60,7 @@ exports.getTeachersByClass = asyncHandler(async (req, res) => {
       ...(section ? [] : [{ assignedClasses: { $regex: `^${normalizeClass(cls).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-` } }]),
     ],
   }).select('name subjects assignedClasses photo userId');
-  res.json({ success: true, count: teachers.length, data: teachers });
+  res.json({ success: true, count: teachers.length, data: await photoed(teachers, req.schoolId) });
 });
 
 // POST /api/teachers
@@ -94,7 +110,34 @@ exports.removeClass = asyncHandler(async (req, res) => {
   if (!teacher) throw new HttpError(404, 'Teacher not found');
   teacher.assignedClasses = teacher.assignedClasses.filter((c) => c !== key && c !== req.body?.className);
   await teacher.save();
+  // The subjects they taught in that class go with it, so no assignment is left for a class they no longer cover.
+  await TeachingAssignment.deleteMany({ school: req.schoolId, teacher: teacher._id, class: parsed.class, ...(parsed.section ? { section: parsed.section } : {}) });
   res.json({ success: true, data: teacher });
+});
+
+// GET /api/teachers/:id/assignments
+exports.getAssignments = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const teacher = await Teacher.findOne({ _id: req.params.id, school: req.schoolId }).select('_id');
+  if (!teacher) throw new HttpError(404, 'Teacher not found');
+  res.json({ success: true, data: await assignmentsOf(req.schoolId, teacher._id) });
+});
+
+// PUT /api/teachers/:id/assignments   body: { assignments: [{ class, section, subject, isClassTeacher }] }  (replaces the whole set)
+exports.putAssignments = asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const teacher = await Teacher.findOne({ _id: req.params.id, school: req.schoolId });
+  if (!teacher) throw new HttpError(404, 'Teacher not found');
+  const rows = req.body?.assignments;
+  if (Array.isArray(rows)) {
+    for (const r of rows) {
+      const k = parseClassKey(r?.class, r?.section);
+      if (k.class) await assertClassSection(req.schoolId, k.class, k.section);
+    }
+  }
+  const docs = await replaceAssignments(req.schoolId, teacher, rows);
+  await audit(req, 'teacher.assignments_changed', { targetType: 'teacher', targetId: teacher._id, details: { count: docs.length } });
+  res.json({ success: true, data: docs });
 });
 
 // DELETE /api/teachers/:id (soft delete)

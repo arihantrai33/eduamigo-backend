@@ -5,22 +5,19 @@ const Student = require('../models/Student');
 const ExamResult = require('../models/ExamResult');
 const ExamSchedule = require('../models/ExamSchedule');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
-const { parseClassKey, teacherCoversClass, normalizeSection } = require('../utils/classes');
+const { parseClassKey, normalizeSection } = require('../utils/classes');
 const { percentage, gradeFor } = require('../utils/grades');
 const { toDayKey } = require('../utils/dates');
 const { normalizeExamType, termForDate } = require('../config/exams');
 const { teacherForUser } = require('../services/directory');
+const { classScope, coversClass } = require('../services/scope');
+const { assignmentsOf, teachesSubject } = require('../services/teaching');
 const { notifyStudent, notifyParents } = require('../services/notify');
-
-const sameText = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
 // A teacher may enter marks for an exam of a class-section they are assigned to, in a subject they teach.
 // Teachers with no subjects on their profile (common for primary class teachers) may enter any subject.
-function teacherTeaches(teacher, exam, section) {
-  if (!teacherCoversClass(teacher, exam.class, section)) return false;
-  const subjects = teacher.subjects || [];
-  return !subjects.length || subjects.some((s) => sameText(s, exam.subject));
-}
+// With teaching assignments, only the exact class-section and subject combinations they list (services/teaching.js).
+const teacherTeaches = (teacher, assignments, exam, section) => teachesSubject(teacher, assignments, exam.class, section, exam.subject);
 
 // Loads the exam and the section being marked, and checks who is asking.
 async function examContext(req, examId, sectionInput) {
@@ -33,10 +30,12 @@ async function examContext(req, examId, sectionInput) {
     throw new HttpError(400, `This exam is for section ${exam.section} only`);
   }
   let teacher = null;
-  if (req.user.role === 'teacher') {
-    teacher = await teacherForUser(req.user);
+  const scope = await classScope(req.user, 'academic');
+  if (scope.level === 'none') throw new HttpError(403, 'You do not have access to marks');
+  if (scope.level === 'assigned') {
+    teacher = scope.teacher;
     if (!teacher) throw new HttpError(404, 'Teacher profile not found');
-    if (!teacherTeaches(teacher, exam, section)) throw new HttpError(403, 'You do not teach this subject in this class');
+    if (!teacherTeaches(teacher, await assignmentsOf(req.schoolId, teacher._id), exam, section)) throw new HttpError(403, 'You do not teach this subject in this class');
   }
   const key = { exam: exam._id, class: exam.class, section };
   return { exam, section, teacher, key };
@@ -57,7 +56,8 @@ function examFields(exam) {
 exports.getMyClasses = asyncHandler(async (req, res) => {
   const teacher = await teacherForUser(req.user);
   if (!teacher) throw new HttpError(404, 'Teacher profile not found');
-  res.json({ classes: teacher.assignedClasses, subjects: teacher.subjects });
+  const assignments = (await assignmentsOf(req.schoolId, teacher._id)).map((a) => ({ class: a.class, section: a.section, subject: a.subject, isClassTeacher: a.isClassTeacher }));
+  res.json({ classes: teacher.assignedClasses, subjects: teacher.subjects, assignments });
 });
 
 // GET /api/marks/exams?class=7&section=A (teacher, admin)
@@ -66,13 +66,15 @@ exports.getExamsForMarking = asyncHandler(async (req, res) => {
   const key = parseClassKey(req.query.class, req.query.section);
   if (!key.class || !key.section) throw new HttpError(400, 'Class and section are required');
   let teacher = null;
-  if (req.user.role === 'teacher') {
-    teacher = await teacherForUser(req.user);
+  const scope = await classScope(req.user, 'academic');
+  if (scope.level === 'assigned') {
+    teacher = scope.teacher;
     if (!teacher) throw new HttpError(404, 'Teacher profile not found');
-    if (!teacherCoversClass(teacher, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
   }
+  if (!coversClass(scope, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
+  const mine = teacher ? await assignmentsOf(req.schoolId, teacher._id) : [];
   const exams = (await ExamSchedule.find({ school: req.schoolId, class: key.class, section: { $in: ['', key.section] } }).sort({ date: -1 }))
-    .filter((e) => !teacher || teacherTeaches(teacher, e, key.section));
+    .filter((e) => !teacher || teacherTeaches(teacher, mine, e, key.section));
   const studentCount = await Student.countDocuments({ school: req.schoolId, class: key.class, section: key.section, isActive: true });
   const today = toDayKey(new Date()).getTime();
   const rows = await Mark.aggregate([

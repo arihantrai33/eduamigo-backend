@@ -2,7 +2,7 @@ const Timetable = require('../models/Timetable');
 const Teacher = require('../models/Teacher');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
-const { studentForUser } = require('../services/directory');
+const { studentForUser, childrenForParent } = require('../services/directory');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // Accepts "Thursday", "thursday" or "Thu"; returns the stored day name or null.
@@ -55,8 +55,18 @@ const createTimetable = asyncHandler(async (req, res) => {
 });
 
 // GET /api/timetable/class/:class?section=A
+// A parent may read the timetable of their children's classes and a student their own class; teachers and the office read any.
+async function assertMayViewClass(req, key) {
+  const role = req.user.role;
+  if (role !== 'parent' && role !== 'student') return;
+  const own = role === 'parent' ? await childrenForParent(req.user) : [await studentForUser(req.user)].filter(Boolean);
+  const ok = own.some((c) => String(c.class) === String(key.class) && (!key.section || String(c.section) === String(key.section)));
+  if (!ok) throw new HttpError(403, 'You can only view the timetable of your own class');
+}
+
 const getClassTimetable = asyncHandler(async (req, res) => {
   const key = parseClassKey(req.params.class, req.query.section);
+  await assertMayViewClass(req, key);
   const filter = { school: req.schoolId, class: key.class };
   if (key.section) filter.section = key.section;
   const timetable = (await Timetable.find(filter).populate('periods.teacher', 'name subjects')).sort(byDay);
@@ -65,6 +75,7 @@ const getClassTimetable = asyncHandler(async (req, res) => {
 
 const getClassDayTimetable = asyncHandler(async (req, res) => {
   const key = parseClassKey(req.params.class, req.query.section);
+  await assertMayViewClass(req, key);
   const filter = { school: req.schoolId, class: key.class, day: req.params.day };
   if (key.section) filter.section = key.section;
   const timetable = await Timetable.findOne(filter).populate('periods.teacher', 'name subjects');

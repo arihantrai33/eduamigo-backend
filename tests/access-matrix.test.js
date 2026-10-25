@@ -13,6 +13,18 @@ const { ROLE_PERMISSIONS } = require('../src/config/permissions');
 
 const ID = '000000000000000000000000';
 const ROUTES = [
+  ['get', '/api/staff', 'hr.manage'],
+  ['put', `/api/staff/${ID}`, 'hr.manage'],
+  ['get', '/api/roles', 'roles.view'],
+  ['get', '/api/roles/recommendations', 'roles.view'],
+  ['get', `/api/teachers/${ID}/assignments`, 'teachers.manage'],
+  ['put', `/api/teachers/${ID}/assignments`, 'teachers.manage'],
+  ['get', `/api/roles/access/${ID}`, 'roles.view'],
+  ['post', '/api/roles', 'roles.manage'],
+  ['patch', `/api/roles/${ID}`, 'roles.manage'],
+  ['post', `/api/roles/${ID}/preview`, 'roles.manage'],
+  ['delete', `/api/roles/${ID}`, 'roles.manage'],
+  ['put', `/api/users/${ID}/roles`, 'roles.manage'],
   ['get', '/api/students', 'students.read'],
   ['post', '/api/students', 'students.manage'],
   ['put', `/api/students/${ID}`, 'students.manage'],
@@ -69,7 +81,7 @@ const SELF_SERVICE = [
   ['get', '/api/teachers/me', ['teacher']],
 ];
 
-const ROLES = ['admin', 'accountant', 'teacher', 'student', 'parent'];
+const ROLES = ['admin', 'accountant', 'teacher', 'staff', 'student', 'parent'];
 let users;
 
 beforeAll(async () => {
@@ -80,6 +92,7 @@ beforeAll(async () => {
     admin: s.admin,
     accountant: await makeUser(s.school, 'accountant'),
     teacher: s.teacherUser,
+    staff: await makeUser(s.school, 'staff'),
     student: s.studentUser,
     parent: s.parentUser,
   };

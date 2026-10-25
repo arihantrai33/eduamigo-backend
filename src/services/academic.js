@@ -228,13 +228,16 @@ async function setupStatus(schoolId, features = []) {
   const Teacher = require('../models/Teacher');
   const Timetable = require('../models/Timetable');
   const FeeStructure = require('../models/FeeStructure');
-  const [session, classes, teachers, students, timetables, feeStructures] = await Promise.all([
+  const User = require('../models/User');
+  const [session, classes, teachers, students, timetables, feeStructures, officeStaff, withRoles] = await Promise.all([
     currentSession(schoolId).lean(),
     listClasses(schoolId),
     Teacher.countDocuments({ school: schoolId, isActive: { $ne: false } }),
     Student.countDocuments({ school: schoolId, isActive: true }),
     Timetable.countDocuments({ school: schoolId }),
     features.includes('fees') ? FeeStructure.countDocuments({ school: schoolId }) : Promise.resolve(null),
+    User.countDocuments({ school: schoolId, role: { $in: ['accountant', 'staff'] }, isActive: true }),
+    User.countDocuments({ school: schoolId, role: 'teacher', isActive: true, 'extraRoles.0': { $exists: true } }),
   ]);
   const sections = classes.flatMap((c) => c.sections);
   const steps = [
@@ -246,9 +249,12 @@ async function setupStatus(schoolId, features = []) {
     { key: 'students', label: 'Add or import students', done: students > 0 },
     { key: 'timetable', label: 'Create timetables', done: timetables > 0 },
   ];
+  steps.push({ key: 'staffAccess', label: 'Give office staff their own logins and roles', done: officeStaff + withRoles > 0, optional: true });
   if (feeStructures !== null) steps.push({ key: 'fees', label: 'Set up fee structures', done: feeStructures > 0 });
-  const done = steps.filter((s) => s.done).length;
-  return { steps, done, total: steps.length, complete: done === steps.length, currentSession: session?.name || null };
+  // Optional steps are shown but do not hold up "complete": a one-person office is a valid setup.
+  const required = steps.filter((s) => !s.optional);
+  const done = required.filter((s) => s.done).length;
+  return { steps, done, total: required.length, complete: done === required.length, currentSession: session?.name || null };
 }
 
 module.exports = {

@@ -111,18 +111,41 @@ function simplify(points, tolerance = 4) {
 
 // The road geometry through the stops, from an OSRM-compatible routing service (ROUTING_URL, default the public demo server;
 // ROUTING_URL=off disables it). Returns [[lat, lng], ...] or null. One call per trip start, not one per viewer.
-async function roadGeometry(stops) {
-  const base = process.env.ROUTING_URL === undefined ? (process.env.NODE_ENV === 'test' ? 'off' : 'https://router.project-osrm.org') : process.env.ROUTING_URL;
-  if (!base || base === 'off' || stops.length < 2) return null;
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 7000);
-  try {
-    const coords = stops.map((s) => `${s.lng},${s.lat}`).join(';');
-    const res = await fetch(`${base.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=false`, { signal: ctl.signal });
+async function osrmRoute(base, stops, signal) {
+  const coords = stops.map((s) => `${s.lng},${s.lat}`).join(';');
+  const res = await fetch(`${base.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=false`, { signal });
+  const data = await res.json().catch(() => ({}));
+  const line = data?.routes?.[0]?.geometry?.coordinates;
+  return Array.isArray(line) && line.length > 1 ? line.map(([lng, lat]) => [lat, lng]) : null;
+}
+
+// Mapbox Directions takes at most 25 points per request: longer routes are asked for in overlapping pieces and joined.
+async function mapboxRoute(token, stops, signal) {
+  const out = [];
+  for (let from = 0; from < stops.length - 1; from += 24) {
+    const part = stops.slice(from, from + 25);
+    if (part.length < 2) break;
+    const coords = part.map((s) => `${s.lng},${s.lat}`).join(';');
+    const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?overview=full&geometries=geojson&continue_straight=false&access_token=${encodeURIComponent(token)}`, { signal });
     const data = await res.json().catch(() => ({}));
     const line = data?.routes?.[0]?.geometry?.coordinates;
     if (!Array.isArray(line) || line.length < 2) return null;
-    return simplify(line.map(([lng, lat]) => [lat, lng]), 3).slice(0, 4000);
+    out.push(...line.map(([lng, lat]) => [lat, lng]));
+  }
+  return out.length > 1 ? out : null;
+}
+
+async function roadGeometry(stops) {
+  if (stops.length < 2) return null;
+  const token = process.env.MAPBOX_ACCESS_TOKEN;
+  const base = process.env.ROUTING_URL === undefined ? (process.env.NODE_ENV === 'test' ? 'off' : 'https://router.project-osrm.org') : process.env.ROUTING_URL;
+  if (!token && (!base || base === 'off')) return null;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 9000);
+  try {
+    let line = token ? await mapboxRoute(token, stops, ctl.signal).catch(() => null) : null;
+    if (!line && base && base !== 'off') line = await osrmRoute(base, stops, ctl.signal); // Mapbox failed or is not set: the OSRM service
+    return line ? simplify(line, 3).slice(0, 4000) : null;
   } catch {
     return null;
   } finally {
@@ -146,14 +169,24 @@ const runtime = new Map(); // busId -> state
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
+// How far along the road each stop is, and how far the stop's pin is from the road.
+function layOut(route, stops) {
+  const offsets = []; const offRoad = []; let from = 0;
+  for (const s of stops) {
+    const p = project(route, s.lat, s.lng, from, 0, route.meters + 1);
+    const m = p ? Math.max(p.meters, from) : from;
+    offsets.push(m); offRoad.push(p ? p.d : 0); from = m;
+  }
+  return { offsets, offRoad };
+}
+
 async function loadState(busId, school) {
   const doc = await Transport.findOne(school ? { _id: busId, school } : { _id: busId }).setOptions(school ? {} : { crossTenant: 'the driver app has no school session; the bus is found by its own id' }).lean();
   if (!doc) return null;
   const stops = tripStops(doc);
   const pts = doc.route?.points?.length ? doc.route.points : stops.map((s) => [s.lat, s.lng]);
   const route = buildRoute(pts);
-  const offsets = []; const offRoad = []; let from = 0; // metres along the road for each stop, and how far the stop is from the road
-  for (const s of stops) { const p = project(route, s.lat, s.lng, from, 0, route.meters + 1); const m = p ? Math.max(p.meters, from) : from; offsets.push(m); offRoad.push(p ? p.d : 0); from = m; }
+  const { offsets, offRoad } = layOut(route, stops);
   const students = doc.busStatus === 'On Route'
     ? (await Student.find({ school: doc.school, bus: doc._id, isActive: true }).select('name busStopId school').lean())
       .map((s) => ({ _id: s._id, name: s.name, school: s.school, stop: stops.findIndex((x) => x.id === String(s.busStopId)) }))
@@ -164,8 +197,25 @@ async function loadState(busId, school) {
     live: doc.live || null, students, notices: new Set(doc.tripNotices || []), lastSample: 0,
   };
   runtime.set(st.id, st);
+  if (st.status === 'On Route' && st.routeSource !== 'road') upgradeRoute(st).catch(() => {});
   return st;
 }
+// A trip whose road was never fetched (a routing service that was down at the start, or a trip begun by older software) gets its
+// road as soon as one is available: the line on the map follows the streets instead of running straight between the stops. Once
+// per bus every ten minutes at most; viewers get the new route in the next snapshot.
+const upgrading = new Map();
+async function upgradeRoute(st) {
+  if (upgrading.has(st.id) || st.stops.length < 2) return;
+  upgrading.set(st.id, setTimeout(() => upgrading.delete(st.id), 10 * 60 * 1000));
+  upgrading.get(st.id).unref?.();
+  const road = await roadGeometry(st.stops);
+  if (!road) return;
+  const route = buildRoute(road);
+  Object.assign(st, { route, routeSource: 'road', ...layOut(route, st.stops) });
+  await Transport.updateOne({ _id: st.id, school: st.school }, { $set: { route: { points: road, source: 'road', key: routeKey(st.stops, st.direction), meters: Math.round(route.meters) } } });
+  emit(st, snapshot(st));
+}
+
 // `school` is the signed-in viewer's school (a viewer never gets another school's bus); the driver app passes none.
 async function stateOf(busId, school) {
   const hit = runtime.get(String(busId));
@@ -380,7 +430,10 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
     const jitter = prev && distance(prev.lat, prev.lng, p.lat, p.lng) < Math.max(6, (p.accuracy || 0) * 0.4) && kmh < 2;
     // Along the road: snap when close to it, otherwise show the raw position and say the bus is off the route.
     const proj = project(st.route, p.lat, p.lng, prev?.routeMeters ?? 0);
-    const onRoute = !!proj && proj.d <= c.snapM;
+    // A phone that says its position is only good to 40 m may really be 40 m from the line it is driving on, so the distance that
+    // still counts as "on the road" grows with the reported accuracy (up to 120 m): the bus stays on the street, not in a house.
+    const snapLimit = Math.max(c.snapM, Math.min(120, (p.accuracy || 0) * 1.5));
+    const onRoute = !!proj && proj.d <= snapLimit;
     // Progress along the road follows the nearest point of the road even when the bus is a little off it (a wide road, a lane the
     // map does not show); only a bus far away from the road keeps its last progress.
     const near = !!proj && proj.d <= 300;
@@ -427,7 +480,7 @@ async function closeAbandonedTrips(hours = 3, now = Date.now()) {
   return stale.length;
 }
 
-const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); };
+const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); upgrading.forEach((t) => clearTimeout(t)); upgrading.clear(); };
 
 module.exports = {
   distance, bearing, buildRoute, project, simplify, roadGeometry, tripStops, cfg,

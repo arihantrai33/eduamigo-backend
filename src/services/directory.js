@@ -6,6 +6,7 @@ const Student = require('../models/Student');
 const Teacher = require('../models/Teacher');
 const Parent = require('../models/Parent');
 const { teacherCoversClass } = require('../utils/classes');
+const { scopeOf } = require('./authorization');
 
 async function studentForUser(user) {
   return Student.findOne({ userId: user._id, school: user.school._id || user.school, isActive: true });
@@ -52,8 +53,9 @@ async function canAccessStudent(user, student) {
   const school = String(user.school._id || user.school);
   if (String(student.school) !== school) return false;
   // Academic records (attendance, results): admins see everyone, teachers only their assigned classes.
-  if (user.role === 'admin') return true;
-  if (user.role === 'teacher') return teacherCoversClass(await teacherForUser(user), student.class, student.section);
+  const scope = scopeOf(user, 'academic');
+  if (scope === 'school') return true;
+  if (scope === 'assigned') return teacherCoversClass(await teacherForUser(user), student.class, student.section);
   if (user.role === 'student') return String(student.userId) === String(user._id);
   if (user.role === 'parent') return (await parentUserIdsForStudent(student)).includes(String(user._id));
   return false;

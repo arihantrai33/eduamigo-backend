@@ -10,4 +10,7 @@ function detectImageType(buffer) {
   return null;
 }
 
-module.exports = { detectImageType };
+// A PDF file starts with "%PDF-" (the version follows).
+const isPdf = (buffer) => Buffer.isBuffer(buffer) && buffer.length >= 5 && buffer.toString('ascii', 0, 5) === '%PDF-';
+
+module.exports = { detectImageType, isPdf };

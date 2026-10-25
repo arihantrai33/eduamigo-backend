@@ -16,7 +16,7 @@ const { jwtSecret } = require('../config/env');
 const { hashPassword } = require('./credentials');
 const email = require('./email');
 
-const SCHOOL_FIELDS = 'name code isActive branding subscription';
+const SCHOOL_FIELDS = 'name code city isActive branding subscription';
 const PHONE_LOGIN_ROLES = ['parent', 'teacher', 'admin', 'accountant'];
 const RESET_CODE_MINUTES = 15;
 const RESET_MAX_ATTEMPTS = 5;
@@ -62,6 +62,18 @@ async function authenticate(credentials, password) {
   return null;
 }
 
+// A mobile number typed without a school. The same number can belong to accounts in several schools (a parent with children
+// in two of them), so every account with this number whose password matches is returned (at most six are tried). Nothing about
+// accounts whose password does not match is revealed.
+async function authenticateByPhoneAcrossSchools(phone, password) {
+  const candidates = await User.find({ loginPhone: phone, role: { $in: PHONE_LOGIN_ROLES } }).limit(6).populate('school', SCHOOL_FIELDS);
+  const matched = [];
+  for (const user of candidates) {
+    if (await user.comparePassword(password)) matched.push(user);
+  }
+  return matched;
+}
+
 // ---------------- Password reset by email code ----------------
 
 const hashCode = (userId, code) => crypto.createHmac('sha256', jwtSecret()).update(`${userId}:${code}`).digest('hex');
@@ -80,53 +92,112 @@ function resetEmailText(user, code) {
   ].join('\n');
 }
 
-// Sends a reset code to every matching active account that has an email. Never reveals whether
-// an account exists: the caller always answers the same way.
-async function requestPasswordReset(credentials) {
+// ---------------- One-time codes: password reset and sign-in without a password ----------------
+// A code goes to the mobile number when the person typed a mobile number, otherwise to the email, and to the other one when the
+// first is not on file. The caller always answers the same way, whether or not an account exists.
+
+const LOGIN_CODE_MINUTES = 10;
+const CODES_PER_HOUR = 6;
+const smsService = require('./sms');
+const { maskPhone } = require('./integrations');
+
+const ofPurpose = (purpose) => (purpose === 'reset' ? { $or: [{ purpose: 'reset' }, { purpose: { $exists: false } }] } : { purpose });
+
+// The mobile number is tried first only when SMS really goes out (live provider); with SMS in test mode it is the last resort.
+function channelsFor(user, id, smsLive) {
+  const typedPhone = smsLive && !id.includes('@') && normalizePhone(id).length === 10;
+  const hasSms = !!(user.phone && normalizePhone(user.phone).length === 10);
+  const order = typedPhone ? ['sms', 'email'] : ['email', 'sms'];
+  return order.filter((c) => (c === 'sms' ? hasSms : !!user.email));
+}
+
+function codeText(user, code, purpose) {
+  const school = user.school?.branding?.appName || user.school?.name || 'EduAmigo';
+  const what = purpose === 'login' ? 'sign-in code' : 'password reset code';
+  const minutes = purpose === 'login' ? LOGIN_CODE_MINUTES : RESET_CODE_MINUTES;
+  return [
+    `Hello ${user.name},`, '',
+    `Your ${school} ${what} is: ${code}`, '',
+    `It expires in ${minutes} minutes. Do not share it with anyone. If you did not ask for it, you can ignore this message.`, '',
+    '- EduAmigo',
+  ].join('\n');
+}
+
+async function deliver(user, channel, code, purpose) {
+  if (channel === 'email') {
+    await email.sendEmail({ to: user.email, subject: purpose === 'login' ? 'Your sign-in code' : 'Your password reset code', text: codeText(user, code, purpose) });
+    return;
+  }
+  const phone = smsService.normalizePhone(user.phone);
+  const sent = await smsService.sendCode(await smsService.loadSms(), phone, code, undefined, { live: true });
+  // Local demo only: with the SMS provider in test mode nothing leaves the machine, so the code is shown in this server's console.
+  if (sent.simulated && process.env.NODE_ENV !== 'production') console.log(`[one-time code] ${purpose} for ${maskPhone(phone)}: ${code}`);
+}
+
+// Sends a code to every matching active account. Returns how many were sent.
+async function requestCode(credentials, purpose = 'reset') {
+  const id = String(credentials.identifier ?? credentials.email ?? '').trim();
   const candidates = await loginCandidates(credentials);
+  const minutes = purpose === 'login' ? LOGIN_CODE_MINUTES : RESET_CODE_MINUTES;
   let sent = 0;
+  const smsDoc = candidates.length ? await smsService.loadSms() : null;
+  const smsLive = !!smsDoc && smsService.goesLive(smsDoc.config, smsDoc.enabled, true);
   for (const user of candidates) {
-    if (!user.email || !user.isActive || !user.school || user.school.isActive === false) continue;
-    const recent = await PasswordReset.findOne({ user: user._id, createdAt: { $gt: new Date(Date.now() - RESET_RESEND_SECONDS * 1000) } });
-    if (recent) continue;
+    if (!user.isActive || !user.school || user.school.isActive === false) continue;
+    const channels = channelsFor(user, id, smsLive);
+    if (!channels.length) continue;
+    const now = Date.now();
+    if (await PasswordReset.findOne({ user: user._id, ...ofPurpose(purpose), createdAt: { $gt: new Date(now - RESET_RESEND_SECONDS * 1000) } })) continue;
+    if (await PasswordReset.countDocuments({ user: user._id, createdAt: { $gt: new Date(now - 3600 * 1000) } }) >= CODES_PER_HOUR) continue;
     const code = String(crypto.randomInt(100000, 1000000));
-    await PasswordReset.deleteMany({ user: user._id });
-    await PasswordReset.create({ user: user._id, codeHash: hashCode(user._id, code), expiresAt: new Date(Date.now() + RESET_CODE_MINUTES * 60000) });
-    try {
-      await email.sendEmail({ to: user.email, subject: 'Your password reset code', text: resetEmailText(user, code) });
-      sent += 1;
-    } catch (err) {
-      console.error(`Password reset email to user ${user._id} failed:`, err.message);
+    await PasswordReset.deleteMany({ user: user._id, ...ofPurpose(purpose) });
+    const row = await PasswordReset.create({ user: user._id, purpose, channel: channels[0], codeHash: hashCode(user._id, code), expiresAt: new Date(now + minutes * 60000) });
+    for (const channel of channels) {
+      try {
+        await deliver(user, channel, code, purpose);
+        if (channel !== row.channel) await PasswordReset.updateOne({ _id: row._id }, { $set: { channel } });
+        sent += 1;
+        break;
+      } catch (err) {
+        console.error(`One-time code (${purpose}) by ${channel} to user ${user._id} failed:`, err.message);
+      }
     }
   }
   return sent;
 }
 
-// Checks the code and sets the new password. Signs the user out of every device.
-async function resetPasswordWithCode(credentials, code, newPassword) {
+// The account whose code matches, or null. Every wrong guess counts; after five the code is gone.
+async function checkCode(credentials, code, purpose) {
   const candidates = await loginCandidates(credentials);
   const cleanCode = String(code || '').trim();
   for (const user of candidates) {
-    const reset = await PasswordReset.findOne({ user: user._id, expiresAt: { $gt: new Date() } });
+    const reset = await PasswordReset.findOne({ user: user._id, ...ofPurpose(purpose), expiresAt: { $gt: new Date() } });
     if (!reset) continue;
     reset.attempts += 1;
-    if (reset.attempts > RESET_MAX_ATTEMPTS) {
-      await reset.deleteOne();
-      continue;
-    }
+    if (reset.attempts > RESET_MAX_ATTEMPTS) { await reset.deleteOne(); continue; }
     await reset.save();
     const expected = Buffer.from(reset.codeHash, 'hex');
     const given = Buffer.from(hashCode(user._id, cleanCode), 'hex');
     if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) continue;
-
-    await User.updateOne({ _id: user._id }, {
-      $set: { password: await hashPassword(newPassword), mustChangePassword: false, passwordChangedAt: new Date() },
-      $inc: { tokenVersion: 1 },
-    });
-    await PasswordReset.deleteMany({ user: user._id });
-    return true;
+    await PasswordReset.deleteMany({ user: user._id, ...ofPurpose(purpose) });
+    return user;
   }
-  return false;
+  return null;
 }
 
-module.exports = { loginCandidates, authenticate, requestPasswordReset, resetPasswordWithCode, PHONE_LOGIN_ROLES };
+const requestPasswordReset = (credentials) => requestCode(credentials, 'reset');
+const requestLoginCode = (credentials) => requestCode(credentials, 'login');
+const loginWithCode = (credentials, code) => checkCode(credentials, code, 'login');
+
+// Checks the code and sets the new password. Signs the user out of every device.
+async function resetPasswordWithCode(credentials, code, newPassword) {
+  const user = await checkCode(credentials, code, 'reset');
+  if (!user) return false;
+  await User.updateOne({ _id: user._id }, {
+    $set: { password: await hashPassword(newPassword), mustChangePassword: false, passwordChangedAt: new Date() },
+    $inc: { tokenVersion: 1 },
+  });
+  return true;
+}
+
+module.exports = { loginCandidates, authenticate, authenticateByPhoneAcrossSchools, requestPasswordReset, requestLoginCode, loginWithCode, resetPasswordWithCode, PHONE_LOGIN_ROLES };

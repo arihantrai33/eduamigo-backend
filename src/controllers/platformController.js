@@ -16,10 +16,14 @@ const { onboardSchool } = require('../services/schoolOnboarding');
 const { clearDomainCache } = require('../services/schoolDirectory');
 const { audit } = require('../services/audit');
 
-const PLATFORM_TOKEN_TTL = '12h';
 const SUPPORT_TOKEN_TTL = '1h';
 
-const platformToken = (user) => signUserToken(user, { scope: 'platform', expiresIn: PLATFORM_TOKEN_TTL });
+const platformToken = async (user) => {
+  // Session length is a platform setting (1 to 24 hours); 12 hours when nothing is saved.
+  let hours = 12;
+  try { hours = (await require('./platformOpsController').readSettings()).sessionHours || 12; } catch { /* default */ }
+  return signUserToken(user, { scope: 'platform', expiresIn: `${hours}h` });
+};
 
 // ---------------- Auth ----------------
 
@@ -35,13 +39,14 @@ exports.login = asyncHandler(async (req, res) => {
   await user.save();
   req.platformUser = user;
   await audit(req, 'platform.login', { school: null });
-  res.json({ success: true, token: platformToken(user), user: { _id: user._id, name: user.name, email: user.email, role: 'superadmin' } });
+  res.json({ success: true, token: await platformToken(user), user: { _id: user._id, name: user.name, email: user.email, role: 'superadmin' } });
 });
 
 // GET /api/platform/me
 exports.me = asyncHandler(async (req, res) => {
   const u = req.platformUser;
-  res.json({ success: true, data: { _id: u._id, name: u.name, email: u.email, role: 'superadmin' } });
+  const pp = require('../config/platformPermissions');
+  res.json({ success: true, data: { _id: u._id, name: u.name, email: u.email, role: 'superadmin', platformRole: pp.roleOf(u), permissions: pp.permissionsOf(u) } });
 });
 
 // ---------------- Catalogue ----------------
@@ -259,12 +264,9 @@ exports.updateSchool = asyncHandler(async (req, res) => {
 // PATCH /api/platform/schools/:id/subscription
 // { plan, addOns, enabledFeatures, disabledFeatures, limits: {maxStudents, aiQuestionsPerMonth},
 //   status, trialEndsAt, currentPeriodEnd, graceDays, notes }
-exports.updateSubscription = asyncHandler(async (req, res) => {
-  const school = await loadSchool(req.params.id);
-  const body = req.body || {};
+// Applies the requested subscription changes to a school document (validating them) without saving it.
+async function applySubscription(school, body) {
   const s = school.subscription;
-  const before = school.toObject().subscription;
-
   if (body.plan !== undefined) {
     const plan = await sub.findPlan(String(body.plan).toLowerCase());
     if (!plan) throw new HttpError(400, `Unknown plan: ${body.plan}`);
@@ -302,13 +304,50 @@ exports.updateSubscription = asyncHandler(async (req, res) => {
   }
   if (body.notes !== undefined) s.notes = String(body.notes).slice(0, 1000);
   if (s.status === 'trial' && !s.trialEndsAt) throw new HttpError(400, 'A trial needs an end date');
+}
 
+exports.updateSubscription = asyncHandler(async (req, res) => {
+  const school = await loadSchool(req.params.id);
+  const before = school.toObject().subscription;
+  await applySubscription(school, req.body || {});
   await school.save();
   await audit(req, 'platform.subscription_updated', {
     school: school._id, targetType: 'school', targetId: school._id,
     details: { before, after: school.toObject().subscription },
   });
   res.json({ success: true, data: await schoolSummary(school) });
+});
+
+// POST /api/platform/schools/:id/subscription/preview: what a change would do, without doing it.
+exports.previewSubscription = asyncHandler(async (req, res) => {
+  const school = await loadSchool(req.params.id);
+  const eBefore = await sub.entitlementsFor(school);
+  const planBefore = await sub.findPlan(school.subscription?.plan);
+  await applySubscription(school, req.body || {});
+  const eAfter = await sub.entitlementsFor(school);
+  const planAfter = await sub.findPlan(school.subscription?.plan);
+  const students = await Student.countDocuments({ school: school._id, isActive: true });
+  const names = Object.fromEntries(Object.entries(FEATURES).map(([k, f]) => [k, f.name]));
+  const added = eAfter.features.filter((f) => !eBefore.features.includes(f)).map((f) => names[f] || f);
+  const removed = eBefore.features.filter((f) => !eAfter.features.includes(f)).map((f) => names[f] || f);
+  const price = (plan, e) => (plan?.pricePerStudentYear != null ? Math.round(plan.pricePerStudentYear * students * (1 - (school.subscription?.discountPercent || 0) / 100)) : null);
+  const warnings = [];
+  if (eAfter.limits.maxStudents != null && students > eAfter.limits.maxStudents) warnings.push(`The school has ${students} active students, more than the new limit of ${eAfter.limits.maxStudents}. Nobody is removed, but new students cannot be added until the limit is raised.`);
+  if (removed.length) warnings.push(`${removed.length} module${removed.length === 1 ? '' : 's'} will stop working for this school: ${removed.join(', ')}. Existing records are kept.`);
+  if (eAfter.state.status !== eBefore.state.status) warnings.push(`The billing status changes from ${eBefore.state.status.replace('_', ' ')} to ${eAfter.state.status.replace('_', ' ')}.`);
+  const pBefore = price(planBefore, eBefore); const pAfter = price(planAfter, eAfter);
+  const direction = pBefore == null || pAfter == null ? (eBefore.plan.code === eAfter.plan.code ? 'same' : 'changed') : pAfter > pBefore ? 'upgrade' : pAfter < pBefore ? 'downgrade' : 'same';
+  res.json({
+    success: true,
+    data: {
+      school: { _id: school._id, name: school.name }, activeStudents: students, direction,
+      plan: { from: eBefore.plan.name, to: eAfter.plan.name },
+      status: { from: eBefore.state.status, to: eAfter.state.status },
+      modules: { added, removed }, limits: { from: eBefore.limits, to: eAfter.limits },
+      yearlyEstimate: { from: pBefore, to: pAfter, note: 'Active students x price per student per year, after the school discount. No charge is made and no invoice is created by changing a plan.' },
+      warnings,
+    },
+  });
 });
 
 // POST /api/platform/schools/:id/support-session  { reason }

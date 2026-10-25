@@ -3,6 +3,7 @@
 //   brevo  - needs BREVO_API_KEY
 //   resend - needs RESEND_API_KEY
 //   log    - prints to the console and sends nothing (default outside production)
+// Settings saved in the owner console (SMTP) take priority when email is switched on there.
 // EMAIL_FROM is the sender, e.g. "EduAmigo <no-reply@eduamigo.in>".
 const axios = require('axios');
 
@@ -25,6 +26,19 @@ function parseFrom(from) {
 }
 
 async function sendEmail({ to, subject, text }) {
+  // Settings saved and verified in the owner console come first; the environment settings below remain the fallback.
+  const integrations = require('./integrations');
+  const smtp = await integrations.activeEmail();
+  if (smtp) {
+    try {
+      await integrations.sendThrough(smtp, { to, subject, text });
+      await integrations.recordDelivery(true);
+      return { delivered: true, provider: 'smtp' };
+    } catch (err) {
+      await integrations.recordDelivery(false, err);
+      throw err;
+    }
+  }
   const p = provider();
   if (p === 'log') {
     if (process.env.NODE_ENV !== 'test') console.log(`[email] to=${to} subject="${subject}"\n${text}\n`);

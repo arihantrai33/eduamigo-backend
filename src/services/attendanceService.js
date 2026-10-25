@@ -2,7 +2,8 @@ const Attendance = require('../models/Attendance');
 const Student = require('../models/Student');
 const { HttpError } = require('../utils/http');
 const { toDayKey, formatDay } = require('../utils/dates');
-const { parseClassKey, teacherCoversClass } = require('../utils/classes');
+const { parseClassKey } = require('../utils/classes');
+const { classScope, coversClass } = require('./scope');
 const { notifyParents } = require('./notify');
 const { mapLimit, isDuplicateKey } = require('../utils/concurrency');
 
@@ -22,16 +23,15 @@ async function upsertRow(filter, update) {
 
 // Saves attendance for a class on one day. Re-saving the same day updates records
 // (idempotent). Parents are notified only when a child's status becomes Absent/Late.
-async function saveClassAttendance({ user, school, teacher, date, cls, section, records }) {
+async function saveClassAttendance({ user, school, date, cls, section, records }) {
   const day = toDayKey(date);
   if (!day) throw new HttpError(400, 'Invalid date');
   if (day > toDayKey(new Date())) throw new HttpError(400, 'Attendance cannot be marked for a future date');
   const key = parseClassKey(cls, section);
   if (!key.class || !key.section) throw new HttpError(400, 'Class and section are required');
   if (!Array.isArray(records) || !records.length) throw new HttpError(400, 'At least one attendance record is required');
-  if (user.role === 'teacher' && !teacherCoversClass(teacher, key.class, key.section)) {
-    throw new HttpError(403, 'You are not assigned to this class');
-  }
+  // The school's staff with school-wide scope mark any class; a teacher only their assigned classes; anyone else nothing.
+  if (!coversClass(await classScope(user, 'academic'), key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
 
   const normalized = records.map((r) => ({
     studentId: String(r.studentId || r.student || ''),

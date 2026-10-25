@@ -2,7 +2,8 @@ const ExamResult = require('../models/ExamResult');
 const ExamSchedule = require('../models/ExamSchedule');
 const Student = require('../models/Student');
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
-const { parseClassKey, teacherCoversClass } = require('../utils/classes');
+const { parseClassKey } = require('../utils/classes');
+const { classScope, coversClass } = require('../services/scope');
 const { gradeFor } = require('../utils/grades');
 const { toDayKey } = require('../utils/dates');
 const { sessionNameForDate } = require('../services/academic');
@@ -49,14 +50,14 @@ const getStudentResults = asyncHandler(async (req, res) => {
 // GET /api/exams/results?class=&section=&examName= (admin: all results; teacher: own classes)
 const getResults = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
+  const scope = await classScope(req.user, 'academic');
+  if (scope.level === 'none') throw new HttpError(403, 'You do not have access to results');
   if (req.query.class) {
     const key = parseClassKey(req.query.class, req.query.section);
     filter.class = key.class;
     if (key.section) filter.section = key.section;
-    if (req.user.role === 'teacher' && !teacherCoversClass(await teacherForUser(req.user), key.class, key.section)) {
-      throw new HttpError(403, 'You are not assigned to this class');
-    }
-  } else if (req.user.role === 'teacher') {
+    if (!coversClass(scope, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
+  } else if (scope.level === 'assigned') {
     throw new HttpError(400, 'class is required');
   }
   if (req.query.examName) filter.examName = String(req.query.examName);

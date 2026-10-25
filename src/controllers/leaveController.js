@@ -3,7 +3,8 @@ const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { toDayKey, daysBetweenInclusive, currentAcademicYear } = require('../utils/dates');
 const { teacherCoversClass } = require('../utils/classes');
 const Student = require('../models/Student');
-const { studentForUser, resolveChild, teacherForUser } = require('../services/directory');
+const { studentForUser, resolveChild } = require('../services/directory');
+const { classScope, coversClass } = require('../services/scope');
 const { notifyParents, notifyUser } = require('../services/notify');
 const { pageParams, paged } = require('../utils/paginate');
 
@@ -77,13 +78,11 @@ const getMyQuota = asyncHandler(async (req, res) => {
 
 // Teachers review student leaves for their own classes; admins review everything in the school.
 async function reviewScope(req) {
+  const scope = await classScope(req.user, 'leaves');
+  if (scope.level === 'none') throw new HttpError(403, 'You do not have access to leave requests');
   const filter = { school: req.schoolId };
-  if (req.user.role === 'teacher') {
-    const teacher = await teacherForUser(req.user);
-    filter.studentId = { $ne: null };
-    return { filter, teacher };
-  }
-  return { filter };
+  if (scope.level === 'assigned') filter.studentId = { $ne: null }; // staff leave is never theirs to review
+  return { filter, scope };
 }
 
 // GET /api/leaves (admin). Optional ?page=&limit= (without paging: the latest 1000)
@@ -98,9 +97,9 @@ const getAllLeaves = asyncHandler(async (req, res) => {
 
 // GET /api/leaves/pending (admin, teacher)
 const getAllPendingLeaves = asyncHandler(async (req, res) => {
-  const { filter, teacher } = await reviewScope(req);
+  const { filter, scope } = await reviewScope(req);
   let leaves = await LeaveRequest.find({ ...filter, status: 'Pending' }).sort({ createdAt: -1 });
-  if (teacher) leaves = leaves.filter((l) => teacherCoversClass(teacher, l.class, l.section));
+  leaves = leaves.filter((l) => coversClass(scope, l.class, l.section));
   res.json({ success: true, count: leaves.length, data: leaves });
 });
 
@@ -112,11 +111,10 @@ const reviewLeave = asyncHandler(async (req, res) => {
 
   const leave = await LeaveRequest.findOne({ _id: req.params.id, school: req.schoolId });
   if (!leave) throw new HttpError(404, 'Leave request not found');
-  if (req.user.role === 'teacher') {
-    const teacher = await teacherForUser(req.user);
-    if (!leave.studentId || !teacherCoversClass(teacher, leave.class, leave.section)) {
-      throw new HttpError(403, 'You can only review leave requests for students in your classes');
-    }
+  const scope = await classScope(req.user, 'leaves');
+  if (scope.level === 'none') throw new HttpError(403, 'You do not have access to leave requests');
+  if (scope.level === 'assigned' && (!leave.studentId || !coversClass(scope, leave.class, leave.section))) {
+    throw new HttpError(403, 'You can only review leave requests for students in your classes');
   }
   if (String(leave.requestedBy) === String(req.user._id)) throw new HttpError(403, 'You cannot review your own leave request');
   if (leave.status !== 'Pending') throw new HttpError(409, 'This leave request has already been reviewed');

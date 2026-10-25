@@ -30,11 +30,26 @@ async function findByCode(code) {
   return school && isListed(school) ? school : null;
 }
 
+// {school code}.{PLATFORM_BASE_DOMAIN}, for example alp.eduamigo.com. Only when the platform owner sets the base domain.
+// One label deep, shaped like a school code, and never one of the names the platform itself uses (admin.eduamigo.com is the
+// platform console, not a school that happens to have the code ADMIN).
+const RESERVED_LABELS = new Set(['www', 'admin', 'api', 'app', 'console', 'platform', 'support', 'mail', 'static', 'cdn', 'staging', 'status', 'docs', 'help', 'login']);
+
+function schoolCodeFromHost(host) {
+  const base = String(process.env.PLATFORM_BASE_DOMAIN || '').trim().toLowerCase().replace(/^\.+/, '');
+  if (!base || !host.endsWith(`.${base}`)) return null;
+  const label = host.slice(0, -(base.length + 1));
+  if (!/^[a-z0-9]{3,12}$/.test(label) || RESERVED_LABELS.has(label)) return null;
+  return label.toUpperCase();
+}
+
 async function findByDomain(host) {
   const clean = String(host || '').trim().toLowerCase().replace(/:\d+$/, '');
-  if (!clean) return null;
+  if (!clean || clean.length > 253) return null;
   const school = await School.findOne({ customDomain: clean }).select(PUBLIC_FIELDS);
-  return school && isListed(school) ? school : null;
+  if (school) return isListed(school) ? school : null;
+  const code = schoolCodeFromHost(clean);
+  return code ? findByCode(code) : null;
 }
 
 // Name or code search; at least 3 characters, at most 10 results.
@@ -67,7 +82,9 @@ async function isSchoolDomainOrigin(origin) {
   }
   const cached = domainCache.get(host);
   if (cached && Date.now() - cached.at < DOMAIN_CACHE_MS) return cached.ok;
-  const ok = !!(await School.exists({ customDomain: host, isActive: { $ne: false } }));
+  const code = schoolCodeFromHost(host);
+  const ok = !!(await School.exists({ customDomain: host, isActive: { $ne: false } }))
+    || !!(code && await School.exists({ code, isActive: { $ne: false } }));
   if (domainCache.size > 1000) domainCache.clear();
   domainCache.set(host, { ok, at: Date.now() });
   return ok;

@@ -158,6 +158,42 @@ describe('following the bus along the road', () => {
   });
 });
 
+describe('staying on the street', () => {
+  test('a phone that reports a poor fix 70 m off the road is still shown on the road, a good fix that far off is not', async () => {
+    await start();
+    const metresNorth = 70 / 111320;
+    await post([{ lat: LAT + metresNorth, lng: LNGS[0] + 0.002, accuracy: 60, at: at(0) }]); // reported accuracy 60 m: the road is within reach
+    let s = await snap();
+    expect(s.position.offRoute).toBe(false);
+    expect(s.position.lat).toBeCloseTo(LAT, 5);
+    await post([{ lat: LAT + metresNorth, lng: LNGS[0] + 0.0025, accuracy: 5, at: at(1) }]); // a precise fix 70 m off really is off the road
+    s = await snap();
+    expect(s.position.offRoute).toBe(true);
+  });
+
+  test('a trip that began without a road gets the road when a routing service answers, and viewers see it', async () => {
+    const realFetch = global.fetch;
+    const road = [[LAT, LNGS[0]], [LAT + 0.0004, LNGS[1]], [LAT, LNGS[2]], [LAT, LNGS[3]]];
+    global.fetch = jest.fn(async () => ({ json: async () => ({ routes: [{ geometry: { coordinates: road.map(([lat, lng]) => [lng, lat]) } }] }) }));
+    const saved = process.env.ROUTING_URL;
+    try {
+      await start(); // ROUTING_URL is off under test: the trip starts with the straight line
+      expect((await snap()).route.source).toBe('straight');
+      process.env.ROUTING_URL = 'http://routing.test';
+      tracking.resetForTests();                                  // the server restarts mid-trip and loads the bus again
+      await settle();
+      const s = await snap();
+      await new Promise((r) => setTimeout(r, 150));              // the road arrives in the background
+      const after = await snap();
+      expect([s.route.source, after.route.source]).toContain('road');
+      expect((await Transport.findById(bus._id)).route.source).toBe('road');
+    } finally {
+      global.fetch = realFetch;
+      if (saved === undefined) delete process.env.ROUTING_URL; else process.env.ROUTING_URL = saved;
+    }
+  });
+});
+
 describe('bad readings never reach the map', () => {
   test('wrong coordinates, poor accuracy, jumps, old and repeated readings are dropped and counted', async () => {
     await start();

@@ -1,5 +1,6 @@
 // Driver trip basics (the live tracking itself is in bus-tracking.test.js). Nothing here needs Firebase any more.
 const { api, connect, disconnect, clear, auth, seedSchool } = require('./helpers');
+const Transport = require('../src/models/Transport');
 
 let A;
 let bus;
@@ -42,4 +43,22 @@ test('driver view does not expose the driver token back', async () => {
   expect(res.body.data.driverToken).toBeUndefined();
   expect(res.body.data.busId).toBe(bus._id);
   expect(res.body.data.route).toBeUndefined();
+});
+
+describe('changing a bus\'s capacity', () => {
+  test('keeps the free seats in step, and refuses fewer seats than students already assigned', async () => {
+    const A = await seedSchool('Capacity School');
+    const bus = await Transport.create({
+      school: A.school._id, busNumber: 'CAP-1', driverName: 'Ravi', driverPhone: '9000000000', routeName: 'North',
+      driverToken: 'CAP-TOKEN-0001', capacity: 40, availableSeats: 39, assignedStudents: [A.student._id],
+    });
+    const up = await api().put(`/api/transport/${bus._id}`).set(auth(A.admin)).send({ capacity: 30 });
+    expect(up.status).toBe(200);
+    expect(up.body.data.capacity).toBe(30);
+    expect(up.body.data.availableSeats).toBe(29);
+    const tooSmall = await api().put(`/api/transport/${bus._id}`).set(auth(A.admin)).send({ capacity: 0 });
+    expect(tooSmall.status).toBe(400);
+    const stale = await Transport.findById(bus._id);
+    expect(stale.capacity).toBe(30);
+  });
 });

@@ -6,3 +6,4 @@ node_modules
 *.bundle
 coverage/
 backups/
+.dev-uploads/

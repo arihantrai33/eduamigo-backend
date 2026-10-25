@@ -14,6 +14,7 @@ The server now refuses to start if `JWT_SECRET` is missing or shorter than 32 ch
 
 ## 2. Configure Render environment variables
 Required: `MONGO_URI`, `JWT_SECRET`, `CORS_ORIGINS` (your Vercel URL), Cloudinary and Gemini keys.
+Optional: `PLATFORM_BASE_DOMAIN` (for example `eduamigo.com`) turns on `{school code}.eduamigo.com` addresses for schools (see `docs/SIGN_IN.md`); leave it unset until wildcard DNS and TLS exist.
 For online fee payments also set `DATA_ENCRYPTION_KEY` (see `docs/PAYMENTS.md`).
 For student photos set `PUBLIC_API_URL` to the API's own https address (for example `https://eduamigo-backend.onrender.com`): the app and the API are on
 different domains, and photo links must be absolute. See `docs/STUDENT_PHOTOS.md`.
@@ -31,6 +32,16 @@ See `.env.example` for the full list.
    (old receipts used random numbers). Nothing is changed. Review those fees by hand; until they are fixed the unique index
    `receipt_unique_per_school` cannot be built (the apply step reports `indexes.failed.Fee` and carries on). New receipts are numbered
    RCPT-<year>-<6 digits> per school from an atomic counter.
+
+Added for configurable roles and teaching assignments (both only report on a dry run):
+- `roles.system_roles_missing`: schools without their built-in roles (admin, accountant, teacher as `SchoolRole`). Apply creates them equal
+  to the old code table, so nobody's access changes. New schools get them when they are onboarded; until a school is seeded it falls back
+  to the code table.
+- `teaching.assignments_from_lists`: one assignment per (class, subject) from each teacher's lists, for teachers who have subjects and
+  classes but no assignments. Access stays exactly as before. `teaching.cross_product_teachers_to_review` counts teachers with several
+  classes AND subjects: the old rule let them act on every combination; ask the school to narrow them in Teachers > Teaching assignments.
+- Roll back: both only add documents (`schoolroles`, `teachingassignments`); restoring the backup or dropping those collections returns to
+  the previous behaviour because the code falls back to the lists and the table.
 
 What it does: adds the missing `school` on older records, normalises class/section values, removes old
 notifications that were visible to every parent, merges duplicate attendance, re-queues notes for the AI,

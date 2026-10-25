@@ -5,7 +5,9 @@ const streamifier = require('streamifier');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { parseClassKey, teacherCoversClass } = require('../utils/classes');
 const { toDayKey } = require('../utils/dates');
-const { studentForUser, teacherForUser } = require('../services/directory');
+const { studentForUser } = require('../services/directory');
+const { classScope, coversClass } = require('../services/scope');
+const { scopeOf } = require('../services/authorization');
 
 const TYPES = ['Notes', 'Assignment', 'Resource', 'Question Paper'];
 
@@ -49,10 +51,7 @@ const uploadNote = asyncHandler(async (req, res) => {
   if (!req.file) throw new HttpError(400, 'PDF file is required');
   if (type === 'Assignment' && !dueDate) throw new HttpError(400, 'Due date is required for assignments');
 
-  if (req.user.role === 'teacher') {
-    const teacher = await teacherForUser(req.user);
-    if (!teacherCoversClass(teacher, key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
-  }
+  if (!coversClass(await classScope(req.user, 'academic'), key.class, key.section)) throw new HttpError(403, 'You are not assigned to this class');
 
   const result = await uploadBufferToCloudinary(req.file.buffer, req.file.originalname, req.schoolId);
   const due = dueDate ? toDayKey(dueDate) : null;
@@ -70,7 +69,9 @@ const uploadNote = asyncHandler(async (req, res) => {
 // GET /api/notes/teacher (teacher: own uploads; admin: all uploads in the school)
 const getTeacherUploads = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
-  if (req.user.role === 'teacher') filter.uploadedBy = req.user._id;
+  const reach = scopeOf(req.user, 'notes');
+  if (reach === 'none') throw new HttpError(403, 'You do not have access to study material');
+  if (reach === 'own') filter.uploadedBy = req.user._id;
   const notes = await Note.find(filter).sort({ createdAt: -1 });
   res.json({ success: true, data: notes });
 });
@@ -80,7 +81,7 @@ const deleteNote = asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const note = await Note.findOne({ _id: req.params.id, school: req.schoolId });
   if (!note) throw new HttpError(404, 'Note not found');
-  if (req.user.role !== 'admin' && String(note.uploadedBy) !== String(req.user._id)) {
+  if (scopeOf(req.user, 'notes') !== 'school' && String(note.uploadedBy) !== String(req.user._id)) {
     throw new HttpError(403, 'You can only delete your own uploads');
   }
   await NoteEmbedding.deleteMany({ noteId: note._id, school: req.schoolId });
@@ -93,7 +94,7 @@ const reprocessNote = asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const note = await Note.findOne({ _id: req.params.id, school: req.schoolId, type: 'Notes' });
   if (!note) throw new HttpError(404, 'Note not found');
-  if (req.user.role !== 'admin' && String(note.uploadedBy) !== String(req.user._id)) throw new HttpError(403, 'Not allowed');
+  if (scopeOf(req.user, 'notes') !== 'school' && String(note.uploadedBy) !== String(req.user._id)) throw new HttpError(403, 'Not allowed');
   note.processing = { status: 'pending', attempts: 0, chunks: 0, error: null, lockedUntil: null };
   await note.save();
   res.json({ success: true, message: 'Queued for processing' });

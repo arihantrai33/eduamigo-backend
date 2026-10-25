@@ -8,6 +8,7 @@
 
 process.env.NODE_ENV = 'development';
 process.env.DISABLE_JOBS = 'true';
+process.env.PHOTO_STORAGE = process.env.CLOUDINARY_CLOUD_NAME ? '' : 'local'; // profile photos go to .dev-uploads when there is no Cloudinary
 process.env.EMAIL_PROVIDER = 'log';            // reset codes are printed in this terminal
 process.env.JWT_SECRET = process.env.DEMO_JWT_SECRET || 'local-demo-secret-not-for-production-use-only';
 // Allow the local website and the mobile apps (capacitor://localhost, https://localhost). Set to empty rather than

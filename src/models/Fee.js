@@ -8,6 +8,7 @@ const paymentSchema = new mongoose.Schema({
   paidAt:      { type: Date, default: Date.now },
   collectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   onlineOrder: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentOrder' }, // set for gateway payments
+  idempotencyKey: { type: String }, // sent by the office screen with one payment dialog, so a repeated request is recorded once
 }, { _id: true });
 
 const feeSchema = new mongoose.Schema({

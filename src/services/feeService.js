@@ -31,12 +31,17 @@ async function recordPayment(args, attempt = 0) {
   }
 }
 
-async function applyPayment({ school, feeId, amount, mode, reference, collectedBy, onlineOrder }) {
+async function applyPayment({ school, feeId, amount, mode, reference, collectedBy, onlineOrder, idempotencyKey }) {
   const fee = await Fee.findOne({ _id: feeId, school });
   if (!fee) throw new HttpError(404, 'Fee record not found');
   // An online order is applied at most once, even if the gateway reports it twice at the same moment.
   if (onlineOrder) {
     const existing = fee.payments.find((p) => p.onlineOrder && String(p.onlineOrder) === String(onlineOrder));
+    if (existing) return { fee, payment: existing, duplicate: true };
+  }
+  // The same office request sent again (slow network, second click, two tabs) is answered with the payment already recorded.
+  if (idempotencyKey) {
+    const existing = fee.payments.find((p) => p.idempotencyKey === idempotencyKey);
     if (existing) return { fee, payment: existing, duplicate: true };
   }
   const balance = Math.round((fee.amount - (fee.paidAmount || 0)) * 100) / 100;
@@ -48,7 +53,7 @@ async function applyPayment({ school, feeId, amount, mode, reference, collectedB
   const paymentMode = PAYMENT_MODES.includes(mode) ? mode : 'Cash';
 
   const receiptNo = await nextReceiptNo(school);
-  fee.payments.push({ amount: value, mode: paymentMode, reference, receiptNo, collectedBy, onlineOrder, paidAt: new Date() });
+  fee.payments.push({ amount: value, mode: paymentMode, reference, receiptNo, collectedBy, onlineOrder, idempotencyKey, paidAt: new Date() });
   fee.paidAmount = Math.round(((fee.paidAmount || 0) + value) * 100) / 100;
   fee.status = statusFor(fee.amount, fee.paidAmount);
   fee.paymentMode = paymentMode;

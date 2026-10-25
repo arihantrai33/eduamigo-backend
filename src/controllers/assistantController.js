@@ -7,7 +7,7 @@ const llm = require('../assistant/llm');
 const { DOMAINS, domainsForRole } = require('../assistant/domains');
 const { suggestionsFor } = require('../assistant/skills/general');
 const { notifyUser } = require('../services/notify');
-const { hasPermission } = require('../config/permissions');
+const { can } = require('../services/authorization');
 const { HttpError, asyncHandler, isValidId } = require('../utils/http');
 const { audit } = require('../services/audit');
 
@@ -73,7 +73,7 @@ const ticketView = (t, viewerId = null) => ({
   createdAt: t.createdAt, resolvedAt: t.resolvedAt,
 });
 
-const canSeeAll = (user) => hasPermission(user.role, 'assistant.insights');
+const canSeeAll = (user) => can(user, 'assistant.insights');
 
 // GET /api/assistant/tickets?status=open|in_progress|resolved&scope=mine|assigned|all
 //   mine     - tickets I raised (everyone)

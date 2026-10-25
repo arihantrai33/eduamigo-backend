@@ -6,7 +6,7 @@ const { sessionNameForDate } = require('../services/academic');
 const { recordPayment, totals, syncStudentFeeStatus } = require('../services/feeService');
 const { studentForUser, childrenForParent, canAccessStudent } = require('../services/directory');
 const School = require('../models/School');
-const { hasPermission } = require('../config/permissions');
+const { can } = require('../services/authorization');
 const { notifyParents } = require('../services/notify');
 const { pageParams, paged } = require('../utils/paginate');
 
@@ -87,13 +87,17 @@ const getMyFees = asyncHandler(async (req, res) => {
 const markFeePaid = asyncHandler(async (req, res) => {
   assertId(req.params.feeId, 'feeId');
   const body = req.body || {};
-  const { fee, payment } = await recordPayment({
+  // One key per payment dialog on the office screen. Anything that is not a short plain token is ignored.
+  const sentKey = String(req.get('Idempotency-Key') || body.idempotencyKey || '');
+  const idempotencyKey = /^[\w.:-]{8,64}$/.test(sentKey) ? sentKey : undefined;
+  const { fee, payment, duplicate } = await recordPayment({
     school: req.schoolId, feeId: req.params.feeId,
     amount: body.amount ?? body.paidAmount, mode: body.mode || body.paymentMode || body.paymentMethod,
-    reference: body.reference, collectedBy: req.user._id,
+    reference: body.reference, collectedBy: req.user._id, idempotencyKey,
   });
   const student = await Student.findOne({ _id: fee.studentId, school: req.schoolId });
-  if (student) {
+  // A repeated request changes nothing, so the parents are not told a second time.
+  if (student && !duplicate) {
     await notifyParents(student, {
       title: 'Fee payment received',
       message: `Payment of Rs ${payment.amount} received for ${student.name} (${fee.feeType}). Receipt: ${payment.receiptNo}.${fee.status === 'Partial' ? ` Balance due: Rs ${fee.balance}.` : ''}`,
@@ -109,7 +113,7 @@ const getReceipt = asyncHandler(async (req, res) => {
   const fee = await Fee.findOne({ _id: req.params.feeId, school: req.schoolId });
   if (!fee) throw new HttpError(404, 'Receipt not found');
   const student = await Student.findOne({ _id: fee.studentId, school: req.schoolId });
-  const staff = hasPermission(req.user.role, 'fees.read');
+  const staff = can(req.user, 'fees.read');
   if (!staff && !(await canAccessStudent(req.user, student))) throw new HttpError(404, 'Receipt not found');
   const payment = fee.payments.find((p) => p.receiptNo === req.params.receiptNo);
   if (!payment) throw new HttpError(404, 'Receipt not found');

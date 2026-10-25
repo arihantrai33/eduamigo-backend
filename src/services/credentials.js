@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
+const passwordHash = require('./passwordHash');
 
 // Readable temporary password, e.g. "Kite-4829-Moon". Shown to the admin once;
 // the user must change it on first login (User.mustChangePassword).
@@ -16,7 +16,7 @@ const ROUNDS = (() => {
   const n = Number(process.env.BCRYPT_ROUNDS);
   return Number.isInteger(n) && n >= 4 && n <= 14 ? n : 10;
 })();
-const hashPassword = (plain) => bcrypt.hash(plain, ROUNDS);
+const hashPassword = (plain) => passwordHash.hash(plain, ROUNDS);
 
 function validatePasswordStrength(password) {
   if (typeof password !== 'string' || password.length < 8) return 'Password must be at least 8 characters long';

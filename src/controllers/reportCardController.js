@@ -1,7 +1,8 @@
 const Student = require('../models/Student');
 const ReportCardRemark = require('../models/ReportCardRemark');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
-const { parseClassKey, teacherCoversClass } = require('../utils/classes');
+const { parseClassKey } = require('../utils/classes');
+const { classScope, coversClass } = require('../services/scope');
 const { currentSessionName } = require('../services/academic');
 const { canAccessStudent, teacherForUser, studentForUser } = require('../services/directory');
 const { buildReportCards, PERIODS } = require('../services/reportCardService');
@@ -19,8 +20,7 @@ async function sectionStudents(schoolId, cls, section) {
 }
 
 async function assertTeacherOrAdmin(req, cls, section) {
-  if (req.user.role === 'admin') return;
-  if (req.user.role === 'teacher' && teacherCoversClass(await teacherForUser(req.user), cls, section)) return;
+  if (coversClass(await classScope(req.user, 'academic'), cls, section)) return;
   throw new HttpError(403, 'You are not assigned to this class');
 }
 

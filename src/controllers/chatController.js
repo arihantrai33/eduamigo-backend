@@ -10,6 +10,10 @@ const User = require('../models/User');
 const { HttpError, asyncHandler, assertId } = require('../utils/http');
 const { parseClassKey } = require('../utils/classes');
 const { studentForUser, teacherForUser, resolveChild } = require('../services/directory');
+const attachments = require('../services/attachments');
+const photos = require('../services/photos');
+const { linksFor } = require('../services/avatars');
+const { scopeOf } = require('../services/authorization');
 
 const roomFor = (a, b) => [String(a), String(b)].sort().join('_');
 
@@ -85,6 +89,14 @@ const getParentTeachers = asyncHandler(async (req, res) => {
   });
 });
 
+// What the apps get for one message. Files come as short-lived links; the storage key never leaves the server.
+const presentMessage = (m) => {
+  const o = m.toObject ? m.toObject() : m;
+  return { ...o, attachments: (o.attachments || []).map(attachments.present).filter(Boolean) };
+};
+const KIND_PREVIEW = { image: 'Photo', audio: 'Voice message', pdf: 'PDF', document: 'Document' };
+const previewOf = (text, files) => (text ? text : files.length ? (KIND_PREVIEW[files[0].kind] || 'File') + (files.length > 1 ? ` (+${files.length - 1})` : '') : '');
+
 // GET /api/chat/messages/:roomId — only participants can read a room
 const getMessages = asyncHandler(async (req, res) => {
   const { roomId } = req.params;
@@ -97,7 +109,7 @@ const getMessages = asyncHandler(async (req, res) => {
   }
   const messages = await Message.find(filter).sort({ createdAt: 1 }).limit(500);
   await Message.updateMany({ roomId, school: req.schoolId, receiverId: req.user._id, read: false }, { read: true });
-  res.json({ success: true, data: messages });
+  res.json({ success: true, data: messages.map(presentMessage) });
 });
 
 // POST /api/chat/messages  { receiverId, text?, fileUrl?, fileName?, fileType? }
@@ -105,7 +117,8 @@ const sendMessage = asyncHandler(async (req, res) => {
   const { receiverId, fileUrl, fileName, fileType } = req.body || {};
   const text = String(req.body?.text || '').trim();
   assertId(receiverId, 'receiverId');
-  if (!text && !fileUrl) throw new HttpError(400, 'Message text or a file is required');
+  const files = req.files || [];
+  if (!text && !fileUrl && !files.length) throw new HttpError(400, 'Message text or a file is required');
   if (text.length > 4000) throw new HttpError(400, 'Message is too long');
   if (fileUrl && !/^https:\/\//i.test(fileUrl)) throw new HttpError(400, 'Invalid file link');
   if (String(receiverId) === String(req.user._id)) throw new HttpError(400, 'You cannot message yourself');
@@ -114,18 +127,26 @@ const sendMessage = asyncHandler(async (req, res) => {
   if (!receiver) throw new HttpError(404, 'Recipient not found');
   if (!(ALLOWED[req.user.role] || []).includes(receiver.role)) throw new HttpError(403, 'You cannot message this user');
 
-  const message = await Message.create({
-    senderId: req.user._id, receiverId, roomId: roomFor(req.user._id, receiverId),
-    text, fileUrl: fileUrl || null, fileName: fileName || null, fileType: fileType || null, school: req.schoolId,
-  });
+  const stored = [];
+  let message;
+  try {
+    for (const f of files) stored.push(await attachments.save(f, req.schoolId, 'chat'));
+    message = await Message.create({
+      senderId: req.user._id, receiverId, roomId: roomFor(req.user._id, receiverId),
+      text, fileUrl: fileUrl || null, fileName: fileName || null, fileType: fileType || null, attachments: stored, school: req.schoolId,
+    });
+  } catch (err) {
+    await Promise.all(stored.map((a) => attachments.remove(a)));
+    throw err;
+  }
   await Conversation.updateOne(
     { school: req.schoolId, roomId: message.roomId },
     {
-      $set: { school: req.schoolId, participants: [req.user._id, receiver._id], lastText: text || `Attachment: ${fileName || 'file'}`, lastAt: message.createdAt, lastSender: req.user._id },
+      $set: { school: req.schoolId, participants: [req.user._id, receiver._id], lastText: previewOf(text, stored) || `Attachment: ${fileName || 'file'}`, lastAt: message.createdAt, lastSender: req.user._id },
     },
     { upsert: true },
   );
-  res.status(201).json({ success: true, data: message });
+  res.status(201).json({ success: true, data: presentMessage(message) });
 });
 
 // GET /api/chat/broadcasts (student)
@@ -230,7 +251,82 @@ const getAdminContacts = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// GET /api/chat/inbox: every person the signed-in user may message, in one shape for the chat screen (a list on the left,
+// the conversation on the right): { userId, name, role, subtitle, roomId, avatar, unread, lastMsg, lastTime, class?, section? }.
+// Most recent conversation first, then people with no messages yet by name.
+async function directoryFor(req) {
+  const me = req.user;
+  if (!ALLOWED[me.role]) return [];
+  const school = req.schoolId;
+  const adminOf = async () => {
+    const admin = await User.findOne({ school, role: 'admin', isActive: true }).select('name');
+    return admin ? [{ userId: admin._id, name: admin.name || 'School Administration', role: 'admin', subtitle: 'School administration' }] : [];
+  };
+  if (me.role === 'student') {
+    const student = await studentForUser(me);
+    if (!student) return [];
+    const teachers = await teachersForClass(school, student.class, student.section);
+    return [...(await adminOf()), ...teachers.map((t) => ({ userId: t.userId, name: t.name, role: 'teacher', subtitle: t.subject ? `${t.subject} teacher` : 'Teacher' }))];
+  }
+  if (me.role === 'parent') {
+    const { child } = await resolveChild(me, undefined);
+    if (!child) return [];
+    const teachers = await teachersForClass(school, child.class, child.section);
+    return [...(await adminOf()), ...teachers.map((t) => ({ userId: t.userId, name: t.name, role: 'teacher', subtitle: t.subject ? `${t.subject} teacher` : 'Teacher' }))];
+  }
+  // Staff: how far their student scope reaches decides the directory (their own classes, or the whole school); who they may message at
+  // all comes from ALLOWED.
+  const reach = scopeOf(me, 'students');
+  const may = (r) => ALLOWED[me.role].includes(r);
+  if (reach === 'assigned') {
+    const teacher = await teacherForUser(me);
+    const keys = (teacher?.assignedClasses || []).map((k) => parseClassKey(k));
+    const out = await adminOf();
+    if (!keys.length) return out;
+    const students = await Student.find({ school, isActive: true, userId: { $ne: null }, $or: keys.map((k) => (k.section ? { class: k.class, section: k.section } : { class: k.class })) })
+      .select('name class section rollNumber userId parentUserId photo photoKey school').sort({ class: 1, section: 1, rollNumber: 1 });
+    const parentUsers = await User.find({ school, _id: { $in: students.map((s) => s.parentUserId).filter(Boolean) }, isActive: true }).select('name');
+    const parentName = new Map(parentUsers.map((u) => [String(u._id), u.name]));
+    const seen = new Map();
+    for (const s of students) {
+      out.push({ userId: s.userId, studentId: String(s._id), name: s.name, role: 'student', subtitle: `Class ${s.class}${s.section ? `-${s.section}` : ''}${s.rollNumber ? ` · Roll ${s.rollNumber}` : ''}`, class: s.class, section: s.section, photo: photos.displayPhoto(s) });
+      const pid = s.parentUserId && parentName.has(String(s.parentUserId)) ? String(s.parentUserId) : null;
+      if (!pid) continue;
+      if (seen.has(pid)) { seen.get(pid).children.push(s.name); continue; }
+      const entry = { userId: pid, name: parentName.get(pid), role: 'parent', children: [s.name], class: s.class, section: s.section };
+      seen.set(pid, entry); out.push(entry);
+    }
+    for (const e of seen.values()) { e.subtitle = `Parent of ${e.children.join(', ')}`; delete e.children; }
+    return out;
+  }
+  // The office: parents, and for those who may message them teachers and students
+  const [students, teachers, parents] = await Promise.all([
+    may('student') && reach === 'school' ? Student.find({ school, isActive: true, userId: { $ne: null } }).select('name class section rollNumber userId photo photoKey school') : [],
+    may('teacher') ? Teacher.find({ school, isActive: true, userId: { $ne: null } }).select('name subjects userId') : [],
+    may('parent') ? Parent.find({ school, userId: { $ne: null } }).select('name userId children').populate('children', 'name class section') : [],
+  ]);
+  return [
+    ...teachers.map((t) => ({ userId: t.userId, name: t.name, role: 'teacher', subtitle: t.subjects?.[0] ? `${t.subjects[0]} teacher` : 'Teacher' })),
+    ...parents.map((p) => ({ userId: p.userId, name: p.name, role: 'parent', subtitle: p.children?.[0] ? `Parent of ${p.children.map((c) => c.name).join(', ')}` : 'Parent', class: p.children?.[0]?.class, section: p.children?.[0]?.section })),
+    ...students.map((s) => ({ userId: s.userId, studentId: String(s._id), name: s.name, role: 'student', subtitle: `Class ${s.class}${s.section ? `-${s.section}` : ''}`, class: s.class, section: s.section, photo: photos.displayPhoto(s) })),
+  ];
+}
+
+const getInbox = asyncHandler(async (req, res) => {
+  const people = (await directoryFor(req)).filter((p) => p.userId && String(p.userId) !== String(req.user._id));
+  const rooms = people.map((p) => roomFor(req.user._id, p.userId));
+  const [stats, links] = await Promise.all([roomStats(req.schoolId, req.user._id, rooms), linksFor(people.map((p) => p.userId), req.schoolId)]);
+  const data = people.map((p, i) => {
+    const st = stats.get(rooms[i]);
+    return { ...p, userId: String(p.userId), roomId: rooms[i], avatar: links.get(String(p.userId)) || p.photo || undefined, photo: undefined, ...st };
+  });
+  data.sort((a, b) => (new Date(b.lastTime || 0) - new Date(a.lastTime || 0)) || String(a.name).localeCompare(String(b.name)));
+  res.json({ success: true, data });
+});
+
 module.exports = {
+  getInbox,
   getMyTeachers, getParentTeachers, getMessages, sendMessage, getBroadcasts,
   getAdminContact, getUnreadCount, getTeacherContacts, getAdminContacts,
 };

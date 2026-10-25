@@ -1,3 +1,4 @@
+const { can } = require('./authorization');
 // The school's written documents as an answer source for EduAmigo Ask: splitting a document into sections and
 // finding the sections that answer a question.
 //
@@ -80,7 +81,8 @@ function splitSections(raw) {
 // Documents this person may be answered from.
 async function visibleDocuments(school, role) {
   const q = { school, isActive: true };
-  if (role !== 'admin') q.$or = [{ audience: { $size: 0 } }, { audience: role }];
+  // Whoever may manage the school's documents sees all of them; everyone else only those written for their audience.
+  if (!can({ role, isActive: true }, 'assistant.knowledge')) q.$or = [{ audience: { $size: 0 } }, { audience: role }];
   return SchoolDocument.find(q).limit(MAX_DOCS_PER_SCHOOL).lean();
 }
 

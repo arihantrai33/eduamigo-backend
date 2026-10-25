@@ -34,7 +34,7 @@ const Transport = require('../models/Transport');
 const BulkUpload = require('../models/BulkUpload');
 const Timetable = require('../models/Timetable');
 const Conversation = require('../models/Conversation');
-require('../models/School');
+const School = require('../models/School');
 require('../models/ExamSchedule');
 
 const { parseClassKey, classKey, normalizeClass, normalizeSection } = require('../utils/classes');
@@ -395,6 +395,43 @@ async function migrate({ apply = APPLY, rotate = ROTATE, quiet = false } = {}) {
     { $match: { n: { $gt: 1 } } },
   ]).toArray();
   if (duplicateReceipts.length) count('receipts.duplicate_numbers_need_review', duplicateReceipts.length);
+
+  // Built-in roles as data (SchoolRole): one admin, accountant and teacher role per school, with exactly the permissions the code table
+  // gives them. Repeatable: schools that have them are left alone. Until a school is seeded, requests fall back to the code table.
+  {
+    const { ensureSystemRoles } = require('../services/roles');
+    const SchoolRole = require('../models/SchoolRole');
+    for (const school of await col(School).find({}, { projection: { _id: 1 } }).toArray()) {
+      const have = await col(SchoolRole).countDocuments({ school: school._id, isSystem: true });
+      if (have < 3) {
+        count('roles.system_roles_missing');
+        if (APPLY) await ensureSystemRoles(school._id);
+      }
+    }
+    void SchoolRole;
+  }
+
+  // Teaching assignments: teachers had a list of classes and a list of subjects, which meant every combination. Teachers who
+  // have no assignments get one per (class, subject) from those lists, so what they may do stays exactly as it was and the
+  // school can then narrow it. Teachers with several classes AND several subjects are the ones the old rule over-granted; they
+  // are counted so the school can review them. Teachers with no subjects listed (any subject) get no rows and keep that rule.
+  {
+    const TeachingAssignment = require('../models/TeachingAssignment');
+    for (const t of await col(Teacher).find({ isActive: { $ne: false }, school: { $exists: true, $ne: null } }).toArray()) {
+      const classes = (t.assignedClasses || []).map((e) => parseClassKey(e)).filter((k) => k.class);
+      const subjects = [...new Set((t.subjects || []).map((x) => String(x).trim()).filter(Boolean))];
+      if (!classes.length || !subjects.length) continue;
+      if (await col(TeachingAssignment).countDocuments({ school: t.school, teacher: t._id })) continue;
+      if (classes.length > 1 && subjects.length > 1) count('teaching.cross_product_teachers_to_review');
+      count('teaching.assignments_from_lists', classes.length * subjects.length);
+      if (APPLY) {
+        const now = new Date();
+        await col(TeachingAssignment).insertMany(classes.flatMap((k) => subjects.map((subject) => ({
+          school: t.school, teacher: t._id, class: k.class, section: k.section || '', subject, isClassTeacher: false, createdAt: now, updatedAt: now,
+        }))));
+      }
+    }
+  }
 
   if (APPLY) {
     for (const Model of Object.values(mongoose.models)) {

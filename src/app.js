@@ -46,12 +46,16 @@ function buildApp() {
   app.get('/', (req, res) => res.json({ message: 'EduAmigo API' }));
   // Photo links come before the general limiter: they have their own, higher one (see routes/photoRoutes.js).
   app.use('/api/photos', require('./routes/photoRoutes'));
+  app.use('/api/files',  require('./routes/fileRoutes'));
   app.use('/api', apiLimiter);
 
   app.use('/api/public',         require('./routes/publicRoutes'));
   app.use('/api/platform',       require('./routes/platformRoutes'));
 
   app.use('/api/users',          require('./routes/userRoutes'));
+  app.use('/api/roles',          require('./routes/roleRoutes'));
+  app.use('/api/staff',          require('./routes/staffRoutes'));
+  app.use('/api/support',        require('./routes/supportRoutes'));
   app.use('/api/schools',        require('./routes/schoolRoutes'));
   app.use('/api/academic',       require('./routes/academicRoutes'));
   app.use('/api/audit',          require('./routes/auditRoutes'));
@@ -66,6 +70,8 @@ function buildApp() {
   app.use('/api/events',         require('./routes/eventRoutes'));
   app.use('/api/bulk',           require('./routes/bulkRoutes'));
   app.use('/api/notes',          require('./routes/noteRoutes'));
+  app.use('/api/homework',       require('./routes/homeworkRoutes'));
+  app.use('/api/complaints',     require('./routes/complaintRoutes'));
   app.use('/api/payments',       require('./routes/paymentRoutes'));   // per-route feature checks
   app.use('/api/transport',      require('./routes/transportRoutes')); // per-route (driver app has no login)
 

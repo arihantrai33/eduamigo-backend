@@ -20,6 +20,7 @@ const publicSchool = (school, entitlements, academicYear) => ({
   email: school.email,
   principal: school.principal,
   workingDays: school.workingDays,
+  size: school.profile?.size || '',
   location: school.location?.lat != null ? school.location : null,
   academicYear,
   branding: {
@@ -66,6 +67,10 @@ router.put('/me', protect, requirePermission('settings.manage'), audited('school
     for (const key of ['name', 'city', 'address', 'phone', 'email', 'principal', 'workingDays']) {
       if (body[key] !== undefined) update[key] = typeof body[key] === 'string' ? body[key].trim() : body[key];
     }
+    if (body.size !== undefined) {
+      if (!['', 'small', 'medium', 'large'].includes(body.size)) return res.status(400).json({ success: false, message: 'School size must be small, medium or large' });
+      update['profile.size'] = body.size;
+    }
     if (update.name === '') return res.status(400).json({ success: false, message: 'School name is required' });
     if (body.location) {
       const lat = Number(body.location.lat);
@@ -99,7 +104,7 @@ router.put('/me/branding', protect, requirePermission('settings.manage'), upload
 // GET /api/schools/me/dashboard — staff dashboard numbers, counted on the server; sections follow the role's permissions
 router.get('/me/dashboard', protect, asyncHandler(async (req, res) => {
   const { schoolDashboard } = require('../services/dashboard');
-  const data = await schoolDashboard({ schoolId: req.schoolId, role: req.user.role, entitlements: req.entitlements });
+  const data = await schoolDashboard({ schoolId: req.schoolId, user: req.user, role: req.user.role, entitlements: req.entitlements });
   res.json({ success: true, data });
 }));
 

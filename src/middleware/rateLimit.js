@@ -62,6 +62,22 @@ const publicLookupLimiter = make('publicLookup', {
   message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
 });
 
+// Demo requests from the public website: a few per hour per address, so the form cannot be used to fill the database.
+const demoRequestLimiter = make('demoRequest', {
+  windowMs: 60 * 60 * 1000,
+  limit: () => Number(process.env.DEMO_REQUESTS_PER_HOUR || 5),
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { success: false, message: 'Too many requests from this network. Please try again later.' },
+});
+
+// Choosing the school after a sign-in that matched several: a ticket is needed, so this only stops a flood.
+const schoolChoiceLimiter = make('schoolChoice', {
+  windowMs: 15 * 60 * 1000,
+  limit: () => Number(process.env.SCHOOL_CHOICE_PER_15_MIN || 30),
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { success: false, message: 'Too many attempts. Please try again in 15 minutes.' },
+});
+
 // Slow guessing of one account from many addresses: the limits above count per IP + account, this one per account only.
 // Generous on purpose, so an attacker cannot lock a real user out with a few requests.
 const loginAccountLimiter = make('loginAccount', {
@@ -115,5 +131,13 @@ const driverLocationLimiter = make('driverLocation', {
   message: { success: false, message: 'Too many location updates. The app will retry shortly.' },
 });
 
+// Owner console tests that contact a provider (connection check, test email, test code): 30 per 15 minutes per owner account.
+const integrationTestLimiter = make('integrationTest', {
+  windowMs: 15 * 60 * 1000,
+  limit: () => Number(process.env.INTEGRATION_TESTS_PER_15_MIN || 30),
+  keyGenerator: (req) => String(req.platformUser?._id || ipKeyGenerator(req.ip)),
+  message: { success: false, message: 'Too many test requests. Please wait a few minutes.' },
+});
+
 module.exports = {
-  driverLocationLimiter, loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, apiLimiter, photoLimiter };
+  integrationTestLimiter, driverLocationLimiter, loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, demoRequestLimiter, schoolChoiceLimiter, apiLimiter, photoLimiter };

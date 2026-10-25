@@ -61,9 +61,18 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
     .select('busNumber driverName driverPhone routeName busStatus stops currentStopIndex');
   if (!bus) throw new HttpError(404, 'No bus assigned');
 
+  // "On route" means the driver's phone is sending its position. A trip that was started but has no position yet (or lost it)
+  // is not shown as on the road: tripSignal is idle | waiting | live | weak | lost.
+  let tripSignal = 'idle';
+  if (bus.busStatus === 'On Route') {
+    const st = await tracking.stateOf(bus._id, req.schoolId).catch(() => null);
+    tripSignal = st ? tracking.signal(st) : 'waiting';
+  }
+
   res.json({
     success: true,
     data: {
+      tripSignal,
       _id: bus._id,
       busNumber: bus.busNumber,
       driverName: bus.driverName,
@@ -146,7 +155,20 @@ router.get('/students', protect, transportOn, requirePermission('transport.manag
 
 router.put('/:id', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
-  const bus = await Transport.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, pick(req.body, BUS_FIELDS), { returnDocument: 'after', runValidators: true });
+  const update = pick(req.body, BUS_FIELDS);
+  if (update.capacity !== undefined) {
+    // Free seats follow the capacity, and a bus cannot be made smaller than the number of students already on it.
+    const current = await Transport.findOne({ _id: req.params.id, school: req.schoolId }).select('assignedStudents');
+    if (!current) throw new HttpError(404, 'Bus not found');
+    const capacity = Number(update.capacity);
+    const assigned = current.assignedStudents.length;
+    if (!Number.isInteger(capacity) || capacity < Math.max(1, assigned)) {
+      throw new HttpError(400, assigned ? `This bus already has ${assigned} student${assigned === 1 ? '' : 's'}, so it needs at least ${assigned} seat${assigned === 1 ? '' : 's'}.` : 'Capacity must be a whole number of at least 1.');
+    }
+    update.capacity = capacity;
+    update.availableSeats = capacity - assigned;
+  }
+  const bus = await Transport.findOneAndUpdate({ _id: req.params.id, school: req.schoolId }, update, { returnDocument: 'after', runValidators: true });
   if (!bus) throw new HttpError(404, 'Bus not found');
   res.json({ success: true, data: bus });
 }));
@@ -272,7 +294,8 @@ async function busForToken(token, { fresh = false } = {}) {
   let bus;
   if (hit && !fresh && Date.now() - hit.at < 20000) {
     bus = await Transport.findById(hit.id);
-    if (bus) return bus;
+    // The token is checked again: a token the school has just replaced must stop working at once.
+    if (bus && bus.driverToken === key) return bus;
   }
   bus = await Transport.findOne({ driverToken: key });
   if (!bus) { tokenCache.delete(key); throw new HttpError(404, 'Invalid driver code'); }

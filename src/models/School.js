@@ -29,6 +29,10 @@ const schoolSchema = new mongoose.Schema({
     sessionStartMonth: { type: Number, min: 1, max: 12, default: 4 },   // 4 = April
     admissionNoPrefix: { type: String, trim: true, maxlength: 12, default: '' },
   },
+  // How the school describes itself, to suggest roles and setup steps (services: onboarding recommendations). Optional.
+  profile: {
+    size: { type: String, enum: ['', 'small', 'medium', 'large'], default: '' },
+  },
   // How the school appears in the apps, on receipts and on report cards.
   branding: {
     appName:      { type: String, trim: true, maxlength: 60, default: '' },

@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const { compare: comparePasswordHash } = require('../services/passwordHash');
 const { normalizePhone } = require('../utils/phone');
 
 const userSchema = new mongoose.Schema({
@@ -9,9 +9,13 @@ const userSchema = new mongoose.Schema({
   email:     { type: String, set: (v) => (v ? String(v).trim().toLowerCase() : undefined) },
   password:  { type: String, required: true },
   // superadmin = EduAmigo platform owner/staff: no school, signs in only at /api/platform.
-  role:      { type: String, enum: ['superadmin', 'admin', 'accountant', 'teacher', 'student', 'parent', 'driver'], required: true },
+  // Only for platform (owner console) accounts: owner, billing, support or viewer. Empty means owner (see config/platformPermissions.js).
+  platformRole: { type: String, enum: ['owner', 'billing', 'support', 'viewer'], default: undefined },
+  role:      { type: String, enum: ['superadmin', 'admin', 'accountant', 'teacher', 'staff', 'student', 'parent', 'driver'], required: true },
   school:    { type: mongoose.Schema.Types.ObjectId, ref: 'School', default: null },
   profileId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  // Roles of this school given on top of `role` (staff accounts only; see services/roles.js). What the person may do is the union.
+  extraRoles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'SchoolRole' }],
   isActive:  { type: Boolean, default: true },
   fcmToken:  { type: String, default: null }, // legacy: last device of older app versions (see devices)
   // Phones and tablets that receive push notifications (services/push.js), at most 5. `v` is the tokenVersion at
@@ -20,6 +24,9 @@ const userSchema = new mongoose.Schema({
     type: [{ _id: false, token: { type: String, required: true }, platform: { type: String, default: '' }, v: { type: Number, default: 0 }, updatedAt: { type: Date, default: Date.now } }],
     default: [],
   },
+  // Profile photo of every role except students (a student's photo is Student.photoKey, so the school's records, the ID card and
+  // the apps all show the same picture). A private asset key, never returned by the API: see services/photos.js.
+  avatarKey: { type: String, default: null },
   phone:     { type: String, default: null },
   // Last 10 digits of phone, kept in sync automatically; used for mobile-number sign-in.
   loginPhone: { type: String, default: null },
@@ -32,9 +39,11 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } }, name: 'email_unique_when_set' });
 userSchema.index({ school: 1, loginPhone: 1 });
+// Sign-in with a mobile number and no school (accounts.authenticateByPhoneAcrossSchools) looks the number up in every school.
+userSchema.index({ loginPhone: 1 });
 userSchema.index({ 'devices.token': 1 });
 
-const STAFF_ROLES = ['superadmin', 'admin', 'accountant', 'teacher'];
+const STAFF_ROLES = ['superadmin', 'admin', 'accountant', 'teacher', 'staff'];
 
 userSchema.pre('validate', function syncLoginFields() {
   if (this.isModified('phone') || this.isNew) this.loginPhone = this.phone ? normalizePhone(this.phone) || null : null;
@@ -42,7 +51,7 @@ userSchema.pre('validate', function syncLoginFields() {
 });
 
 userSchema.methods.comparePassword = async function(enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+  return await comparePasswordHash(enteredPassword, this.password);
 };
 
 module.exports = mongoose.model('User', userSchema);

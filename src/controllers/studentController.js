@@ -13,7 +13,8 @@ const academic = require('../services/academic');
 const { deactivateStudent, transferCertificate } = require('../services/yearEnd');
 const StudentEnrollment = require('../models/StudentEnrollment');
 const { pageParams, paged } = require('../utils/paginate');
-const { hasPermission } = require('../config/permissions');
+const { can } = require('../services/authorization');
+const { classScope } = require('../services/scope');
 
 const UPDATABLE = ['name', 'admissionNo', 'phone', 'rollNumber', 'gender', 'dateOfBirth', 'admittedOn', 'address',
   'parentName', 'parentPhone', 'parentEmail', 'class', 'section'];
@@ -23,7 +24,7 @@ exports.getStudents = asyncHandler(async (req, res) => {
   const { class: cls, section, search } = req.query;
   // ?former=true: students who have left or passed out (for transfer certificates); admins only.
   const former = req.query.former === 'true';
-  if (former && !hasPermission(req.user.role, 'students.manage')) throw new HttpError(403, 'You do not have permission to see former students');
+  if (former && !can(req.user, 'students.manage')) throw new HttpError(403, 'You do not have permission to see former students');
   const query = { isActive: !former, school: req.schoolId };
   if (cls || section) {
     const key = parseClassKey(cls, section);
@@ -37,9 +38,10 @@ exports.getStudents = asyncHandler(async (req, res) => {
     ] }];
   }
 
-  if (req.user.role === 'teacher') {
-    const teacher = await teacherForUser(req.user);
-    const keys = (teacher?.assignedClasses || []).map((k) => parseClassKey(k));
+  const scope = await classScope(req.user, 'students');
+  if (scope.level === 'none') throw new HttpError(403, 'You do not have access to student records');
+  if (scope.level === 'assigned') {
+    const keys = (scope.teacher?.assignedClasses || []).map((k) => parseClassKey(k));
     if (!keys.length) return res.json({ success: true, count: 0, data: [] });
     query.$or = keys.map((k) => (k.section ? { class: k.class, section: k.section } : { class: k.class }));
   }

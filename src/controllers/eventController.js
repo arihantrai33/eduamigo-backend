@@ -1,3 +1,4 @@
+const { can } = require('../services/authorization');
 const Event = require('../models/Event');
 const { HttpError, asyncHandler, assertId, pick } = require('../utils/http');
 
@@ -14,7 +15,7 @@ const createEvent = asyncHandler(async (req, res) => {
 // Everyone in the school can read the calendar; non-admins only see events targeted to them.
 const getAllEvents = asyncHandler(async (req, res) => {
   const filter = { school: req.schoolId };
-  if (req.user.role !== 'admin') filter.targetRole = { $in: ['all', req.user.role] };
+  if (!can(req.user, 'communication.manage')) filter.targetRole = { $in: ['all', req.user.role] };
   const { month, year } = req.query;
   if (month && year) {
     const start = new Date(Date.UTC(Number(year), Number(month) - 1, 1));

@@ -205,3 +205,28 @@ test('login accounts without a school take it from their profile; unlinked accou
   expect(String((await db.collection('users').findOne({ _id: parentUser })).school)).toBe(String(school));
   expect((await db.collection('users').findOne({ _id: strayAdmin })).school).toBeUndefined();
 });
+
+test('teaching assignments: lists become assignments once, the teachers the old rule over-granted are counted, dry run writes nothing', async () => {
+  const db = mongoose.connection.db;
+  const school = oid();
+  const many = oid();
+  const single = oid();
+  await db.collection('schools').insertOne({ _id: school, name: 'S', code: 'MIGT' });
+  await db.collection('teachers').insertMany([
+    { _id: many, name: 'A', email: 'a@x.com', phone: '1', employeeId: 'E1', school, isActive: true, assignedClasses: ['10-A', '9-B'], subjects: ['Maths', 'English'] },
+    { _id: single, name: 'B', email: 'b@x.com', phone: '2', employeeId: 'E2', school, isActive: true, assignedClasses: ['8-A'], subjects: [] },
+  ]);
+  const dry = await migrate({ apply: false, quiet: true });
+  expect(dry['teaching.assignments_from_lists']).toBe(4);
+  expect(dry['teaching.cross_product_teachers_to_review']).toBe(1);
+  expect(await db.collection('teachingassignments').countDocuments({})).toBe(0);
+
+  await migrate({ apply: true, quiet: true });
+  const rows = await db.collection('teachingassignments').find({ teacher: many }).toArray();
+  expect(rows.map((r) => `${r.class}${r.section}:${r.subject}`).sort()).toEqual(['10A:English', '10A:Maths', '9B:English', '9B:Maths']);
+  expect(await db.collection('teachingassignments').countDocuments({ teacher: single })).toBe(0); // no subjects listed: keeps "any subject"
+
+  const second = await migrate({ apply: true, quiet: true });
+  expect(second['teaching.assignments_from_lists']).toBeUndefined();
+  expect(await db.collection('teachingassignments').countDocuments({})).toBe(4);
+});

@@ -53,13 +53,13 @@ async function seedActivity(school, { stops = ['School Gate', 'Main Market', 'Ra
   if (!students.length) return;
   const sections = [...new Map(students.map((s) => [`${s.class}-${s.section}`, { class: s.class, section: s.section }])).values()];
 
-  // Buses: one on a live trip, one idle; students split between them.
+  // Two buses, both idle (a trip is started by the driver's phone, or by `node src/scripts/simulateBus.js <driverToken>` for a demo);
+  // a bus must never be shown on the road without a phone sending its position. Students split between them.
   const mk = (name, order, status) => ({ name, latitude: 24.75 + order / 100, longitude: 84.99 + order / 100, order, status, estimatedTime: `07:${String(10 + order * 8).padStart(2, '0')}` });
   const bus1 = await Transport.create({
     school: school._id, busNumber: 'BR02 PA 4521', driverName: 'Ramesh Yadav', driverPhone: '9000011111', routeName: `${stops[1]} Route`,
-    driverToken: crypto.randomBytes(16).toString('hex'), trackingId: crypto.randomBytes(8).toString('hex'), busStatus: 'On Route', currentStopIndex: 1,
-    tripStartedAt: new Date(Date.now() - 25 * 60000),
-    stops: [mk(stops[0], 0, 'Departed'), mk(stops[1], 1, 'Live'), mk(stops[2], 2, 'Pending'), mk('School', 3, 'Pending')],
+    driverToken: crypto.randomBytes(16).toString('hex'), trackingId: crypto.randomBytes(8).toString('hex'), busStatus: 'Idle',
+    stops: [mk(stops[0], 0, 'Pending'), mk(stops[1], 1, 'Pending'), mk(stops[2], 2, 'Pending'), mk('School', 3, 'Pending')],
   });
   const bus2 = await Transport.create({
     school: school._id, busNumber: 'BR02 PB 7730', driverName: 'Sunil Paswan', driverPhone: '9000022222', routeName: `${stops[3]} Route`,

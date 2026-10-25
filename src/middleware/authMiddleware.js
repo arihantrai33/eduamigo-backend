@@ -2,7 +2,8 @@ const jwt = require('jsonwebtoken');
 const { enterTenant } = require('../config/tenantGuard');
 const User = require('../models/User');
 const { jwtSecret } = require('../config/env');
-const { hasPermission } = require('../config/permissions');
+const { can } = require('../services/authorization');
+const { resolveAuthz } = require('../services/roles');
 const { FEATURES } = require('../config/features');
 const { entitlementsFor, hasFeature } = require('../services/subscription');
 const { audit } = require('../services/audit');
@@ -29,8 +30,8 @@ const protect = async (req, res, next) => {
   } catch {
     return deny(res, 401, 'Session expired. Please log in again.');
   }
-  // Platform (owner) tokens only work on /api/platform.
-  if (decoded.scope === 'platform') return deny(res, 401, 'Authentication required');
+  // Platform (owner) tokens only work on /api/platform, and a "which school?" ticket is not a session.
+  if (decoded.scope) return deny(res, 401, 'Authentication required');
 
   try {
     const user = await User.findById(decoded.id).select('-password')
@@ -46,6 +47,8 @@ const protect = async (req, res, next) => {
       return deny(res, 403, 'Your school\'s EduAmigo subscription has expired. You can view data, but changes are paused until it is renewed.', 'READ_ONLY');
     }
 
+    // What this person may do, resolved from their roles now (nothing is cached between requests).
+    user.authz = await resolveAuthz(user);
     req.user = user;
     req.school = user.school;
     req.schoolId = user.school._id;
@@ -72,7 +75,7 @@ const authorizeRoles = (...roles) => (req, res, next) => {
 
 // Allows the request if the user's role grants the permission (see config/permissions.js).
 const requirePermission = (permission) => (req, res, next) => {
-  if (!hasPermission(req.user?.role, permission)) return deny(res, 403, 'You do not have permission to perform this action');
+  if (!can(req.user, permission)) return deny(res, 403, 'You do not have permission to perform this action');
   next();
 };
 

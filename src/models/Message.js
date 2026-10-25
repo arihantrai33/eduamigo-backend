@@ -8,6 +8,8 @@ const messageSchema = new mongoose.Schema({
   fileUrl:    { type: String, default: null },
   fileName:   { type: String, default: null },
   fileType:   { type: String, default: null },
+  // Files sent with the message (photos, PDFs, voice notes, documents): private, see services/attachments.js.
+  attachments: [new mongoose.Schema({ key: String, name: String, type: { type: String }, size: Number, kind: String }, { _id: false })],
   read:       { type: Boolean, default: false },
   school:     { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
 }, { timestamps: true });

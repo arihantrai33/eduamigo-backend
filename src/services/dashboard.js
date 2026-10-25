@@ -9,20 +9,27 @@ const Attendance = require('../models/Attendance');
 const Fee = require('../models/Fee');
 const LeaveRequest = require('../models/LeaveRequest');
 const AuditLog = require('../models/AuditLog');
-const { hasPermission } = require('../config/permissions');
+const { can: mayDo, scopeOf } = require('./authorization');
 const { hasFeature } = require('./subscription');
 const { summarizeCounts } = require('./attendanceService');
 const { toDayKey } = require('../utils/dates');
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
-async function schoolDashboard({ schoolId, role, entitlements, now = new Date() }) {
-  const can = (permission) => hasPermission(role, permission);
+async function schoolDashboard({ schoolId, user, role, entitlements, now = new Date() }) {
+  // `user` is what the route passes; `role` alone (older callers, tests) is read as an active account of that role.
+  const actor = user || { role, isActive: true };
+  const can = (permission) => mayDo(actor, permission);
   const has = (feature) => hasFeature(entitlements, feature);
   const school = schoolId;
   const jobs = {};
+  // A teacher's permission to read students and review leave is limited to their own classes, but these sections are counted
+  // across the whole school (and list students with their fee status), so a teacher is not given them: their own home uses the
+  // class-scoped endpoints.
+  const wideStudents = scopeOf(actor, 'students') === 'school';
+  const wideLeaves = scopeOf(actor, 'leaves') === 'school';
 
-  if (can('students.read')) {
+  if (can('students.read') && wideStudents) {
     jobs.students = Student.countDocuments({ school, isActive: true });
     jobs.classes = Student.aggregate([
       { $match: { school, isActive: true } },
@@ -49,7 +56,7 @@ async function schoolDashboard({ schoolId, role, entitlements, now = new Date() 
       { $group: { _id: null, billed: { $sum: '$amount' }, collected: { $sum: '$paidAmount' }, records: { $sum: 1 } } },
     ]);
   }
-  if (can('leaves.review')) jobs.pendingLeaves = LeaveRequest.countDocuments({ school, status: 'Pending' });
+  if (can('leaves.review') && wideLeaves) jobs.pendingLeaves = LeaveRequest.countDocuments({ school, status: 'Pending' });
   if (can('audit.read')) {
     jobs.activity = AuditLog.find({ school }).sort({ createdAt: -1 }).limit(6)
       .populate('actor', 'name').select('action actorRole targetType details createdAt actor').lean();
