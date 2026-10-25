@@ -1,0 +1,11 @@
+{
+  "A": { "vus": 10,    "hold": "2m", "note": "smoke: proves the journeys work" },
+  "B": { "vus": 50,    "hold": "3m" },
+  "C": { "vus": 100,   "hold": "5m" },
+  "D": { "vus": 250,   "hold": "5m" },
+  "E": { "vus": 500,   "hold": "5m" },
+  "F": { "vus": 1000,  "hold": "5m" },
+  "G": { "vus": 2500,  "hold": "5m", "confirm": true },
+  "H": { "vus": 5000,  "hold": "5m", "confirm": true },
+  "I": { "vus": 10000, "hold": "5m", "confirm": true }
+}

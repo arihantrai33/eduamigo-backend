@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const BASE = (process.env.BASE_URL || 'http://localhost:8100').replace(/\/+$/, '');
-const seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/seed.json'), 'utf8'));
+const seed = JSON.parse(fs.readFileSync(process.env.SEED_FILE || path.join(__dirname, 'data/seed.json'), 'utf8'));
 const hex24 = /[a-f0-9]{24}/g;
 
 async function call(method, url, token) {
