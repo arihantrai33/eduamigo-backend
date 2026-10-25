@@ -38,7 +38,7 @@ process.env.API_USER_PER_MINUTE = process.env.API_USER_PER_MINUTE || '100000';
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
-const PASSWORD = 'Demo@1234';
+const PASSWORD = process.env.DEMO_PASSWORD || 'Demo@1234'; // a shared demo server sets its own (scripts/seedDemoData.js)
 const DAY = 86400000;
 
 // skipCodes: demo schools not to create (their place is taken by real data from --from-backup).
@@ -253,7 +253,11 @@ Press Ctrl+C to stop (all demo data is deleted).`);
   process.on('SIGTERM', stop);
 }
 
-main().catch((err) => {
-  console.error('Demo failed to start:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('Demo failed to start:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { seed };

@@ -20,6 +20,13 @@ Proven on one MacBook with a throwaway database (details: `docs/production-readi
 
 Not proven: more than 1,000 users; a real hosted database; Safari, Firefox and real phones; push notifications, SMS, online payments and the AI features against the real providers.
 
+### Demo link for showing EduAmigo to other people
+- Website: **https://eduamigo-demo.vercel.app** (its own Vercel project `eduamigo-demo`, public, built from the `staging` code, talks to the staging API). The real project `eduamigo-frontend` and production are not involved.
+- Data: the five demo schools of `npm run demo` (GVPS, SCS, LFS, AISGAYA, AISCHAKAND), loaded by `src/scripts/seedDemoData.js` into `eduamigo_staging` with a demo password chosen for this purpose (the platform-owner account gets a random password). Sign-ins: `admin@gvps.demo`, `teacher@gvps.demo`, student admission number `1`, parent mobile `9876543210`, school code GVPS.
+- Re-seed: see the header of `seedDemoData.js`. It refuses any database not named `*_staging` or `*_demo`, and `--replace-test-schools` only drops a database whose schools are all load-test schools; to reset the demo itself, drop `eduamigo_staging` in Atlas first.
+- Free Render instances sleep after about 15 minutes without traffic; the first request then takes up to a minute. Open the link a minute before a demo, or add a free uptime monitor on `https://eduamigo-staging.onrender.com/api/health` (every 5 minutes).
+- Anything people do in the demo is saved in the staging database; reset by re-seeding.
+
 ## 2. Things only the owner can do
 1. **Staging database user (recommended).** Staging currently uses the production Atlas user with a different database name (`eduamigo_staging`), because the Atlas CLI here is not logged in. Better: in Atlas create a separate user that can only use `eduamigo_staging` and replace `MONGO_URI` on the staging service, so a mistake can never write to production data.
 2. **Secrets.** If `.env.save` or any credentials were ever shared or copied (`docs/DEPLOYMENT.md`, step 1), rotate the Atlas password, `JWT_SECRET` (everyone signs in again), and the Gemini and Cloudinary keys. Set every secret in the Render dashboard, never in git.
