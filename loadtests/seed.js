@@ -14,7 +14,7 @@ const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); r
 const PER_SCHOOL = Number(arg('students', 1000));
 const SCHOOLS = Number(arg('schools', 3));
 const OUT = arg('out', path.join(__dirname, 'data/seed.json'));
-const PASSWORD = 'LoadTest@2026';
+const PASSWORD = process.env.LOADTEST_PASSWORD || 'LoadTest@2026'; // a public test server should set LOADTEST_PASSWORD to something private
 const SECTIONS = ['A', 'B', 'C', 'D', 'E'];
 
 const t0 = Date.now();

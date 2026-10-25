@@ -4,6 +4,28 @@
 
 Machine: 10 CPUs, 16 GB RAM. Harness: `loadtests/stage.js` (see `loadtests/README.md`). Database: a throwaway in-memory MongoDB on the same machine. Runs on 2026-10-25.
 
+## Update: fee payments and chat added, Stages B to F repeated (26 October)
+
+The journeys now also include chat (inbox, unread count, parents messaging the class teacher and reading the thread) and the office recording fee payments, on purpose on only 3 fees per school so several payments land on the same fee at the same time.
+
+| Stage | Users | Requests | p95 / p99 / slowest (ms) | Errors | Fee payment p95 | Event-loop windows over 100 ms | Data checks | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| B | 50 | 4,732 | 8 / 64 / 103 | 0 | 11 ms | 0 | pass | PASS |
+| C | 100 | 15,365 | 7 / 12 / 106 | 0 | 10 ms | 0 | pass | PASS |
+| D | 250 | 38,420 | 7 / 11 / 149 | 0 | 8 ms | 0 | pass | PASS |
+| E | 500 | 76,828 | 6 / 12 / 249 | 0 | 7 ms | 0 | pass | PASS |
+| F (first run) | 1,000 | 152,217 | 53 / 632 / 4,387 | 0 | 717 ms | 3 of 214 | pass | PASS, noisy |
+| F (second run) | 1,000 | 153,336 | 28 / 125 / 1,352 | 0 | 52 ms | 0 of 214 | pass | PASS |
+
+- **Money and messages stayed correct under concurrency:** about 250 payments on the same three fees at Stage F, and about 800 chat messages; `verify.js` found no duplicate receipt numbers, no fee over-paid, totals equal to the sum of payments, and no message repeated. No cross-school response in any stage.
+- **Why two Stage F runs:** the first run had stalls of up to 4.4 s across *all* endpoints at once (reads too), while the application's CPU dropped to 10 % at that moment and the event loop was never blocked for more than 261 ms. That is the load generator, not the server, being held up: at that time the Mac was using 8.8 of 10 GB of swap, and k6 held 3.4 GB. After closing my own leftover test servers the second run showed a worst case of 1.35 s and fee payments at 52 ms. Both runs meet the targets; the worst-case tail varies between runs on this machine, so do not quote one number.
+- **Still not run:** Stage G and above. The load generator needs about 3.4 to 4.4 GB at 1,000 users, so a separate machine is needed beyond that.
+
+### Production-mode and staging checks
+- The API run as in production (`NODE_ENV=production`, strict CORS, production rate limits, error masking; `loadtests/prod-mode.js`) with the production build of the website served from another address, crawled page by page (70 pages x 2 widths): no console errors or failed calls other than the valid "no bus assigned" and "no timetable" answers. A website origin that is not allowed is refused.
+- Security audit of production dependencies: the two high findings (multer, body-parser; denial of service) were fixed by patch updates (backend suite re-run: 67 files, 1,294 tests passed). Seven moderate findings remain, all in the `firebase-admin` chain (the fix is a major upgrade).
+- A real staging service now exists: `eduamigo-staging` on Render (branch `staging`, separate database `eduamigo_staging` on the same cluster, no AI, e-mail, SMS, payment or storage keys). Read-only smoke check against it: 10 of 10 passed. The migration was rehearsed on its database: applied once (200 fee statuses, 200 enrolments, 10 teaching assignments) and a second dry run showed nothing left to change.
+
 ## Update: the sign-in bottleneck at 1,000 users, diagnosed and fixed
 
 ### Root cause (measured)

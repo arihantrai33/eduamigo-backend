@@ -72,7 +72,8 @@ export const options = {
 const NAMES = ['login', 'homework create', 'student: profile', 'student: attendance', 'student: timetable', 'student: results', 'student: notifications', 'student: notices', 'student: homework', 'student: fees', 'student: mark homework done', 'tenant probe (student)',
   'parent: children', 'parent: attendance', 'parent: fees', 'parent: notifications', 'parent: notices', 'parent: homework', 'parent: events', 'tenant probe (parent)',
   'teacher: profile', 'teacher: timetable', 'teacher: class attendance', 'teacher: pending leaves', 'teacher: unread chat', 'teacher: notifications', 'teacher: save attendance',
-  'office: dashboard', 'office: students', 'office: fees', 'office: pending fees', 'office: notices', 'office: setup status', 'tenant probe (office)', 'office: post notice'];
+  'office: dashboard', 'office: students', 'office: fees', 'office: pending fees', 'office: notices', 'office: setup status', 'tenant probe (office)', 'office: post notice',
+  'student: unread chat', 'parent: chat inbox', 'parent: unread chat', 'parent: chat teachers', 'parent: send message', 'parent: read messages', 'teacher: chat inbox', 'teacher: chat contacts', 'office: record fee payment'];
 for (const n of NAMES) { options.thresholds[`http_req_duration{name:${n}}`] = ['max>=0']; options.thresholds[`http_req_failed{name:${n}}`] = ['rate>=0']; }
 
 // ---- helpers
@@ -142,7 +143,8 @@ function studentJourney(acc, data) {
   get('/api/notifications/my', t, 'student: notifications');
   get('/api/announcements/my', t, 'student: notices'); think();
   const hw = get('/api/homework/my', t, 'student: homework');
-  get('/api/fees/my', t, 'student: fees'); think();
+  get('/api/fees/my', t, 'student: fees');
+  get('/api/chat/unread-count', t, 'student: unread chat'); think();
   const hwId = ((data || []).find((d) => d && d.school === acc.code) || {}).id;
   const mine = (bodyOf(hw).data) || [];
   if (hwId && Array.isArray(mine) && mine.some((h) => h && String(h._id) === String(hwId)) && Math.random() < 0.2) {
@@ -169,7 +171,17 @@ function parentJourney(acc) {
   get('/api/notifications/my', t, 'parent: notifications');
   get('/api/announcements/my', t, 'parent: notices'); think();
   get(`/api/homework/child${q}`, t, 'parent: homework');
-  get('/api/events', t, 'parent: events'); think();
+  get('/api/events', t, 'parent: events');
+  get('/api/chat/unread-count', t, 'parent: unread chat');
+  get('/api/chat/inbox', t, 'parent: chat inbox'); think();
+  if (Math.random() < 0.15) { // message the class teacher, then read the conversation
+    const tr = get('/api/chat/parent-teachers', t, 'parent: chat teachers');
+    const teacher = (((bodyOf(tr).data) || {}).teachers || [])[0];
+    if (teacher) {
+      send('POST', '/api/chat/messages', { receiverId: teacher.userId, text: `LOADTEST ${RUN} hello ${__VU}` }, t, 'parent: send message'); writes.add(1);
+      get(`/api/chat/messages/${teacher.roomId}`, t, 'parent: read messages');
+    }
+  }
   if (Math.random() < PROBE) {
     const other = pick(schools.filter((s) => s.code !== acc.code));
     if (other) { const r = get(`/api/attendance/student/${pick(other.students).id}/summary`, t, 'tenant probe (parent)', [200, 401, 403, 404]); if (carriesData(r)) leak(r); }
@@ -185,6 +197,8 @@ function teacherJourney(acc) {
   get(`/api/attendance/class/${encodeURIComponent(sec.class)}?date=${today()}&section=${encodeURIComponent(sec.section)}`, t, 'teacher: class attendance'); think();
   get('/api/leaves/pending', t, 'teacher: pending leaves');
   get('/api/chat/unread-count', t, 'teacher: unread chat');
+  get('/api/chat/inbox', t, 'teacher: chat inbox');
+  get('/api/chat/teacher-contacts', t, 'teacher: chat contacts');
   get('/api/notifications/my', t, 'teacher: notifications'); think();
   if (Math.random() < 0.2) { // saving attendance for one of their own (test) classes
     const ids = acc.school.sectionStudents.find((x) => x.class === sec.class && x.section === sec.section).ids;
@@ -200,6 +214,10 @@ function adminJourney(acc) {
   get('/api/fees/pending/all', t, 'office: pending fees'); think();
   get('/api/announcements', t, 'office: notices');
   get('/api/academic/setup-status', t, 'office: setup status'); think();
+  if (Math.random() < 0.1) { // the office records a small payment on one of a few fees, so several payments land on the same fee at once
+    const feeId = pick(acc.school.feeIds.slice(0, 3));
+    send('PATCH', `/api/fees/${feeId}/pay`, { amount: 1, mode: 'Cash' }, t, 'office: record fee payment'); writes.add(1);
+  }
   if (Math.random() < PROBE) { // another school's records must not answer, even to an office user
     const other = pick(schools.filter((s) => s.code !== acc.code));
     if (other) {
