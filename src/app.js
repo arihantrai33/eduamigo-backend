@@ -7,7 +7,7 @@ const { corsOrigins } = require('./config/env');
 const { protect, requireFeature } = require('./middleware/authMiddleware');
 const { isSchoolDomainOrigin } = require('./services/schoolDirectory');
 const { log, errorFields, requestLogger, loggedPath } = require('./utils/logger');
-const { apiLimiter } = require('./middleware/rateLimit');
+const { apiLimiter, driverFloodGuard } = require('./middleware/rateLimit');
 
 // Mount-level plan check: the whole module belongs to one feature.
 const gated = (feature) => [protect, requireFeature(feature)];
@@ -48,6 +48,7 @@ function buildApp() {
   app.use('/api/photos', require('./routes/photoRoutes'));
   app.use('/api/files',  require('./routes/fileRoutes'));
   app.use('/api', apiLimiter);
+  app.use('/api/transport/driver', driverFloodGuard);
 
   app.use('/api/public',         require('./routes/publicRoutes'));
   app.use('/api/platform',       require('./routes/platformRoutes'));

@@ -29,10 +29,14 @@ const cfg = () => ({
   arriveM: num('BUS_ARRIVE_M', 70),
   departM: num('BUS_DEPART_M', 130),
   snapM: num('BUS_SNAP_M', 50),
+  smoothAboveM: num('BUS_SMOOTH_ABOVE_M', 30),  // a reading with a worse accuracy than this is blended with where the bus should be
   nearMin: num('BUS_NEAR_MINUTES', 5),
   dwellSec: num('BUS_DWELL_SECONDS', 30),
   sampleMs: num('BUS_POINT_SAMPLE_MS', 15000),
   maxBatch: 60,
+  syncMs: num('BUS_SYNC_MS', 500),     // another server instance may be the one receiving this bus's readings: look in the database this often
+  idleSyncMs: num('BUS_IDLE_SYNC_MS', 5000), // a bus that is not on a trip is looked up less often
+  ownerMs: num('BUS_OWNER_MS', 6000),   // ... unless this instance itself wrote the bus in the last few seconds (it is then the one in charge)
 });
 
 // ---------------------------------------------------------------- geometry (metres)
@@ -83,6 +87,17 @@ function project(route, lat, lng, from = 0, windowBack = 400, windowFwd = 4000) 
   if (near && near.d <= 80) return near;
   const all = scan(-Infinity, Infinity);
   return all && (!near || all.d < near.d) ? all : near;
+}
+
+// The point at `meters` along the route -> [lat, lng].
+function pointAtMeters(route, meters) {
+  const { pts, cum } = route;
+  if (!pts.length) return [0, 0];
+  if (meters <= 0) return [pts[0][0], pts[0][1]];
+  if (meters >= cum[cum.length - 1]) return [pts[pts.length - 1][0], pts[pts.length - 1][1]];
+  let i = 1; while (i < cum.length - 1 && cum[i] < meters) i += 1;
+  const f = (meters - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
+  return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
 }
 
 // Fewer points for the same line (Douglas-Peucker), so the stored route stays small. tolerance in metres.
@@ -195,6 +210,7 @@ async function loadState(busId, school) {
     id: String(doc._id), school: doc.school, status: doc.busStatus, direction: doc.direction || 'pickup', tripId: doc.tripId || null,
     busNumber: doc.busNumber, stops, current: doc.currentStopIndex || 0, route, offsets, offRoad, routeSource: doc.route?.source || 'straight',
     live: doc.live || null, students, notices: new Set(doc.tripNotices || []), lastSample: 0,
+    syncedAt: Date.now(), localWriteAt: 0, sharedUntil: 0, syncing: null,
   };
   runtime.set(st.id, st);
   if (st.status === 'On Route' && st.routeSource !== 'road') upgradeRoute(st).catch(() => {});
@@ -219,10 +235,63 @@ async function upgradeRoute(st) {
 // `school` is the signed-in viewer's school (a viewer never gets another school's bus); the driver app passes none.
 async function stateOf(busId, school) {
   const hit = runtime.get(String(busId));
-  if (hit) return !school || String(hit.school) === String(school) ? hit : null;
+  if (hit) return !school || String(hit.school) === String(school) ? ((await syncIfStale(hit)) || null) : null;
   return loadState(busId, school);
 }
 function forget(busId) { runtime.delete(String(busId)); }
+
+// ---------------------------------------------------------------- several server instances
+// The picture of a bus lives in this process's memory and in the database. With more than one server instance, the driver's phone may be
+// talking to one instance while a parent's screen is connected to another, so memory alone would go stale: a trip started or ended on the
+// other instance would never show here. An instance therefore treats the database as the truth whenever it has not written this bus itself
+// in the last few seconds (BUS_OWNER_MS): at most one small read per bus every BUS_SYNC_MS, and none at all while this instance is the one
+// receiving the readings (the usual case with a single instance).
+const SYNC_FIELDS = 'busStatus currentStopIndex tripId direction live stops tripNotices';
+
+async function refreshFromDb(st) {
+  const doc = await Transport.findOne({ _id: st.id, school: st.school }).select(SYNC_FIELDS).lean();
+  st.syncedAt = Date.now();
+  if (!doc) { runtime.delete(st.id); return { st: null }; }
+  const stopsSame = (doc.stops || []).length === st.stops.length
+    && (doc.stops || []).every((x) => st.stops.some((y) => y.id === String(x._id) && y.lat === x.latitude && y.lng === x.longitude));
+  const same = (doc.tripId || null) === (st.tripId || null) && doc.busStatus === st.status && (doc.direction || 'pickup') === st.direction && stopsSame;
+  if (doc.live && st.live && (doc.live.receivedAt || 0) > (st.live.receivedAt || 0)) st.sharedUntil = Date.now() + 120000; // another instance is writing this bus too: keep following the database
+  if (!same) { runtime.delete(st.id); const fresh = await loadState(st.id, st.school); if (fresh) fresh.sharedUntil = st.sharedUntil; return { st: fresh, replaced: true }; } // a new trip, an ended trip or a changed route
+  const changes = new Set();
+  const current = doc.currentStopIndex || 0;
+  if (current !== st.current) { st.current = current; changes.add('stops'); }
+  const fresh = new Map(tripStops({ stops: doc.stops, direction: st.direction }).map((x) => [x.id, x]));
+  for (const x of st.stops) {
+    const n = fresh.get(x.id);
+    if (n && (n.status !== x.status || String(n.arrivedAt) !== String(x.arrivedAt) || String(n.departedAt) !== String(x.departedAt))) { Object.assign(x, { status: n.status, arrivedAt: n.arrivedAt, departedAt: n.departedAt }); changes.add('stops'); }
+  }
+  if (doc.live && (!st.live || doc.live.at > st.live.at || (doc.live.receivedAt || 0) > (st.live.receivedAt || 0))) { st.live = doc.live; changes.add('position'); }
+  for (const k of doc.tripNotices || []) st.notices.add(k);
+  return { st, changes };
+}
+
+// Returns the up-to-date state (a new object if the trip changed), telling the people watching this bus about what was found.
+async function syncIfStale(st) {
+  const c = cfg(); const now = Date.now();
+  // Writing the bus ourselves means we are in charge, unless another instance has been seen writing it too (shared): then we follow the database.
+  if ((now - st.localWriteAt < c.ownerMs && now >= st.sharedUntil) || now - st.syncedAt < (st.status === 'On Route' ? c.syncMs : Math.max(c.syncMs, c.idleSyncMs))) return st;
+  if (!st.syncing) {
+    st.syncing = refreshFromDb(st).then((r) => {
+      const cur = r.st;
+      if (cur && bus.listenerCount(cur.id) > 0) {
+        if (r.replaced) emit(cur, snapshot(cur));
+        else {
+          if (r.changes.has('stops')) emit(cur, { type: 'stops', busId: cur.id, currentStopIndex: cur.current, stops: publicStops(cur), serverTime: Date.now() });
+          if (r.changes.has('position')) emit(cur, { type: 'position', busId: cur.id, tripId: cur.tripId, signal: signal(cur), position: publicPosition(cur.live), currentStopIndex: cur.current, etas: etas(cur), serverTime: Date.now() });
+        }
+      }
+      return r;
+    }).finally(() => { st.syncing = null; });
+  }
+  const r = await st.syncing;
+  return r.st;
+}
+
 
 const emit = (st, event) => bus.emit(st.id, event);
 
@@ -326,6 +395,7 @@ async function startTrip(busDoc, direction = 'pickup') {
   await busDoc.save();
   forget(busDoc._id);
   const st = await loadState(busDoc._id, busDoc.school);
+  st.localWriteAt = Date.now();
   st.notices.add('start');
   await Transport.updateOne({ _id: busDoc._id, school: busDoc.school }, { $addToSet: { tripNotices: 'start' } });
   const all = (await Student.find({ school: busDoc.school, bus: busDoc._id, isActive: true }).select('_id school').lean());
@@ -351,6 +421,7 @@ async function endTrip(busDoc) {
 async function advance(st, { arrived = true } = {}) {
   if (st.current >= st.stops.length) return false;
   const now = new Date();
+  st.localWriteAt = Date.now();
   const here = st.stops[st.current];
   const next = st.stops[st.current + 1];
   const set = { currentStopIndex: st.current + 1, 'stops.$[a].status': 'Departed', 'stops.$[a].departedAt': now };
@@ -397,6 +468,7 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
   const c = cfg();
   const st = await stateOf(busId);
   if (!st || st.status !== 'On Route') return { notActive: true };
+  st.localWriteAt = Date.now(); // this instance is the one receiving this bus's readings
   const list = (Array.isArray(rawPoints) ? rawPoints : []).slice(0, c.maxBatch);
   const reasons = {};
   const reject = (why) => { reasons[why] = (reasons[why] || 0) + 1; };
@@ -437,8 +509,19 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
     // Progress along the road follows the nearest point of the road even when the bus is a little off it (a wide road, a lane the
     // map does not show); only a bus far away from the road keeps its last progress.
     const near = !!proj && proj.d <= 300;
-    const meters = near ? Math.max(proj.meters, prev?.routeMeters ?? 0) : (prev?.routeMeters ?? (proj?.meters ?? 0));
-    const lat = onRoute ? proj.lat : p.lat; const lng = onRoute ? proj.lng : p.lng;
+    let meters = near ? Math.max(proj.meters, prev?.routeMeters ?? 0) : (prev?.routeMeters ?? (proj?.meters ?? 0));
+    let lat = onRoute ? proj.lat : p.lat; let lng = onRoute ? proj.lng : p.lng;
+    // A reading that says it is only good to 60 m can be 60 m ahead of or behind the bus along the road, and snapping it to the road
+    // removes only the sideways error. So a poor reading moves the bus only partly towards it, from where the bus should be by now
+    // (its last position plus its speed), the weight falling with the square of the accuracy (60 m: a quarter, 100 m: a tenth). After a
+    // long gap the new reading counts for more. Good readings (30 m or better) are used as they are.
+    if (onRoute && prev && Number.isFinite(prev.routeMeters) && (p.accuracy || 0) > c.smoothAboveM) {
+      const gap = p.at - prev.at;
+      const predicted = prev.routeMeters + Math.max(0, (prev.speedKmh || 0) / 3.6) * Math.min(8, gap / 1000);
+      const k = gap > 15000 ? 0.6 : Math.min(1, (c.smoothAboveM / p.accuracy) ** 2);
+      meters = Math.max(prev.routeMeters, Math.min(predicted + k * (meters - predicted), st.route.meters));
+      const q = pointAtMeters(st.route, meters); lat = q[0]; lng = q[1];
+    }
     let heading = p.heading;
     if (prev && !jitter && distance(prev.lat, prev.lng, lat, lng) > 5) heading = bearing(prev.lat, prev.lng, lat, lng);
     else if (heading === null) heading = prev?.heading ?? null;
@@ -467,9 +550,19 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
 }
 
 // Subscribes to one bus's changes. Returns the function that stops listening.
+const watchers = new Map(); // busId -> { n, timer }
 function subscribe(busId, fn) {
-  bus.on(String(busId), fn);
-  return () => bus.off(String(busId), fn);
+  const id = String(busId);
+  bus.on(id, fn);
+  // A screen connected to this instance while the readings arrive at another: look in the database now and then, so it still moves.
+  let w = watchers.get(id);
+  if (!w) {
+    w = { n: 0, timer: setInterval(() => { const st = runtime.get(id); (st ? syncIfStale(st) : stateOf(id).then((x) => { if (x && bus.listenerCount(id) > 0) emit(x, snapshot(x)); })).catch(() => {}); }, cfg().syncMs) };
+    w.timer.unref?.();
+    watchers.set(id, w);
+  }
+  w.n += 1;
+  return () => { bus.off(id, fn); w.n -= 1; if (w.n <= 0) { clearInterval(w.timer); if (watchers.get(id) === w) watchers.delete(id); } };
 }
 
 // Trips that were never ended (a phone that died): completed after this many hours without a reading.
@@ -480,7 +573,7 @@ async function closeAbandonedTrips(hours = 3, now = Date.now()) {
   return stale.length;
 }
 
-const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); upgrading.forEach((t) => clearTimeout(t)); upgrading.clear(); };
+const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); watchers.forEach((w) => clearInterval(w.timer)); watchers.clear(); upgrading.forEach((t) => clearTimeout(t)); upgrading.clear(); };
 
 module.exports = {
   distance, bearing, buildRoute, project, simplify, roadGeometry, tripStops, cfg,

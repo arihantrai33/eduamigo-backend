@@ -171,6 +171,23 @@ describe('staying on the street', () => {
     expect(s.position.offRoute).toBe(true);
   });
 
+  test('a poor reading ahead along the road moves the bus only part of the way, a good one is taken as it is', async () => {
+    const lngAhead = (m) => LNGS[0] + m / M_PER_DEG;
+    const metersAfter = async (accuracy) => {
+      tracking.resetForTests();
+      await Transport.updateOne({ _id: bus._id }, { $set: { busStatus: 'Idle', live: undefined } });
+      await start();
+      await post(drive(LNGS[0], 6)); // six good readings at 10 m/s: the bus is 250 m along
+      await post([{ lat: LAT, lng: lngAhead(370), accuracy, at: at(6) }]); // the bus should be near 300 m; this reading says 370
+      return (await snap()).position.routeMeters;
+    };
+    const good = await metersAfter(8);
+    const poor = await metersAfter(80);
+    expect(good).toBeGreaterThan(360); // a good fix is believed
+    expect(poor).toBeGreaterThanOrEqual(300); // the bus does not go back
+    expect(poor).toBeLessThan(320); // a fix good to only 80 m moves it by about a tenth of the difference
+  });
+
   test('a trip that began without a road gets the road when a routing service answers, and viewers see it', async () => {
     const realFetch = global.fetch;
     const road = [[LAT, LNGS[0]], [LAT + 0.0004, LNGS[1]], [LAT, LNGS[2]], [LAT, LNGS[3]]];

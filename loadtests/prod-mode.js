@@ -12,6 +12,7 @@ const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > -1 
 const PORT = arg('port', '8111');
 const ORIGIN = arg('web-origin', 'http://127.0.0.1:4173');
 const SEED = path.join(__dirname, 'data/prodmode-seed.json');
+const AI_URL = arg('ai-url', ''); // e.g. http://127.0.0.1:8120 (loadtests/fake-ai.js); empty keeps the AI switched off
 
 async function main() {
   const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -24,6 +25,7 @@ async function main() {
     GEMINI_API_KEY: '', AZURE_OPENAI_API_KEY: '', AZURE_OPENAI_ENDPOINT: '', AZURE_SPEECH_KEY: '', ASSISTANT_PROVIDERS: '',
     CLOUDINARY_CLOUD_NAME: '', CLOUDINARY_API_KEY: '', CLOUDINARY_API_SECRET: '', RAZORPAY_KEY_ID: '', RAZORPAY_KEY_SECRET: '',
     RATE_LIMIT_STORE: 'mongo', ROUTING_URL: 'off',
+    ...(AI_URL ? { AZURE_OPENAI_ENDPOINT: AI_URL, AZURE_OPENAI_API_KEY: 'fake', AZURE_OPENAI_DEPLOYMENT: 'fake', ASSISTANT_PROVIDERS: 'azure', LEARNING_VECTOR_SEARCH: 'off' } : {}),
   };
   const seeded = await new Promise((resolve) => spawn('node', [path.join(__dirname, 'seed.js'), '--schools', '2', '--students', '100', '--out', SEED], { env, stdio: 'inherit' }).on('exit', resolve));
   if (seeded !== 0) { await mongo.stop(); process.exit(1); }

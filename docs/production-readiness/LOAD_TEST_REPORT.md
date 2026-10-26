@@ -4,6 +4,15 @@
 
 Machine: 10 CPUs, 16 GB RAM. Harness: `loadtests/stage.js` (see `loadtests/README.md`). Database: a throwaway in-memory MongoDB on the same machine. Runs on 2026-10-25.
 
+## Update: live bus tracking and 2,850 to 5,700 people at once (26 October)
+
+Full write-up: `EduAmigo_Technical_Bus_And_Mixed_Load_Report.pdf` (and the plain-language `..._Pehle_vs_Ab_...pdf`). Tools: `loadtests/bus-check.js`, `loadtests/mixed-check.js`, `loadtests/k6/mixed.js`, `loadtests/fake-ai.js`.
+
+- Bus position error p95 12.4 m, phone to screen p95 7 ms, 895 attempts to see another bus or school: 0 succeeded; parent messages correct for 72 of 72 parents.
+- Mixed activity (bus maps, chat, AI tutor with a stand-in provider, ordinary screens, 30 to 60 schools): 2,850 people reads p95 5 ms, 4,275 p95 6 ms, 5,700 p95 27 ms; 0 errors in all; one server used 42 % of a core at 2,850.
+- Four problems found and fixed: driver batches counted per network address (429s), poor GPS moving the bus up to 64 m, a school's wifi refused after about 100 sign-ins a minute (anonymous limit 120 to 1,500 per minute per address), and bus tracking not working on more than one server (state now follows the database). Backend suite after: 71 files, 1,307 tests.
+- This corrects the advice above to "add a second instance": that is safe for bus tracking only from this change on.
+
 ## Update: fee payments and chat added, Stages B to F repeated (26 October)
 
 The journeys now also include chat (inbox, unread count, parents messaging the class teacher and reading the thread) and the office recording fee payments, on purpose on only 3 fees per school so several payments land on the same fee at the same time.

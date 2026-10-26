@@ -56,7 +56,7 @@ Security issues go to the project owner; do not post keys or logs containing per
   cannot grind on one account. The second limit is generous so nobody can lock a real user out with a few requests.
 - **Flood guard on the whole API** (`/api`, except `/api/health`): in memory, per instance, on purpose (no database write per request).
   Signed-in callers are counted per session token, so users on one school network do not share an allowance; anonymous callers are
-  counted per IP. Defaults 300 per minute signed in, 120 anonymous; override with `API_USER_PER_MINUTE` and `API_ANON_PER_MINUTE`.
+  counted per IP. Defaults 300 per minute signed in (per session), 1,500 per minute without a sign-in (per address: a school's wifi is one address, and a morning sign-in rush is hundreds a minute); the public school lookup allows 600 per minute per address; override with `API_USER_PER_MINUTE` and `API_ANON_PER_MINUTE`.
 - If the limiter cannot reach MongoDB, requests are allowed and the error is logged by express-rate-limit (`passOnStoreError`),
   so a database problem does not lock everyone out. Watch the logs for "error from store".
 

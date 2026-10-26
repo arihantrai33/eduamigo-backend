@@ -54,10 +54,11 @@ const assistantLimiter = make('assistant', {
 });
 
 // Public school lookup (no login): stops anyone from scraping the school list.
-// A school's computer lab or Wi-Fi shares one address, so a whole class finding the school in the same minute must fit.
+// A school's wifi is ONE address for the whole school: the morning rush of a 1,500-student school is about 300 sign-ins a minute, and each
+// one looks the school up first, so the allowance per address has to be in the hundreds, not a class's worth.
 const publicLookupLimiter = make('publicLookup', {
   windowMs: 60 * 1000,
-  limit: () => Number(process.env.PUBLIC_LOOKUP_PER_MINUTE || 120),
+  limit: () => Number(process.env.PUBLIC_LOOKUP_PER_MINUTE || 600),
   keyGenerator: (req) => ipKeyGenerator(req.ip),
   message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
 });
@@ -99,20 +100,38 @@ const photoLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please wait a minute and try again.' },
 });
 
-// Coarse flood guard for the whole API, in memory on purpose (no database write per request). Signed-in callers are
+// Coarse flood guard for the whole API (1,500 requests a minute per address without a sign-in: see above), in memory on purpose (no database write per request). Signed-in callers are
 // counted per session token, so the many users behind one school network do not share a single allowance.
+// A driver's phone has no sign-in, only the secret code in the address (/transport/driver/<code>/...). Several buses can share one public
+// address (mobile carriers put many phones behind one, and a bus depot has one wifi), so counting them by address would refuse the GPS
+// readings of buses that did nothing wrong. They are counted per code instead; the location route also has its own, higher, limit.
+const driverCode = (req) => { const m = /^\/transport\/driver\/([^/]{8,})/.exec(req.path || ''); return m ? m[1].slice(0, 40) : ''; };
 const apiKey = (req) => {
   const bearer = req.get('authorization');
-  return bearer ? `t:${crypto.createHash('sha256').update(bearer).digest('hex').slice(0, 24)}` : `ip:${ipKeyGenerator(req.ip)}`;
+  if (bearer) return `t:${crypto.createHash('sha256').update(bearer).digest('hex').slice(0, 24)}`;
+  const code = driverCode(req);
+  return code ? `d:${crypto.createHash('sha256').update(code).digest('hex').slice(0, 24)}` : `ip:${ipKeyGenerator(req.ip)}`;
 };
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: (req) => (req.get('authorization') ? Number(process.env.API_USER_PER_MINUTE || 300) : Number(process.env.API_ANON_PER_MINUTE || 120)),
+  limit: (req) => (req.get('authorization') ? Number(process.env.API_USER_PER_MINUTE || 300) : Number(process.env.API_ANON_PER_MINUTE || 1500)),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   skip: (req) => disabled() || req.method === 'OPTIONS' || req.path === '/health',
   keyGenerator: apiKey,
   message: { success: false, message: 'Too many requests. Please slow down and try again in a minute.' },
+});
+
+// Driver phones are counted per code (above), so one address shared by many buses is fine; this high ceiling per address only stops a flood
+// of guessed codes. In memory, like the general limiter.
+const driverFloodGuard = rateLimit({
+  windowMs: 60 * 1000,
+  limit: () => Number(process.env.DRIVER_IP_PER_MINUTE || 3000),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (req) => disabled() || req.method === 'OPTIONS',
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { success: false, message: 'Too many requests from this network. Please slow down.' },
 });
 
 // The natural voice is asked for one short piece at a time, several per answer, so it has its own, larger allowance.
@@ -140,4 +159,4 @@ const integrationTestLimiter = make('integrationTest', {
 });
 
 module.exports = {
-  integrationTestLimiter, driverLocationLimiter, loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, demoRequestLimiter, schoolChoiceLimiter, apiLimiter, photoLimiter };
+  integrationTestLimiter, driverLocationLimiter, driverFloodGuard, loginLimiter, loginAccountLimiter, passwordResetLimiter, revisionLimiter, speechLimiter, assistantLimiter, publicLookupLimiter, demoRequestLimiter, schoolChoiceLimiter, apiLimiter, photoLimiter };
