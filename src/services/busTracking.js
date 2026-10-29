@@ -210,6 +210,7 @@ async function loadState(busId, school) {
     id: String(doc._id), school: doc.school, status: doc.busStatus, direction: doc.direction || 'pickup', tripId: doc.tripId || null,
     busNumber: doc.busNumber, stops, current: doc.currentStopIndex || 0, route, offsets, offRoad, routeSource: doc.route?.source || 'straight',
     live: doc.live || null, students, notices: new Set(doc.tripNotices || []), lastSample: 0,
+    startedAt: doc.tripStartedAt ? new Date(doc.tripStartedAt).getTime() : null, endedAt: doc.tripEndedAt && doc.busStatus === 'Completed' ? new Date(doc.tripEndedAt).getTime() : null,
     syncedAt: Date.now(), localWriteAt: 0, sharedUntil: 0, syncing: null,
   };
   runtime.set(st.id, st);
@@ -333,7 +334,7 @@ const publicStops = (st) => {
 // The full picture, sent first to a viewer and by the polling fallback. `route` is included only when asked for (it is big).
 function snapshot(st, { withRoute = true, now = Date.now() } = {}) {
   return {
-    type: 'snapshot', busId: st.id, busNumber: st.busNumber, tripId: st.tripId, status: st.status, direction: st.direction,
+    type: 'snapshot', busId: st.id, busNumber: st.busNumber, tripId: st.tripId, status: st.status, direction: st.direction, startedAt: st.startedAt ?? null, endedAt: st.endedAt ?? null,
     signal: signal(st, now), position: publicPosition(st.live), currentStopIndex: st.current, stops: publicStops(st),
     route: withRoute ? { points: st.route.pts, source: st.routeSource, meters: Math.round(st.route.meters) } : undefined,
     staleMs: cfg().staleMs, serverTime: now,
@@ -375,7 +376,7 @@ async function noticesFor(st, c = cfg()) {
 // ---------------------------------------------------------------- the trip
 
 // Starts a trip: new trip id, stops reset, route built (or reused), parents told. direction: 'pickup' | 'drop'.
-async function startTrip(busDoc, direction = 'pickup') {
+async function startTrip(busDoc, direction = 'pickup', { deviceId } = {}) {
   const dir = direction === 'drop' ? 'drop' : 'pickup';
   const probe = { ...busDoc.toObject(), direction: dir };
   const stops = tripStops(probe);
@@ -390,7 +391,7 @@ async function startTrip(busDoc, direction = 'pickup') {
   busDoc.stops.forEach((s) => { s.status = 'Pending'; s.arrivedAt = undefined; s.departedAt = undefined; });
   const first = dir === 'drop' ? busDoc.stops.length - 1 : 0;
   if (busDoc.stops.length) busDoc.stops[first].status = 'Live';
-  Object.assign(busDoc, { busStatus: 'On Route', direction: dir, tripId, currentStopIndex: 0, tripStartedAt: new Date(), tripEndedAt: undefined, boardedStudents: [], route, tripNotices: [] });
+  Object.assign(busDoc, { busStatus: 'On Route', direction: dir, tripId, driverDevice: deviceId || undefined, currentStopIndex: 0, tripStartedAt: new Date(), tripEndedAt: undefined, boardedStudents: [], route, tripNotices: [] });
   busDoc.set('live', undefined);
   await busDoc.save();
   forget(busDoc._id);
@@ -406,11 +407,11 @@ async function startTrip(busDoc, direction = 'pickup') {
 
 async function endTrip(busDoc) {
   const st = await stateOf(busDoc._id, busDoc.school);
-  Object.assign(busDoc, { busStatus: 'Completed', tripEndedAt: new Date(), boardedStudents: [] });
+  Object.assign(busDoc, { busStatus: 'Completed', tripEndedAt: new Date(), boardedStudents: [], driverDevice: undefined });
   busDoc.set('live', undefined);
   await busDoc.save();
   if (st) {
-    st.status = 'Completed'; st.live = null;
+    st.status = 'Completed'; st.live = null; st.endedAt = Date.now();
     if (await claimNotice(st, 'end')) tellParents(st, st.students, () => ({ title: `Bus ${st.busNumber} trip ended`, message: st.direction === 'drop' ? 'The bus has finished dropping students.' : 'The bus has reached school.' })).catch(() => {});
     emit(st, snapshot(st, { withRoute: false }));
   }
@@ -549,6 +550,15 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
   return { accepted, rejected: list.length - accepted, reasons, currentStopIndex: st.current, etas: etas(st), serverTime: now };
 }
 
+// "Check again who may watch this bus": sent when the bus's students change or the bus is removed. Open live streams listen and
+// re-verify their viewer at once (routes/transportRoutes.js).
+const requestRecheck = (busId) => bus.emit(`recheck:${busId}`);
+function onRecheck(busId, fn) {
+  const key = `recheck:${busId}`;
+  bus.on(key, fn);
+  return () => bus.off(key, fn);
+}
+
 // Subscribes to one bus's changes. Returns the function that stops listening.
 const watchers = new Map(); // busId -> { n, timer }
 function subscribe(busId, fn) {
@@ -577,5 +587,5 @@ const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); watcher
 
 module.exports = {
   distance, bearing, buildRoute, project, simplify, roadGeometry, tripStops, cfg,
-  startTrip, endTrip, advance, ingest, snapshot, snapshotFor, subscribe, stateOf, forget, signal, etas, closeAbandonedTrips, resetForTests,
+  startTrip, endTrip, advance, ingest, snapshot, snapshotFor, subscribe, requestRecheck, onRecheck, stateOf, forget, signal, etas, closeAbandonedTrips, resetForTests,
 };

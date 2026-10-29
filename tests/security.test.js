@@ -237,16 +237,37 @@ describe('transport', () => {
 
 describe('SOS', () => {
   test('parent SOS reaches the school admins only, and is throttled', async () => {
-    const res = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({ lat: 28.6, lng: 77.2 });
+    // A location sent by the phone is ignored (the server uses its own last reading of the bus); a retry with the same requestId is one event.
+    const res = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({ lat: 28.6, lng: 77.2, requestId: 'sos-test-0001' });
     expect(res.status).toBe(201);
     expect(res.body.notified).toBe(1);
+    expect(res.body.delivery).toEqual({ inApp: 'created', push: 'unconfirmed', driver: 'not_notified' });
+    const SosEvent = require('../src/models/SosEvent');
+    const saved = await SosEvent.findById(res.body.eventId).lean();
+    expect(String(saved.school)).toBe(String(A.school._id));
+    expect(String(saved.createdBy)).toBe(String(A.parentUser._id));
+    expect(saved.driverNotified).toBe(false);
+    expect(saved.recipients).toHaveLength(1);
+    expect(saved.busPosition).toBeUndefined();
     const admin = await api().get('/api/notifications/my').set(auth(A.admin));
     expect(admin.body.data[0].title).toBe('SOS alert');
     expect(admin.body.data[0].message).toContain('Aarav');
     const otherAdmin = await api().get('/api/notifications/my').set(auth(B.admin));
     expect(otherAdmin.body.data).toHaveLength(0);
+    expect(admin.body.data[0].message).not.toContain('28.6');
     const again = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({});
     expect(again.status).toBe(429);
+    const retry = await api().post('/api/transport/sos').set(auth(A.parentUser)).send({ requestId: 'sos-test-0001' });
+    expect(retry.status).toBe(200);
+    expect(retry.body.duplicate).toBe(true);
+    expect(retry.body.eventId).toBe(res.body.eventId);
+    expect(await SosEvent.countDocuments({ school: A.school._id })).toBe(1);
+    const notes = await api().get('/api/notifications/my').set(auth(A.admin));
+    expect(notes.body.data.filter((n) => n.title === 'SOS alert')).toHaveLength(1);
+    // another school's family cannot reuse the id to read or create anything in this school
+    const other = await api().post('/api/transport/sos').set(auth(B.parentUser || B.admin)).send({ requestId: 'sos-test-0001' });
+    expect([201, 403, 404]).toContain(other.status);
+    expect(await SosEvent.countDocuments({ school: A.school._id })).toBe(1);
   });
 });
 

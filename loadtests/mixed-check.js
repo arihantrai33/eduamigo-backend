@@ -45,7 +45,8 @@ async function signIn(code, id, pw) {
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const log = (...a) => { const l = `${new Date().toISOString().slice(11, 19)}  ${a.join(' ')}`; console.log(l); fs.appendFileSync(path.join(OUT, 'run.log'), `${l}\n`); };
-  if (availableGB() < 3.5) { console.error(`REFUSED: only ${availableGB().toFixed(1)} GB of memory is free; close apps first (need 3.5 GB)`); process.exit(2); }
+  const NEED_GB = Number(arg('min-free-gb', 3.5));
+  if (availableGB() < NEED_GB) { console.error(`REFUSED: only ${availableGB().toFixed(1)} GB of memory is free; close apps first (need ${NEED_GB} GB, or pass --min-free-gb)`); process.exit(2); }
   log(`Mixed activity ${RUN}: about ${USERS} people in ${SCHOOLS} schools, ramp ${RAMP}, hold ${HOLD}. ${os.cpus().length} CPUs, ${(os.totalmem() / GB).toFixed(0)} GB, ${availableGB().toFixed(1)} GB free now.`);
   const { MongoMemoryServer } = require('mongodb-memory-server');
   const mongo = await MongoMemoryServer.create();
@@ -176,7 +177,7 @@ async function main() {
       const st = { sendAt: new Map(), readings: [], t0: 0 }; T[f.id] = st;
       const rnd = (() => { let s = 99 + f.si * 17 + f.b; return () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; }; })();
       driverRuns.push((async () => {
-        const started = await api('PATCH', `/transport/driver/${f.driverToken}/start-trip`, null, { direction: 'pickup' }); if (started.status !== 200) { batchErrors += 1; return; }
+        const started = await api('PATCH', `/transport/driver/${f.driverToken}/start-trip`, null, { direction: 'pickup', deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` }); if (started.status !== 200) { batchErrors += 1; return; }
         st.t0 = Date.now(); const queue2 = []; let lastSend = 0;
         for (let sec = 0; ; sec += 1) {
           const tr = f.truth.at(sec); const fault = (f.b === 1 && f.si % 5 === 3 && sec >= 100 && sec < 115);
@@ -186,14 +187,14 @@ async function main() {
           const offline = f.b === 0 && f.si % 7 === 1 && sec >= 70 && sec < 100;
           if (!offline && sec - lastSend >= 4) {
             const batch = queue2.splice(0, 60); batch.forEach((p) => st.sendAt.set(p.at, Date.now()));
-            const r = await api('POST', `/transport/driver/${f.driverToken}/location`, null, { points: batch }); batches += 1;
+            const r = await api('POST', `/transport/driver/${f.driverToken}/location`, null, { points: batch, deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` }); batches += 1;
             if (r.status === 200) { accepted += r.json.data.accepted; rejected += r.json.data.rejected; for (const [k, v] of Object.entries(r.json.data.reasons || {})) reasons[k] = (reasons[k] || 0) + v; } else batchErrors += 1;
             lastSend = sec;
           }
           if (sec > f.truth.duration + 8) break;
           await sleep(Math.max(0, st.t0 + (sec + 1) * 1000 - Date.now()));
         }
-        if (queue2.length) await api('POST', `/transport/driver/${f.driverToken}/location`, null, { points: queue2.splice(0, 60) });
+        if (queue2.length) await api('POST', `/transport/driver/${f.driverToken}/location`, null, { points: queue2.splice(0, 60), deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` });
         await sleep(1500); await api('PATCH', `/transport/driver/${f.driverToken}/end-trip`, null, {});
       })());
     }

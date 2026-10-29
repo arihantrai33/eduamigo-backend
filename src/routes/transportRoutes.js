@@ -10,6 +10,12 @@ const { entitlementsFor } = require('../services/subscription');
 const tracking = require('../services/busTracking');
 const BusTripPoint = require('../models/BusTripPoint');
 const { driverLocationLimiter } = require('../middleware/rateLimit');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const { jwtSecret } = require('../config/env');
+const { isRevoked } = require('../services/tokens');
+const { resolveAuthz } = require('../services/roles');
+const { can } = require('../services/authorization');
 
 // Driver token: long random secret (hard to guess), still easy to type from a card: "BUS12-8F3K-9QZ2-..."
 const makeDriverToken = (busNumber) => {
@@ -32,6 +38,25 @@ async function ensureTracking(bus) {
 }
 
 // ---------------- Live tracking: who may watch ----------------
+
+// Why this person may NOT watch this bus right now, or null if they may. Used when a live stream is opened and then again every
+// few seconds while it stays open (and at once when the bus's students change), so a removed assignment, a disabled account, a
+// signed-out session or a suspended school stops the stream; it does not wait for the phone to reconnect.
+async function whyNotWatching(user, decoded, busId, studentId, schoolId) {
+  if (decoded?.exp && decoded.exp * 1000 <= Date.now()) return 'session';
+  const fresh = await User.findOne({ _id: user._id, school: schoolId }).select('-password').populate('school', '_id isActive subscription');
+  if (!fresh || !fresh.isActive || !fresh.school) return 'account';
+  if (decoded && isRevoked(decoded, fresh)) return 'session';
+  const entitlements = await entitlementsFor(fresh.school);
+  if (entitlements.blocked || !entitlements.features.includes('transport')) return 'school';
+  if (!(await Transport.exists({ _id: busId, school: fresh.school._id }))) return 'bus';
+  if (fresh.role === 'student' || fresh.role === 'parent') {
+    const student = fresh.role === 'student' ? await studentForUser(fresh) : (await resolveChild(fresh, studentId)).child;
+    return student?.bus && String(student.bus) === String(busId) ? null : 'assignment';
+  }
+  fresh.authz = await resolveAuthz(fresh);
+  return can(fresh, 'transport.manage', entitlements) ? null : 'permission';
+}
 
 // A student or parent may watch only the bus their child is assigned to; staff need the transport permission.
 const viewerAccess = asyncHandler(async (req, res, next) => {
@@ -89,13 +114,29 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
   });
 }));
 
-// POST /api/transport/sos  { studentId?, lat?, lng?, note? } (student, parent)
-// Sends an urgent personal notification to every active admin of the school.
+// POST /api/transport/sos  { studentId?, note?, requestId? } (student, parent)
+// Creates an in-app notification for every active admin of the school and saves an SOS event with what was really done. It does NOT
+// alert the driver (drivers have no account), and push delivery is not confirmed, so the answer says exactly that. The bus position is
+// the server's own last reading of that bus, never a value from the phone.
 router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), asyncHandler(async (req, res) => {
   const User = require('../models/User');
   const Notification = require('../models/Notification');
   const School = require('../models/School');
+  const SosEvent = require('../models/SosEvent');
   const { notifyUser } = require('../services/notify');
+  const { audit } = require('../services/audit');
+
+  const requestId = typeof req.body?.requestId === 'string' && /^[\w-]{8,64}$/.test(req.body.requestId) ? req.body.requestId : '';
+  const view = (ev, schoolPhone) => ({
+    success: true, eventId: String(ev._id), notified: ev.recipients.filter((r) => r.inApp === 'created').length,
+    delivery: { inApp: 'created', push: 'unconfirmed', driver: 'not_notified' }, schoolPhone: schoolPhone || null,
+  });
+  const school = await School.findById(req.schoolId).select('phone');
+  // The same tap sent twice (a retry after a slow network) is one event, not two alerts.
+  if (requestId) {
+    const seen = await SosEvent.findOne({ school: req.schoolId, createdBy: req.user._id, requestId });
+    if (seen) return res.status(200).json({ ...view(seen, school?.phone), duplicate: true });
+  }
 
   const recent = await Notification.countDocuments({
     school: req.schoolId, createdBy: req.user._id, title: 'SOS alert', createdAt: { $gt: new Date(Date.now() - 2 * 60 * 1000) },
@@ -105,20 +146,33 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
   const student = req.user.role === 'student'
     ? await studentForUser(req.user)
     : (await resolveChild(req.user, req.body?.studentId)).child;
-  const bus = student?.bus ? await Transport.findOne({ _id: student.bus, school: req.schoolId }).select('busNumber routeName driverName driverPhone') : null;
-  const lat = Number(req.body?.lat);
-  const lng = Number(req.body?.lng);
-  const where = Number.isFinite(lat) && Number.isFinite(lng) ? ` Location: https://maps.google.com/?q=${lat},${lng}` : '';
-  const note = req.body?.note ? ` Note: ${String(req.body.note).slice(0, 300)}` : '';
+  const bus = student?.bus ? await Transport.findOne({ _id: student.bus, school: req.schoolId }).select('busNumber routeName driverName driverPhone busStatus tripId') : null;
+  let busPosition = null;
+  if (bus && bus.busStatus === 'On Route') {
+    const st = await tracking.stateOf(bus._id, req.schoolId).catch(() => null);
+    if (st?.live) busPosition = { lat: st.live.lat, lng: st.live.lng, at: new Date(st.live.at), receivedAt: new Date(st.live.receivedAt) };
+  }
+  const where = busPosition ? ` Last bus position: https://maps.google.com/?q=${busPosition.lat},${busPosition.lng} (${new Date(busPosition.receivedAt).toISOString()}).` : '';
+  const note = req.body?.note ? String(req.body.note).slice(0, 300) : '';
 
   const admins = await User.find({ school: req.schoolId, role: 'admin', isActive: true }).select('_id');
   const message = `${req.user.role === 'parent' ? `Parent ${req.user.name}` : `Student ${req.user.name}`} raised an SOS`
     + `${student ? ` for ${student.name} (Class ${student.class}-${student.section})` : ''}`
-    + `${bus ? ` on bus ${bus.busNumber} (${bus.routeName}, driver ${bus.driverName} ${bus.driverPhone})` : ''}.${where}${note}`;
-  await Promise.all(admins.map((a) => notifyUser(req.schoolId, a._id, { title: 'SOS alert', message, type: 'Transport', createdBy: req.user._id })));
-
-  const school = await School.findById(req.schoolId).select('phone');
-  res.status(201).json({ success: true, notified: admins.length, schoolPhone: school?.phone || null });
+    + `${bus ? ` on bus ${bus.busNumber} (${bus.routeName}, driver ${bus.driverName} ${bus.driverPhone})` : ''}.${where}${note ? ` Note: ${note}` : ''}`;
+  const recipients = await Promise.all(admins.map(async (a) => {
+    try {
+      await notifyUser(req.schoolId, a._id, { title: 'SOS alert', message, type: 'Transport', createdBy: req.user._id });
+      return { user: a._id, inApp: 'created', push: 'unconfirmed' };
+    } catch {
+      return { user: a._id, inApp: 'failed', push: 'unconfirmed' };
+    }
+  }));
+  const ev = await SosEvent.create({
+    school: req.schoolId, createdBy: req.user._id, role: req.user.role, student: student?._id || null, bus: bus?._id || null,
+    tripId: bus?.tripId || '', ...(busPosition ? { busPosition } : {}), note, requestId, recipients, driverNotified: false,
+  });
+  audit(req, 'transport.sos', { targetType: 'sos_event', targetId: ev._id, details: { bus: bus?.busNumber || null, recipients: recipients.length, delivered: recipients.filter((r) => r.inApp === 'created').length } });
+  res.status(201).json(view(ev, school?.phone));
 }));
 
 // ---------------- Admin ----------------
@@ -212,6 +266,8 @@ router.put('/:id/assign-students', protect, transportOn, requirePermission('tran
   if (students.length !== ids.length) throw new HttpError(400, 'One or more students do not belong to your school');
   if (ids.length > bus.capacity) throw new HttpError(400, `This bus has only ${bus.capacity} seats`);
 
+  // Buses these students are leaving: their viewers must be re-checked too.
+  const leaving = (await Student.distinct('bus', { _id: { $in: ids }, school: req.schoolId, bus: { $nin: [null, bus._id] } })).map(String);
   // Students taken off this bus lose their stop; students arriving from another bus start without one (that stop was on the other bus).
   await Student.updateMany({ bus: bus._id, school: req.schoolId, _id: { $nin: ids } }, { $set: { bus: null, busStopId: null } });
   await Student.updateMany({ _id: { $in: ids }, school: req.schoolId, bus: { $ne: bus._id } }, { $set: { bus: bus._id, busStopId: null } });
@@ -230,6 +286,7 @@ router.put('/:id/assign-students', protect, transportOn, requirePermission('tran
   bus.availableSeats = bus.capacity - ids.length;
   await bus.save();
   const updated = await Transport.findOne({ _id: bus._id, school: req.schoolId }).populate('assignedStudents', 'name rollNumber class section');
+  [String(bus._id), ...leaving].forEach((id) => tracking.requestRecheck(id)); // open live maps of removed students close now
   res.json({ success: true, data: updated });
 }));
 
@@ -239,6 +296,8 @@ router.delete('/:id', protect, transportOn, requirePermission('transport.manage'
   if (!bus) throw new HttpError(404, 'Bus not found');
   await Student.updateMany({ bus: bus._id, school: req.schoolId }, { $set: { bus: null } });
   await Transport.deleteOne({ _id: bus._id, school: req.schoolId });
+  tracking.forget(bus._id);
+  tracking.requestRecheck(bus._id);
   res.json({ success: true, message: 'Bus deleted' });
 }));
 
@@ -261,6 +320,7 @@ router.get('/live/:busId', protect, transportOn, viewerAccess, asyncHandler(asyn
 // The same picture followed by every change as it happens, one JSON object per line. The first line is the snapshot; a
 // { type: "ping" } line every 15 seconds keeps the connection open through proxies and lets the screen notice a dead link.
 router.get('/live/:busId/stream', protect, transportOn, viewerAccess, asyncHandler(async (req, res) => {
+  const decoded = jwt.decode(String(req.headers.authorization || '').slice(7));
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -268,7 +328,20 @@ router.get('/live/:busId/stream', protect, transportOn, viewerAccess, asyncHandl
   const write = (event) => { if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`); };
   const unsubscribe = tracking.subscribe(req.params.busId, write);
   const beat = setInterval(() => write({ type: 'ping', serverTime: Date.now() }), 15000);
-  const done = () => { clearInterval(beat); unsubscribe(); };
+  // Access is checked again while the stream stays open: every BUS_STREAM_RECHECK_MS (a little random, so thousands of streams do not
+  // all check in the same second) and at once when the bus's students change. When it no longer holds, the viewer is told and cut off.
+  let over = false;
+  const recheck = async () => {
+    if (over || res.writableEnded) return;
+    try {
+      const why = await whyNotWatching(req.user, decoded, req.params.busId, req.query.studentId, req.schoolId);
+      if (why) { over = true; write({ type: 'revoked', reason: why, serverTime: Date.now() }); res.end(); }
+    } catch (err) { if (process.env.BUS_DEBUG) console.error('stream recheck failed:', err.message); /* a database hiccup: keep the stream, the next check decides */ }
+  };
+  const every = Number(process.env.BUS_STREAM_RECHECK_MS || 30000);
+  const check = setInterval(recheck, every * (0.8 + Math.random() * 0.4));
+  const unwatch = tracking.onRecheck(req.params.busId, recheck);
+  const done = () => { over = true; clearInterval(beat); clearInterval(check); unsubscribe(); unwatch(); };
   res.on('close', done);
   write(await tracking.snapshotFor(req.params.busId, undefined, req.schoolId));
 }));
@@ -310,20 +383,36 @@ async function busForToken(token, { fresh = false } = {}) {
 
 const driverView = (bus) => {
   const out = bus.toObject();
-  delete out.driverToken; delete out.route; delete out.tripNotices; delete out.assignedStudents; delete out.boardedStudents;
+  delete out.driverToken; delete out.route; delete out.tripNotices; delete out.assignedStudents; delete out.boardedStudents; delete out.driverDevice;
   return { ...out, stops: tracking.tripStops(bus).map((s) => ({ _id: s.id, name: s.name, latitude: s.lat, longitude: s.lng, status: s.status })), busId: bus._id };
 };
 
 // The driver's screen after opening the app or reloading it: which trip is running and where it has got to.
+const deviceOf = (req) => { const d = String((req.body && req.body.deviceId) ?? req.query.deviceId ?? '').trim(); return /^[\w-]{8,64}$/.test(d) ? d : ''; };
+// A trip with no reading for this long is treated as abandoned (the phone died): the next Start Trip replaces it without a takeover.
+const QUIET_TRIP_MS = 15 * 60 * 1000;
+
 router.get('/driver/:token', asyncHandler(async (req, res) => {
   const bus = await busForToken(req.params.token, { fresh: true });
-  res.json({ success: true, data: driverView(bus) });
+  const device = deviceOf(req);
+  // thisPhone: whether this phone may carry on with the running trip (no phone recorded, or it is the one that started it).
+  res.json({ success: true, data: { ...driverView(bus), thisPhone: !bus.driverDevice || bus.driverDevice === device } });
 }));
 
 router.patch('/driver/:token/start-trip', asyncHandler(async (req, res) => {
   const bus = await busForToken(req.params.token, { fresh: true });
   if (!bus.stops.length) throw new HttpError(409, 'This bus has no stops yet. Ask the school to add the route.');
-  const st = await tracking.startTrip(bus, req.body?.direction);
+  const device = deviceOf(req);
+  // One running trip per bus. Starting again would reset the stops and tell every parent "the bus has started" a second time, so a
+  // trip that is running (and has been heard from lately) is refused unless the driver explicitly takes it over (restart: true).
+  if (bus.busStatus === 'On Route' && req.body?.restart !== true) {
+    const lastHeard = Math.max(bus.live?.receivedAt || 0, bus.tripStartedAt ? new Date(bus.tripStartedAt).getTime() : 0);
+    if (Date.now() - lastHeard < QUIET_TRIP_MS) {
+      throw new HttpError(409, bus.driverDevice && bus.driverDevice !== device ? 'This trip is already running on another phone.' : 'This trip is already running.',
+        { code: 'TRIP_ALREADY_RUNNING', thisPhone: !bus.driverDevice || bus.driverDevice === device, tripId: bus.tripId, direction: bus.direction });
+    }
+  }
+  const st = await tracking.startTrip(bus, req.body?.direction, { deviceId: device });
   res.json({ success: true, data: { busStatus: 'On Route', currentStopIndex: 0, direction: st.direction, tripId: st.tripId, routeSource: st.routeSource, stops: driverView(await Transport.findById(bus._id)).stops } });
 }));
 
@@ -336,6 +425,7 @@ const takeLocation = asyncHandler(async (req, res) => {
   if (points.length > 60) throw new HttpError(400, 'Send at most 60 readings at a time');
   if (!points.some((p) => Number(p?.lat) >= -90 && Number(p?.lat) <= 90 && Number(p?.lng) >= -180 && Number(p?.lng) <= 180)) throw new HttpError(400, 'Invalid coordinates');
   const bus = await busForToken(req.params.token);
+  if (bus.driverDevice && bus.driverDevice !== deviceOf(req)) throw new HttpError(409, 'This trip is being driven from another phone', { code: 'OTHER_PHONE' });
   const out = await tracking.ingest(bus._id, points);
   if (out.notActive) throw new HttpError(409, 'Trip not active', { code: 'TRIP_NOT_ACTIVE' });
   res.json({ success: true, data: out });
@@ -347,6 +437,7 @@ router.post('/driver/:token/update-location', driverLocationLimiter, takeLocatio
 router.patch('/driver/:token/stop-done', asyncHandler(async (req, res) => {
   const bus = await busForToken(req.params.token, { fresh: true });
   if (bus.busStatus !== 'On Route') throw new HttpError(409, 'Trip has not started');
+  if (bus.driverDevice && bus.driverDevice !== deviceOf(req)) throw new HttpError(409, 'This trip is being driven from another phone', { code: 'OTHER_PHONE' });
   const st = await tracking.stateOf(bus._id, bus.school);
   await tracking.advance(st);
   const fresh = await Transport.findById(bus._id);

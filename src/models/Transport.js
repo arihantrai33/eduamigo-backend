@@ -33,6 +33,9 @@ const transportSchema = new mongoose.Schema({
   // (school to home, stops reversed). `route` is the road geometry between the stops, built once per trip.
   direction:        { type: String, enum: ['pickup', 'drop'], default: 'pickup' },
   tripId:           { type: String },
+  // The phone that started the running trip (a random id the driver page makes once). Readings from any other phone are refused while the
+  // trip runs, so two phones with the same driver code cannot feed one bus conflicting positions. Cleared when the trip ends.
+  driverDevice:     { type: String },
   route:            { points: { type: [[Number]], default: undefined }, source: String, key: String, meters: Number },
   live: {
     lat: Number, lng: Number, heading: Number, speedKmh: Number, avgKmh: Number, accuracy: Number,

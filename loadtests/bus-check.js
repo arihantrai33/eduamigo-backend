@@ -191,7 +191,7 @@ async function main() {
       T[f.id] = st;
       const rnd = (() => { let s = 77 + f.si * 13 + f.b; return () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; }; })();
       driverDone.push((async () => {
-        const started = await http('PATCH', `/transport/driver/${f.driverToken}/start-trip`, null, { direction: 'pickup' });
+        const started = await http('PATCH', `/transport/driver/${f.driverToken}/start-trip`, null, { direction: 'pickup', deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` });
         if (started.status !== 200) throw new Error(`start-trip failed ${started.status}`);
         st.t0 = Date.now();
         const queue = []; let lastSend = 0;
@@ -210,7 +210,7 @@ async function main() {
           if (!offline && sec - lastSend >= 4) {
             const batch = queue.splice(0, 60);
             batch.forEach((p) => st.sendAt.set(p.at, Date.now()));
-            const r = await http('POST', `/transport/driver/${f.driverToken}/location`, null, { points: batch }, BASES[(st.batchNo = (st.batchNo || 0) + 1) % BASES.length]); sent += 1;
+            const r = await http('POST', `/transport/driver/${f.driverToken}/location`, null, { points: batch, deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` }, BASES[(st.batchNo = (st.batchNo || 0) + 1) % BASES.length]); sent += 1;
             if (r.status === 200) { acceptedTotal += r.json.data.accepted; rejectedTotal += r.json.data.rejected; for (const [k, v] of Object.entries(r.json.data.reasons || {})) reasons[k] = (reasons[k] || 0) + v; }
             else batchErrors.push(`${f.number}: ${r.status}`);
             lastSend = sec;
@@ -219,7 +219,7 @@ async function main() {
           await sleep(Math.max(0, st.t0 + (sec + 1) * 1000 - Date.now()));
         }
         // flush anything still queued, then the driver ends the trip
-        if (queue.length) { const r = await http('POST', `/transport/driver/${f.driverToken}/location`, null, { points: queue.splice(0, 60) }); sent += 1; if (r.status !== 200) batchErrors.push(`${f.number}: ${r.status}`); }
+        if (queue.length) { const r = await http('POST', `/transport/driver/${f.driverToken}/location`, null, { points: queue.splice(0, 60), deviceId: `sim-${f.number.replace(/[^A-Za-z0-9]/g, '')}-phone` }); sent += 1; if (r.status !== 200) batchErrors.push(`${f.number}: ${r.status}`); }
         await sleep(1500);
         st.endedAt = Date.now();
         await http('PATCH', `/transport/driver/${f.driverToken}/end-trip`, null, {});

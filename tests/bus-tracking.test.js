@@ -315,6 +315,20 @@ describe('signal and the end of the trip', () => {
     expect((await Transport.findById(bus._id)).busStatus).toBe('Completed');
   });
 
+  test('the picture says when the trip started and, once it is over, when it ended', async () => {
+    expect(await snap()).toMatchObject({ status: 'Idle', startedAt: null, endedAt: null });
+    const before = Date.now();
+    await start();
+    const running = await snap();
+    expect(running.startedAt).toBeGreaterThanOrEqual(before - 1000);
+    expect(running.endedAt).toBeNull();
+    await api().patch(driver('/end-trip')).send({});
+    const over = await snap();
+    expect(over.status).toBe('Completed');
+    expect(over.startedAt).toBe(running.startedAt);
+    expect(over.endedAt).toBeGreaterThanOrEqual(over.startedAt);
+  });
+
   test('a new trip starts clean: stops reset, no old position, messages allowed again', async () => {
     await start();
     await post(drive(LNGS[0], 30, 0));
