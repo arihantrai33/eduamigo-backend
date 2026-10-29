@@ -120,7 +120,6 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
 // the server's own last reading of that bus, never a value from the phone.
 router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), asyncHandler(async (req, res) => {
   const User = require('../models/User');
-  const Notification = require('../models/Notification');
   const School = require('../models/School');
   const SosEvent = require('../models/SosEvent');
   const { notifyUser } = require('../services/notify');
@@ -129,7 +128,7 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
   const requestId = typeof req.body?.requestId === 'string' && /^[\w-]{8,64}$/.test(req.body.requestId) ? req.body.requestId : '';
   const view = (ev, schoolPhone) => ({
     success: true, eventId: String(ev._id), notified: ev.recipients.filter((r) => r.inApp === 'created').length,
-    delivery: { inApp: 'created', push: 'unconfirmed', driver: 'not_notified' }, schoolPhone: schoolPhone || null,
+    delivery: { inApp: ev.recipients.some((r) => r.inApp === 'created') ? 'created' : 'none', push: 'unconfirmed', driver: 'not_notified' }, schoolPhone: schoolPhone || null,
   });
   const school = await School.findById(req.schoolId).select('phone');
   // The same tap sent twice (a retry after a slow network) is one event, not two alerts.
@@ -138,10 +137,9 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
     if (seen) return res.status(200).json({ ...view(seen, school?.phone), duplicate: true });
   }
 
-  const recent = await Notification.countDocuments({
-    school: req.schoolId, createdBy: req.user._id, title: 'SOS alert', createdAt: { $gt: new Date(Date.now() - 2 * 60 * 1000) },
-  });
-  if (recent) throw new HttpError(429, 'An SOS alert was just sent. The school has been notified. Please call if it is urgent.');
+  // One SOS per person per 2 minutes, counted on the saved events (not on notifications, so it also holds when no admin exists).
+  const recent = await SosEvent.countDocuments({ school: req.schoolId, createdBy: req.user._id, createdAt: { $gt: new Date(Date.now() - 2 * 60 * 1000) } });
+  if (recent) throw new HttpError(429, 'An SOS alert was just sent. Please call the school or the driver if it is urgent.');
 
   const student = req.user.role === 'student'
     ? await studentForUser(req.user)
@@ -155,6 +153,20 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
   const where = busPosition ? ` Last bus position: https://maps.google.com/?q=${busPosition.lat},${busPosition.lng} (${new Date(busPosition.receivedAt).toISOString()}).` : '';
   const note = req.body?.note ? String(req.body.note).slice(0, 300) : '';
 
+  // The event is saved first: it reserves the requestId, so two copies of one tap cannot both alert the office.
+  let ev;
+  try {
+    ev = await SosEvent.create({
+      school: req.schoolId, createdBy: req.user._id, role: req.user.role, student: student?._id || null, bus: bus?._id || null,
+      tripId: bus?.tripId || '', ...(busPosition ? { busPosition } : {}), note, requestId, recipients: [], driverNotified: false,
+    });
+  } catch (err) {
+    if (err?.code === 11000 && requestId) {
+      const seen = await SosEvent.findOne({ school: req.schoolId, createdBy: req.user._id, requestId });
+      if (seen) return res.status(200).json({ ...view(seen, school?.phone), duplicate: true });
+    }
+    throw err;
+  }
   const admins = await User.find({ school: req.schoolId, role: 'admin', isActive: true }).select('_id');
   const message = `${req.user.role === 'parent' ? `Parent ${req.user.name}` : `Student ${req.user.name}`} raised an SOS`
     + `${student ? ` for ${student.name} (Class ${student.class}-${student.section})` : ''}`
@@ -167,10 +179,8 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
       return { user: a._id, inApp: 'failed', push: 'unconfirmed' };
     }
   }));
-  const ev = await SosEvent.create({
-    school: req.schoolId, createdBy: req.user._id, role: req.user.role, student: student?._id || null, bus: bus?._id || null,
-    tripId: bus?.tripId || '', ...(busPosition ? { busPosition } : {}), note, requestId, recipients, driverNotified: false,
-  });
+  ev.recipients = recipients;
+  await ev.save();
   audit(req, 'transport.sos', { targetType: 'sos_event', targetId: ev._id, details: { bus: bus?.busNumber || null, recipients: recipients.length, delivered: recipients.filter((r) => r.inApp === 'created').length } });
   res.status(201).json(view(ev, school?.phone));
 }));

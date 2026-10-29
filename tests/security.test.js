@@ -271,6 +271,38 @@ describe('SOS', () => {
   });
 });
 
+describe('SOS hardening', () => {
+  test('two copies of one tap at the same moment are one event and one alert', async () => {
+    const SosEvent = require('../src/models/SosEvent');
+    const body = { requestId: 'sos-race-0001' };
+    const [x, y] = await Promise.all([
+      api().post('/api/transport/sos').set(auth(B.parentUser)).send(body),
+      api().post('/api/transport/sos').set(auth(B.parentUser)).send(body),
+    ]);
+    expect([x.status, y.status].sort()).toEqual([200, 201]);
+    expect(x.body.eventId).toBe(y.body.eventId);
+    expect(await SosEvent.countDocuments({ school: B.school._id })).toBe(1);
+    const notes = await api().get('/api/notifications/my').set(auth(B.admin));
+    expect(notes.body.data.filter((n) => n.title === 'SOS alert')).toHaveLength(1);
+  });
+
+  test('the limit holds without any admin to notify, and a staff role cannot raise one', async () => {
+    const User = require('../src/models/User');
+    const SosEvent = require('../src/models/SosEvent');
+    await User.updateMany({ school: B.school._id, role: 'admin' }, { isActive: false });
+    const first = await api().post('/api/transport/sos').set(auth(B.parentUser)).send({});
+    expect(first.status).toBe(201);
+    expect(first.body.notified).toBe(0);
+    expect(first.body.delivery.inApp).toBe('none'); // saved, but nobody was told: the app says so
+    const second = await api().post('/api/transport/sos').set(auth(B.parentUser)).send({});
+    expect(second.status).toBe(429);
+    expect(await SosEvent.countDocuments({ school: B.school._id })).toBe(1);
+    const staff = await api().post('/api/transport/sos').set(auth(B.teacherUser || B.admin)).send({});
+    expect(staff.status).toBe(403);
+    await User.updateMany({ school: B.school._id, role: 'admin' }, { isActive: true });
+  });
+});
+
 describe('chat contact lists', () => {
   test('admin and teacher inboxes show unread counts and the last message', async () => {
     await api().post('/api/chat/messages').set(auth(A.parentUser)).send({ receiverId: String(A.admin._id), text: 'First' }).expect(201);

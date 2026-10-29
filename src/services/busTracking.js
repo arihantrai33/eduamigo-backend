@@ -19,6 +19,7 @@ const { EventEmitter } = require('events');
 const Transport = require('../models/Transport');
 const Student = require('../models/Student');
 const BusTripPoint = require('../models/BusTripPoint');
+const { log } = require('../utils/logger');
 const { notifyParents } = require('./notify');
 
 const num = (name, d) => (process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : d);
@@ -129,9 +130,12 @@ function simplify(points, tolerance = 4) {
 async function osrmRoute(base, stops, signal) {
   const coords = stops.map((s) => `${s.lng},${s.lat}`).join(';');
   const res = await fetch(`${base.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=false`, { signal });
+  if (!res.ok) throw new Error(`http_${res.status}`);
   const data = await res.json().catch(() => ({}));
+  if (data?.code && data.code !== 'Ok') throw new Error(`osrm_${String(data.code).slice(0, 30)}`);
   const line = data?.routes?.[0]?.geometry?.coordinates;
-  return Array.isArray(line) && line.length > 1 ? line.map(([lng, lat]) => [lat, lng]) : null;
+  if (!Array.isArray(line) || line.length < 2) throw new Error('no_geometry');
+  return line.map(([lng, lat]) => [lat, lng]);
 }
 
 // Mapbox Directions takes at most 25 points per request: longer routes are asked for in overlapping pieces and joined.
@@ -150,18 +154,38 @@ async function mapboxRoute(token, stops, signal) {
   return out.length > 1 ? out : null;
 }
 
+// Why a road could not be had is logged (reason codes only: never the token, the URL's query or the stops' coordinates), because the
+// caller falls back to a straight line without saying so and an operator otherwise cannot tell "routing is off" from "the provider failed".
 async function roadGeometry(stops) {
   if (stops.length < 2) return null;
   const token = process.env.MAPBOX_ACCESS_TOKEN;
   const base = process.env.ROUTING_URL === undefined ? (process.env.NODE_ENV === 'test' ? 'off' : 'https://router.project-osrm.org') : process.env.ROUTING_URL;
-  if (!token && (!base || base === 'off')) return null;
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return 'invalid_url'; } };
+  if (!token && (!base || base === 'off')) {
+    log.warn('route_provider_off', { reason: base === 'off' ? 'ROUTING_URL is off and no Mapbox token is set' : 'ROUTING_URL is empty and no Mapbox token is set', stops: stops.length });
+    return null;
+  }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 9000);
+  const why = (e) => (e?.name === 'AbortError' ? 'timeout' : String(e?.cause?.code || e?.message || 'error').slice(0, 80));
   try {
-    let line = token ? await mapboxRoute(token, stops, ctl.signal).catch(() => null) : null;
-    if (!line && base && base !== 'off') line = await osrmRoute(base, stops, ctl.signal); // Mapbox failed or is not set: the OSRM service
+    let line = null;
+    if (token) {
+      line = await mapboxRoute(token, stops, ctl.signal).catch((e) => { log.warn('route_provider_failed', { provider: 'mapbox', reason: why(e) }); return null; });
+      if (!line) log.warn('route_provider_failed', { provider: 'mapbox', reason: 'no_geometry' });
+    }
+    if (!line && base && base !== 'off') { // Mapbox failed or is not set: the OSRM service
+      try {
+        line = await osrmRoute(base, stops, ctl.signal);
+      } catch (e) {
+        log.warn('route_provider_failed', { provider: 'osrm', host: hostOf(base), reason: why(e), stops: stops.length });
+        return null;
+      }
+    }
+    if (line) log.info('route_provider_ok', { provider: token ? 'mapbox' : 'osrm', points: line.length });
     return line ? simplify(line, 3).slice(0, 4000) : null;
-  } catch {
+  } catch (e) {
+    log.warn('route_provider_failed', { provider: 'unknown', reason: why(e) });
     return null;
   } finally {
     clearTimeout(timer);
@@ -381,7 +405,8 @@ async function startTrip(busDoc, direction = 'pickup', { deviceId } = {}) {
   const probe = { ...busDoc.toObject(), direction: dir };
   const stops = tripStops(probe);
   const key = routeKey(stops, dir);
-  let route = busDoc.route?.key === key && busDoc.route?.points?.length ? { points: busDoc.route.points, source: busDoc.route.source, meters: busDoc.route.meters } : null;
+  // A stored straight line is not reused: the road is tried again at every trip start.
+  let route = busDoc.route?.key === key && busDoc.route?.source === 'road' && busDoc.route?.points?.length ? { points: busDoc.route.points, source: busDoc.route.source, meters: busDoc.route.meters } : null;
   if (!route) {
     const road = await roadGeometry(stops);
     const points = road || stops.map((s) => [s.lat, s.lng]);

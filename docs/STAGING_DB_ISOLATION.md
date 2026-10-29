@@ -5,6 +5,11 @@ Status: **plan only. Nothing here has been changed.** Changing a database user o
 ## The problem
 Staging (`eduamigo-staging` on Render, database `eduamigo_staging`) connects with the same Atlas user as production (`eduamigo`, same cluster). That user has the `atlasAdmin` role, so a bug or leaked staging secret could read or change production data.
 
+## Privilege check (29 Oct 2026)
+The application code (outside `src/scripts`) uses only normal reads/writes, index creation (Mongoose `autoIndex`, TTL indexes) and `db.admin().ping()` for the health check (`integrationController.js`); no `listDatabases`, `dropDatabase`, `useDb` or change streams. `readWrite` on `eduamigo_staging` covers all of that (it includes createCollection/createIndex/collMod); `ping` needs no privilege. So no wider role is needed. Maintenance scripts that drop or reseed (`demo:reset`) run from a laptop with their own URI and refuse any database not ending in `_staging` or `_demo`.
+
+Dashboard access today: Atlas CLI **not logged in** (cannot create the user: BLOCKED). Render CLI is logged in, but it cannot edit environment variables; that is a dashboard action. Nothing was changed.
+
 ## The fix (about 10 minutes, no cost)
 1. Atlas -> Database Access -> Add New Database User, password authentication, auto-generated password (do not reuse the production one).
 2. Built-in role: none. Add a **Specific Privilege**: role `readWrite`, database `eduamigo_staging`, collection empty (= all collections of that database only). Name the user `eduamigo_staging_app`.

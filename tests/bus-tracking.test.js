@@ -191,7 +191,7 @@ describe('staying on the street', () => {
   test('a trip that began without a road gets the road when a routing service answers, and viewers see it', async () => {
     const realFetch = global.fetch;
     const road = [[LAT, LNGS[0]], [LAT + 0.0004, LNGS[1]], [LAT, LNGS[2]], [LAT, LNGS[3]]];
-    global.fetch = jest.fn(async () => ({ json: async () => ({ routes: [{ geometry: { coordinates: road.map(([lat, lng]) => [lng, lat]) } }] }) }));
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ code: 'Ok', routes: [{ geometry: { coordinates: road.map(([lat, lng]) => [lng, lat]) } }] }) }));
     const saved = process.env.ROUTING_URL;
     try {
       await start(); // ROUTING_URL is off under test: the trip starts with the straight line
@@ -207,6 +207,38 @@ describe('staying on the street', () => {
     } finally {
       global.fetch = realFetch;
       if (saved === undefined) delete process.env.ROUTING_URL; else process.env.ROUTING_URL = saved;
+    }
+  });
+
+  test('when no road can be had the reason is logged (provider off, refused, timed out) without secrets or coordinates, and the trip stays straight', async () => {
+    const { log } = require('../src/utils/logger');
+    const warn = jest.spyOn(log, 'warn').mockImplementation(() => {});
+    const realFetch = global.fetch;
+    const saved = { url: process.env.ROUTING_URL, token: process.env.MAPBOX_ACCESS_TOKEN };
+    try {
+      await start(); // provider off under test
+      expect(warn).toHaveBeenCalledWith('route_provider_off', expect.objectContaining({ reason: expect.stringContaining('ROUTING_URL is off') }));
+      expect((await snap()).route.source).toBe('straight');
+
+      process.env.ROUTING_URL = 'https://user:secret@routing.test/path?key=SECRET123';
+      global.fetch = jest.fn(async () => ({ ok: false, status: 429, json: async () => ({}) }));
+      warn.mockClear();
+      tracking.resetForTests();
+      await settle();
+      await snap(); // loading the bus again is what tries for the road
+      await new Promise((r) => setTimeout(r, 150));
+      const calls = warn.mock.calls.filter(([e]) => e === 'route_provider_failed');
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[0][1]).toMatchObject({ provider: 'osrm', host: 'routing.test', reason: 'http_429' });
+      const text = JSON.stringify(warn.mock.calls);
+      expect(text).not.toContain('SECRET123');
+      expect(text).not.toContain('secret@');
+      expect((await snap()).route.source).toBe('straight');
+    } finally {
+      warn.mockRestore();
+      global.fetch = realFetch;
+      if (saved.url === undefined) delete process.env.ROUTING_URL; else process.env.ROUTING_URL = saved.url;
+      if (saved.token === undefined) delete process.env.MAPBOX_ACCESS_TOKEN; else process.env.MAPBOX_ACCESS_TOKEN = saved.token;
     }
   });
 });
