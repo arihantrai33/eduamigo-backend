@@ -16,7 +16,9 @@
     "demo": "node src/scripts/demo.js",
     "assistant:eval": "node src/scripts/assistantEval.js",
     "assistant:answers": "node src/scripts/assistantAnswerEval.js",
-    "diagnose:ai": "node src/scripts/diagnoseAi.js"
+    "diagnose:ai": "node src/scripts/diagnoseAi.js",
+    "demo:reset": "node src/scripts/resetDemo.js",
+    "demo:add-school": "node src/scripts/addProspectDemo.js"
   },
   "keywords": [],
   "author": "",

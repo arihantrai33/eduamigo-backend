@@ -42,7 +42,9 @@ const PASSWORD = process.env.DEMO_PASSWORD || 'Demo@1234'; // a shared demo serv
 const DAY = 86400000;
 
 // skipCodes: demo schools not to create (their place is taken by real data from --from-backup).
-async function seed({ skipCodes = [] } = {}) {
+// prospect: { name, code, ... } adds ONE extra fictional school and nothing else (no owner account, no other school): used to tailor a
+// demo for a school that is being shown EduAmigo (scripts/addProspectDemo.js).
+async function seed({ skipCodes = [], prospect = null } = {}) {
   const User = require('../models/User');
   const School = require('../models/School');
   const SchoolClass = require('../models/SchoolClass');
@@ -57,8 +59,10 @@ async function seed({ skipCodes = [] } = {}) {
   // Every demo account gets the same known password and skips the first-login password change.
   const ready = async (userId) => User.updateOne({ _id: userId }, { password: hashed, mustChangePassword: false });
 
-  await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
-  rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
+  if (!prospect) {
+    await User.create({ name: 'EduAmigo Owner', email: 'owner@eduamigo.demo', role: 'superadmin', password: hashed });
+    rows.push({ school: '(platform)', role: 'Super Admin', loginId: 'owner@eduamigo.demo', where: 'POST /api/platform/login' });
+  }
 
   const { seedActivity, seedKnowledge } = require('./demoActivity');
 
@@ -101,6 +105,11 @@ async function seed({ skipCodes = [] } = {}) {
     return school;
   }
 
+  if (prospect) {
+    await demoSchool(prospect);
+    return rows;
+  }
+
   await demoSchool({
     name: 'Green Valley Public School', code: 'GVPS', principal: 'Dr. Meenakshi Rathore', city: 'Jaipur', plan: 'premium', color: '#0A7E8C',
     classes: ['9', '10'], teacher: 'Anita Verma',
@@ -123,17 +132,16 @@ async function seed({ skipCodes = [] } = {}) {
     students: [{ name: 'Vihaan Jain', parentName: 'Neha Jain', parentPhone: '9988776655', gender: 'Male' }],
   });
 
-  // Allied International School: two campuses, each its own school (own code, students and data),
-  // same name and theme. Logo and motto are from the school's public website
-  // (alliedinternationalschool.com) for this local demo only; saffron and gold theme.
-  const allied = {
-    appName: 'Allied International School', plan: 'premium', color: '#E8590C', accent: '#F2B705', heroStyle: 'light',
-    logoUrl: 'http://www.alliedinternationalschool.com/images/logo.jpg', tagline: 'सा विद्या या विमुक्तये',
+  // Harmony Hills Academy: a FICTIONAL school with two campuses, each its own school (own code, students and data), same name and theme.
+  // Every name, principal, phone number and logo here is invented: it must stay that way, because this seed is used for demos shown to outsiders.
+  const harmony = {
+    appName: 'Harmony Hills Academy', plan: 'premium', color: '#E8590C', accent: '#F2B705', heroStyle: 'light',
+    logoUrl: '', tagline: 'Learning with curiosity',
     subscription: { status: 'active', currentPeriodEnd: null },
   };
   await demoSchool({
-    ...allied, name: 'Allied International School, Gaya', code: 'AISGAYA', principal: 'Dr. Anil Kumar Sinha', city: 'Gaya',
-    classes: ['6', '7', '8'], teacher: 'Sunita Prasad', stops: ['School Gate', 'Gaya Junction', 'Chandauti More', 'Bodhgaya Road'],
+    ...harmony, name: 'Harmony Hills Academy, North Campus', code: 'HHANORTH', principal: 'Dr. Nandini Rao', city: 'Patna',
+    classes: ['6', '7', '8'], teacher: 'Sunita Prasad', stops: ['School Gate', 'Station Road', 'Market Chowk', 'River Road'],
     students: [
       { name: 'Aditya Kumar', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Male' },
       { name: 'Ananya Kumari', parentName: 'Rakesh Kumar', parentPhone: '9431012345', gender: 'Female' },  // sibling
@@ -141,8 +149,8 @@ async function seed({ skipCodes = [] } = {}) {
     ],
   });
   await demoSchool({
-    ...allied, name: 'Allied International School, Chakand', code: 'AISCHAKAND', principal: 'Mrs. Rekha Sinha', city: 'Chakand, Gaya',
-    classes: ['1', '2', '3'], teacher: 'Ravi Ranjan', stops: ['School Gate', 'Chakand Bazaar', 'Chandauti More', 'Bodhgaya Road'],
+    ...harmony, name: 'Harmony Hills Academy, South Campus', code: 'HHASOUTH', principal: 'Mrs. Farida Qureshi', city: 'Patna',
+    classes: ['1', '2', '3'], teacher: 'Ravi Ranjan', stops: ['School Gate', 'Bazaar Chowk', 'Garden Colony', 'River Road'],
     students: [
       { name: 'Khushi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },
       { name: 'Aarohi Kumari', parentName: 'Sanjay Yadav', parentPhone: '9472012345', gender: 'Female' },  // sibling
@@ -237,7 +245,7 @@ Schools to try:
   GVPS  Premium, trial    -> every module, branded teal
   SCS   Basic, paid       -> fees, exams, transport, chat hidden
   LFS   Standard, expired -> read-only: viewing works, saving is blocked, banner for staff
-  AISGAYA, AISCHAKAND     -> Allied International School, two campuses (search "allied"), saffron and gold with logo
+  HHANORTH, HHASOUTH      -> Harmony Hills Academy (fictional), two campuses (search "harmony"), saffron and gold
 
 Frontend: cd ../eduamigo-frontend && npm run dev   then open http://localhost:5173
 School link test: http://localhost:5173/s/GVPS
