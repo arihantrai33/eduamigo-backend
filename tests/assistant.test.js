@@ -6,6 +6,8 @@ const Fee = require('../src/models/Fee');
 const ExamSchedule = require('../src/models/ExamSchedule');
 const Attendance = require('../src/models/Attendance');
 const Student = require('../src/models/Student');
+const Homework = require('../src/models/Homework');
+const HomeworkDone = require('../src/models/HomeworkDone');
 const Parent = require('../src/models/Parent');
 const School = require('../src/models/School');
 const StaffLeave = require('../src/models/StaffLeave');
@@ -314,5 +316,25 @@ describe('evidence', () => {
     const src = res.body.data.replies[0].sources[0];
     expect(src).toMatchObject({ type: 'fee', id: String(fee._id) });
     expect(new Date(src.at).getTime()).toBeGreaterThan(Date.now() - 60000);
+  });
+});
+
+describe('homework given through the Homework feature', () => {
+  test('a student is told the homework the Homework screen shows, not the ones already done or past due', async () => {
+    const mk = (title, subject, days) => Homework.create({
+      school: A.school._id, title, subject, class: A.student.class, section: A.student.section, audience: 'class',
+      dueDate: new Date(today().getTime() + days * DAY), createdBy: A.teacherUser._id, teacherName: 'Teacher',
+    });
+    const open = await mk('Linear equations exercise 4.2', 'Mathematics', 1);
+    const done = await mk('Draw an animal cell', 'Science', 2);
+    await mk('Old worksheet', 'English', -3);
+    await HomeworkDone.create({ school: A.school._id, homework: done._id, student: A.student._id });
+    const res = await ask(A.studentUser, 'What homework is pending for me?');
+    expect(res.status).toBe(200);
+    const text = res.body.data.replies.map((r) => r.text).join('\n');
+    expect(text).toContain('Linear equations exercise 4.2');
+    expect(text).not.toContain('Draw an animal cell');
+    expect(text).not.toContain('Old worksheet');
+    expect(res.body.data.replies[0].sources.map((x) => x.id)).toContain(String(open._id));
   });
 });

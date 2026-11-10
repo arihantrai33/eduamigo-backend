@@ -3,6 +3,8 @@
 //   teachers: what they uploaded recently;  admins: uploads across the school this week
 
 const Note = require('../../models/Note');
+const Homework = require('../../models/Homework');
+const HomeworkDone = require('../../models/HomeworkDone');
 const { hasPhrase, tokenize } = require('../text');
 const { day, today, addDays, plural, studentLabel, link, source, escapeRegex } = require('./util');
 
@@ -14,6 +16,20 @@ async function subjectIn(ctx, filter) {
   return subjects.find((s) => tokenize(s).some((w) => w.length >= 4 && tokens.includes(w))) || null;
 }
 
+// Homework the teachers gave through the Homework feature (what the apps' Homework screen shows): not yet done, not past due.
+async function homeworkFor(ctx, student, subject) {
+  const filter = {
+    school: ctx.schoolId, class: student.class, section: { $in: [student.section, '', null] },
+    $or: [{ audience: 'class' }, { students: student._id }], dueDate: { $gte: today(ctx.now) },
+  };
+  if (subject) filter.subject = { $regex: `^${escapeRegex(subject)}$`, $options: 'i' };
+  const list = await Homework.find(filter).sort({ dueDate: 1, createdAt: -1 }).limit(12).lean();
+  if (!list.length) return [];
+  const done = await HomeworkDone.find({ school: ctx.schoolId, student: student._id, homework: { $in: list.map((h) => h._id) } }).select('homework').lean();
+  const doneIds = new Set(done.map((d) => String(d.homework)));
+  return list.filter((h) => !doneIds.has(String(h._id)));
+}
+
 async function forClass(ctx, student) {
   const filter = { class: { $regex: `^${escapeRegex(student.class)}$`, $options: 'i' }, section: { $in: [student.section, ''] } };
   const subject = await subjectIn(ctx, filter);
@@ -22,13 +38,16 @@ async function forClass(ctx, student) {
   const what = subject ? `${subject} ` : '';
 
   if (hasPhrase(ctx.text, HOMEWORK_WORDS)) {
-    const due = await Note.find({ school: ctx.schoolId, ...filter, type: 'Assignment', dueDate: { $gte: today(ctx.now) } }).sort({ dueDate: 1 }).limit(6).lean();
+    // Both places teachers can post work: the Homework feature and assignments uploaded with study material.
+    const given = await homeworkFor(ctx, student, subject);
+    const notesDue = await Note.find({ school: ctx.schoolId, ...filter, type: 'Assignment', dueDate: { $gte: today(ctx.now) } }).sort({ dueDate: 1 }).limit(6).lean();
+    const due = [...given, ...notesDue].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).slice(0, 6);
     const recent = due.length ? due : await Note.find({ school: ctx.schoolId, ...filter, type: 'Assignment' }).sort({ createdAt: -1 }).limit(3).lean();
     if (!recent.length) return { text: `No ${what}homework or assignments have been posted for ${who}.`, facts: { for: who, assignments: 0 }, sources: [] };
     return {
       text: `${due.length ? `${what}Homework due for ${who}` : `No pending ${what}homework for ${who}. Latest assignments`}:\n${recent.map((n) => `- ${n.subject}: ${n.title}${n.dueDate ? `, due ${day(n.dueDate, { weekday: true })}` : ''}${n.teacherName ? ` (${n.teacherName})` : ''}`).join('\n')}`,
       facts: { for: who, pending: due.length, items: recent.map((n) => ({ subject: n.subject, title: n.title, due: n.dueDate ? day(n.dueDate) : null })) },
-      sources: recent.slice(0, 3).map((n) => source('note', `Assignment · ${n.title}`, n._id, n)),
+      sources: recent.slice(0, 3).map((n) => source('note', `${n.type === 'Assignment' ? 'Assignment' : 'Homework'} · ${n.title}`, n._id, n)),
     };
   }
   const notes = await Note.find({ school: ctx.schoolId, ...filter }).sort({ createdAt: -1 }).limit(5).lean();
