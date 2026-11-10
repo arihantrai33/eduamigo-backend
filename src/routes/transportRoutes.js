@@ -16,6 +16,12 @@ const { jwtSecret } = require('../config/env');
 const { isRevoked } = require('../services/tokens');
 const { resolveAuthz } = require('../services/roles');
 const { can } = require('../services/authorization');
+// Loaded at start-up (not inside the SOS handler) so the unique index on the SOS request id exists before the first request: two copies
+// of one tap must never both alert the office, even right after a deploy.
+const School = require('../models/School');
+const SosEvent = require('../models/SosEvent');
+const { notifyUser } = require('../services/notify');
+const { audit } = require('../services/audit');
 
 // Driver token: long random secret (hard to guess), still easy to type from a card: "BUS12-8F3K-9QZ2-..."
 const makeDriverToken = (busNumber) => {
@@ -119,12 +125,6 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
 // alert the driver (drivers have no account), and push delivery is not confirmed, so the answer says exactly that. The bus position is
 // the server's own last reading of that bus, never a value from the phone.
 router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), asyncHandler(async (req, res) => {
-  const User = require('../models/User');
-  const School = require('../models/School');
-  const SosEvent = require('../models/SosEvent');
-  const { notifyUser } = require('../services/notify');
-  const { audit } = require('../services/audit');
-
   const requestId = typeof req.body?.requestId === 'string' && /^[\w-]{8,64}$/.test(req.body.requestId) ? req.body.requestId : '';
   const view = (ev, schoolPhone) => ({
     success: true, eventId: String(ev._id), notified: ev.recipients.filter((r) => r.inApp === 'created').length,
