@@ -143,7 +143,7 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
 
   // One SOS per person per 2 minutes, counted on the saved events (not on notifications, so it also holds when no admin exists).
   const recent = await SosEvent.countDocuments({ school: req.schoolId, createdBy: req.user._id, createdAt: { $gt: new Date(Date.now() - 2 * 60 * 1000) } });
-  if (recent) throw new HttpError(429, 'An SOS alert was just sent. Please call the school or the driver if it is urgent.');
+  if (recent) throw new HttpError(429, 'An SOS alert was just sent. Please call the school or the captain if it is urgent.');
 
   const student = req.user.role === 'student'
     ? await studentForUser(req.user)
@@ -174,7 +174,7 @@ router.post('/sos', protect, transportOn, authorizeRoles('student', 'parent'), a
   const admins = await User.find({ school: req.schoolId, role: 'admin', isActive: true }).select('_id');
   const message = `${req.user.role === 'parent' ? `Parent ${req.user.name}` : `Student ${req.user.name}`} raised an SOS`
     + `${student ? ` for ${student.name} (Class ${student.class}-${student.section})` : ''}`
-    + `${bus ? ` on bus ${bus.busNumber} (${bus.routeName}, driver ${bus.driverName} ${bus.driverPhone})` : ''}.${where}${note ? ` Note: ${note}` : ''}`;
+    + `${bus ? ` on bus ${bus.busNumber} (${bus.routeName}, captain ${bus.driverName} ${bus.driverPhone})` : ''}.${where}${note ? ` Note: ${note}` : ''}`;
   const recipients = await Promise.all(admins.map(async (a) => {
     try {
       await notifyUser(req.schoolId, a._id, { title: 'SOS alert', message, type: 'Transport', createdBy: req.user._id });
@@ -201,7 +201,7 @@ router.get('/', protect, transportOn, requirePermission('transport.manage'), asy
 router.post('/', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   const data = pick(req.body, BUS_FIELDS);
   if (!data.busNumber || !data.driverName || !data.driverPhone || !data.routeName) {
-    throw new HttpError(400, 'Bus number, driver name, driver phone and route name are required');
+    throw new HttpError(400, 'Bus number, captain name, captain phone and route name are required');
   }
   data.busNumber = String(data.busNumber).trim();
   if (await Transport.exists({ busNumber: data.busNumber, school: req.schoolId })) throw new HttpError(409, 'Bus number already exists');
@@ -385,7 +385,7 @@ async function busForToken(token, { fresh = false } = {}) {
     if (bus && bus.driverToken === key) return bus;
   }
   bus = await Transport.findOne({ driverToken: key });
-  if (!bus) { tokenCache.delete(key); throw new HttpError(404, 'Invalid driver code'); }
+  if (!bus) { tokenCache.delete(key); throw new HttpError(404, 'Invalid captain code'); }
   const school = await require('../models/School').findById(bus.school).select('subscription isActive');
   const e = school ? await entitlementsFor(school) : null;
   if (!e || e.blocked || e.readOnly || !e.features.includes('transport')) {

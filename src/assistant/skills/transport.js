@@ -28,7 +28,7 @@ async function forStudent(ctx, student) {
   if (!bus) return { text: `${label} is not assigned to a school bus.`, facts: { student: label, bus: null }, sources: [] };
   const st = status(bus);
   return {
-    text: `${label} travels on bus ${bus.busNumber} (${routeName(bus)}, driver ${bus.driverName}). The bus ${st.text}.`,
+    text: `${label} travels on bus ${bus.busNumber} (${routeName(bus)}, captain ${bus.driverName}). The bus ${st.text}.`,
     facts: { student: label, bus: bus.busNumber, route: bus.routeName, driver: bus.driverName, status: bus.busStatus, currentStop: st.live, nextStop: st.next },
     sources: [source('bus', `Bus ${bus.busNumber} · ${bus.routeName}`, bus._id, bus)],
   };

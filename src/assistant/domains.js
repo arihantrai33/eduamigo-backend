@@ -90,7 +90,7 @@ const DOMAINS = {
     owner: 'transport',
     terms: [
       ['bus', 3], ['buses', 3], ['school bus', 3], ['van', 2], ['transport', 3], ['route', 2], ['routes', 2], ['stop', 2],
-      ['bus stop', 3], ['driver', 2], ['pickup', 2], ['pick up', 2], ['drop', 2], ['trip', 2], ['gaadi', 1], ['gadi', 1],
+      ['bus stop', 3], ['driver', 2], ['captain', 2], ['pickup', 2], ['pick up', 2], ['drop', 2], ['trip', 2], ['gaadi', 1], ['gadi', 1],
       ['बस', 3],
     ],
   },
