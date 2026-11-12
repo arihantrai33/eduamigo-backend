@@ -560,12 +560,14 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
 
   if (live && accepted) {
     const last = clean[clean.length - 1];
+    // Viewers on this instance get the position first; saving it (for other instances and for a restart) follows. The database write
+    // used to come first and added its round trip to every reading's delay.
+    emit(st, { type: 'position', busId: st.id, tripId: st.tripId, signal: signal(st, now), position: publicPosition(live), currentStopIndex: st.current, etas: etas(st), serverTime: now });
     await Transport.updateOne({ _id: st.id, school: st.school, busStatus: 'On Route' }, { $set: { live } });
     if (last && live.at - st.lastSample >= c.sampleMs) {
       st.lastSample = live.at;
       BusTripPoint.create({ school: st.school, bus: st.id, tripId: st.tripId, lat: live.lat, lng: live.lng, speedKmh: Math.round(live.speedKmh || 0), accuracy: live.accuracy ?? undefined, at: new Date(live.at) }).catch(() => {});
     }
-    emit(st, { type: 'position', busId: st.id, tripId: st.tripId, signal: signal(st, now), position: publicPosition(live), currentStopIndex: st.current, etas: etas(st), serverTime: now });
     noticesFor(st, c).catch((err) => console.error('bus notices failed:', err.message));
   } else if (st.live) {
     // Nothing usable arrived, but the phone is talking to us: the signal is not lost.

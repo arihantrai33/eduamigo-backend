@@ -72,6 +72,26 @@ moving** (above 8 km/h, from the phone's own speed) and the screen then shows on
 no internet, a slow connection, a screen that was off and a trip running on another phone each have their own message with a retry or a
 choice. There is no background tracking (see below): the screen says so.
 
+## Delay: where it comes from and what was done (2026-11-13)
+
+Phone to screen, in order: the phone's GPS (one reading every 2 s) -> the app sends it **at once** (before: it waited for a 4 s timer, so a
+reading could sit up to 4 s) -> the server checks it and **publishes it to the people watching first, then saves it** (before: it saved
+first, which added the database's round trip to every reading) -> the stream -> the map glides the bus to the new position over about one
+reading gap. Measured on one machine with the real Android driver app on an emulator (emulator GPS, no network between): GPS fix to the
+viewer's stream median 1.0 s, worst 1.6 s, and that includes the emulator's own once-a-second GPS delivery. Over a real network add the
+round trip (a phone in India to a server in Oregon is roughly 0.3 to 0.6 s each way).
+
+What is NOT a code problem and still decides whether it feels instant:
+- **A sleeping server.** The staging service is on Render's free plan: after about 15 minutes without a request it sleeps, and the next
+  request takes 30 to 50 s (measured 31.7 s on 2026-11-13). While a trip is running the driver's readings keep it awake, but the first
+  parent who opens the screen before the trip started waits. A paid always-on instance removes this (a decision for the owner).
+- **Distance to the server.** The staging region is Oregon. For schools in India a Singapore (or Mumbai, if offered) region cuts the round trip.
+- **Map tiles and road routing** are free public services (OpenStreetMap, OSRM demo server) with no availability promise.
+
+The app shows, on the screen: the distance driven and left (from the road line and the server's position on it), stops done out of total,
+the arrival time at the child's stop, and the camera follows the bus until the person drags the map (the route button shows the whole
+line, the target button follows again).
+
 ## Settings (all optional)
 
 | Variable | Default | Meaning |
