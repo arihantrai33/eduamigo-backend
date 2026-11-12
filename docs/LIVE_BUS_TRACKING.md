@@ -102,7 +102,7 @@ line, the target button follows again).
 | `BUS_MAX_SPEED_KMH` | 120 | A jump faster than this between two readings is ignored |
 | `BUS_ARRIVE_M` / `BUS_DEPART_M` | 70 / 130 | Stop reached / left |
 | `BUS_NEAR_MINUTES` | 5 | "Bus is about N minutes away" alert |
-| `DRIVER_LOCATION_PER_MINUTE` | 90 | Limit per driver code |
+| `DRIVER_LOCATION_PER_MINUTE` | 180 | Limit per driver code (the app sends a batch on every GPS reading, about one a second, plus a backup every 3 s) |
 | `DRIVER_IP_PER_MINUTE` | 3000 | A high ceiling per network address for driver requests (buses are counted per code, so buses sharing one address are fine; this only stops floods of guessed codes) |
 | `BUS_SMOOTH_ABOVE_M` | 30 | A reading with a worse accuracy than this moves the bus only part of the way (weight falls with the square of the accuracy) |
 | `BUS_STREAM_RECHECK_MS` | 30000 | An open live map re-checks that its viewer may still watch, this often (and at once when the bus's students change) |
