@@ -74,7 +74,7 @@ choice. There is no background tracking (see below): the screen says so.
 
 ## Delay: where it comes from and what was done (2026-11-13)
 
-Phone to screen, in order: the phone's GPS (one reading every 2 s) -> the app sends it **at once** (before: it waited for a 4 s timer, so a
+Phone to screen, in order: the phone's GPS (one reading every second since app 2.0.7) -> the app sends it **at once** (before: it waited for a 4 s timer, so a
 reading could sit up to 4 s) -> the server checks it and **publishes it to the people watching first, then saves it** (before: it saved
 first, which added the database's round trip to every reading) -> the stream -> the map glides the bus to the new position over about one
 reading gap. Measured on one machine with the real Android driver app on an emulator (emulator GPS, no network between): GPS fix to the
