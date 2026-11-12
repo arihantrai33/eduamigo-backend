@@ -100,10 +100,14 @@ router.get('/my-child-bus', protect, transportOn, authorizeRoles('student', 'par
     tripSignal = st ? tracking.signal(st) : 'waiting';
   }
 
+  // The school office number, so the app can offer "Call school" next to "Call driver" without waiting for an SOS.
+  const school = await School.findById(req.schoolId).select('phone').lean();
+
   res.json({
     success: true,
     data: {
       tripSignal,
+      schoolPhone: school?.phone || '',
       _id: bus._id,
       busNumber: bus.busNumber,
       driverName: bus.driverName,

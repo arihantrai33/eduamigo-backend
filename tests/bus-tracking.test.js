@@ -74,6 +74,8 @@ describe('the trip and who may watch it', () => {
     const res = await api().get('/api/transport/my-child-bus').set(auth(A.parentUser));
     expect(res.body.data).toMatchObject({ busId: String(bus._id), myStopId: String(bus.stops[2]._id), busStatus: 'Idle' });
     expect(res.body.data.firebasePath).toBeUndefined();
+    // The school office number comes with it (a string, empty when the school has none), so "Call school" is always offered.
+    expect(typeof res.body.data.schoolPhone).toBe('string');
   });
 });
 
