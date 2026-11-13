@@ -477,3 +477,16 @@ describe('the geometry', () => {
     expect(tracking.simplify([[0, 0], [0.001, 0.0005], [0, 0.001]], 3)).toHaveLength(3);
   });
 });
+
+describe('route preview for the admin map', () => {
+  test('returns the stops joined (no routing service under test) and says so; another school cannot ask', async () => {
+    const res = await api().get(`/api/transport/${bus._id}/route-preview`).set(auth(A.admin));
+    expect(res.status).toBe(200);
+    expect(res.body.data.source).toBe('straight');
+    expect(res.body.data.points).toHaveLength(4);
+    expect(res.body.data.meters).toBeGreaterThan(1500);
+    const B = await seedSchool('Beta School');
+    expect((await api().get(`/api/transport/${bus._id}/route-preview`).set(auth(B.admin))).status).toBe(404);
+    expect((await api().get(`/api/transport/${bus._id}/route-preview`).set(auth(A.parentUser))).status).toBe(403);
+  });
+});

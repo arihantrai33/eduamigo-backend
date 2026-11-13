@@ -221,6 +221,20 @@ router.get('/students', protect, transportOn, requirePermission('transport.manag
   res.json({ success: true, data: students });
 }));
 
+// GET /api/transport/:id/route-preview — the road the bus will follow through its stops, for the admin's map (the same routing as a trip start).
+// `source` is "road", or "straight" (stops joined by straight lines) when no routing service answered; the screen says which.
+router.get('/:id/route-preview', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
+  assertId(req.params.id);
+  const bus = await Transport.findOne({ _id: req.params.id, school: req.schoolId }).select('stops').lean();
+  if (!bus) throw new HttpError(404, 'Bus not found');
+  const stops = [...(bus.stops || [])].sort((a, b) => a.order - b.order).map((s) => ({ lat: s.latitude, lng: s.longitude }));
+  if (stops.length < 2) return res.json({ success: true, data: { source: 'none', points: [], meters: 0 } });
+  const road = await tracking.roadGeometry(stops);
+  const points = road || stops.map((s) => [s.lat, s.lng]);
+  const meters = Math.round(tracking.buildRoute(points).meters);
+  res.json({ success: true, data: { source: road ? 'road' : 'straight', points, meters } });
+}));
+
 router.put('/:id', protect, transportOn, requirePermission('transport.manage'), asyncHandler(async (req, res) => {
   assertId(req.params.id);
   const update = pick(req.body, BUS_FIELDS);
