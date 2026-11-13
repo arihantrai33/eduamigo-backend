@@ -201,3 +201,14 @@ Not built: SMS or push confirmation to the office, an alert to the driver, escal
 
 ## Road routing: reading the logs
 `roadGeometry` logs (JSON lines, no secrets, no coordinates): `route_provider_off` (ROUTING_URL is `off` or empty and no Mapbox token), `route_provider_failed` with `provider` (`osrm`/`mapbox`), `host` and a `reason` (`timeout`, `http_<status>`, `osrm_<code>`, `no_geometry`, or a network error code such as `ENOTFOUND`), and `route_provider_ok`. A stored straight route is no longer reused at trip start: the road is tried again every trip. If a trip stays `straight`, search the service logs for `route_provider`.
+
+## Trying it on a real road (Varanasi demo)
+`src/scripts/setupVaranasiBus.js` puts the demo school GVPS in Varanasi and gives the bus Riya Sharma rides a four-stop route: CHS Boys School,
+Rathyatra Crossing, Gurubagh, Green Valley Public School (a short walk from CHS). The captain code is `CAPTAIN_CODE` (default `GVPS-BUS-1`).
+It only runs on a database whose name ends in `_staging` or `_demo`, and running it again changes nothing more. Riya gets on at Gurubagh.
+`PARENT_PASSWORD` optionally sets her parent's password so the test sign-in is known.
+
+    MONGO_URI="mongodb+srv://.../eduamigo_staging" SEED_DEMO_OK=yes PARENT_PASSWORD="..." node src/scripts/setupVaranasiBus.js
+
+A simple code like `GVPS-BUS-1` is easy to guess. Use it only on a demo/staging database and regenerate the code afterwards
+(Admin > Transport > Copy the captain code / Regenerate).
