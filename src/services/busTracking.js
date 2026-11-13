@@ -223,7 +223,10 @@ async function loadState(busId, school) {
   const doc = await Transport.findOne(school ? { _id: busId, school } : { _id: busId }).setOptions(school ? {} : { crossTenant: 'the driver app has no school session; the bus is found by its own id' }).lean();
   if (!doc) return null;
   const stops = tripStops(doc);
-  const pts = doc.route?.points?.length ? doc.route.points : stops.map((s) => [s.lat, s.lng]);
+  // The stored road is used only if it was built for these very stops in this direction; after the stops are edited it is not (it would run
+  // through the old places), and a new road is fetched below.
+  const storedRoad = doc.route?.points?.length && doc.route.key === routeKey(stops, doc.direction || 'pickup');
+  const pts = storedRoad ? doc.route.points : stops.map((s) => [s.lat, s.lng]);
   const route = buildRoute(pts);
   const { offsets, offRoad } = layOut(route, stops);
   const students = doc.busStatus === 'On Route'
@@ -232,13 +235,13 @@ async function loadState(busId, school) {
     : [];
   const st = {
     id: String(doc._id), school: doc.school, status: doc.busStatus, direction: doc.direction || 'pickup', tripId: doc.tripId || null,
-    busNumber: doc.busNumber, stops, current: doc.currentStopIndex || 0, route, offsets, offRoad, routeSource: doc.route?.source || 'straight',
+    busNumber: doc.busNumber, stops, current: doc.currentStopIndex || 0, route, offsets, offRoad, routeSource: storedRoad ? (doc.route.source || 'straight') : 'straight',
     live: doc.live || null, students, notices: new Set(doc.tripNotices || []), lastSample: 0,
     startedAt: doc.tripStartedAt ? new Date(doc.tripStartedAt).getTime() : null, endedAt: doc.tripEndedAt && doc.busStatus === 'Completed' ? new Date(doc.tripEndedAt).getTime() : null,
     syncedAt: Date.now(), localWriteAt: 0, sharedUntil: 0, syncing: null,
   };
   runtime.set(st.id, st);
-  if (st.status === 'On Route' && st.routeSource !== 'road') upgradeRoute(st).catch(() => {});
+  if (st.routeSource !== 'road') upgradeRoute(st).catch(() => {}); // also while idle: the road is ready before the first trip, for the admin and the viewers
   return st;
 }
 // A trip whose road was never fetched (a routing service that was down at the start, or a trip begun by older software) gets its
@@ -406,7 +409,7 @@ async function startTrip(busDoc, direction = 'pickup', { deviceId } = {}) {
   const stops = tripStops(probe);
   const key = routeKey(stops, dir);
   // A stored straight line is not reused: the road is tried again at every trip start.
-  let route = busDoc.route?.key === key && busDoc.route?.source === 'road' && busDoc.route?.points?.length ? { points: busDoc.route.points, source: busDoc.route.source, meters: busDoc.route.meters } : null;
+  let route = busDoc.route?.key === key && busDoc.route?.source === 'road' && busDoc.route?.points?.length ? { points: busDoc.route.points, source: busDoc.route.source, key, meters: busDoc.route.meters } : null;
   if (!route) {
     const road = await roadGeometry(stops);
     const points = road || stops.map((s) => [s.lat, s.lng]);

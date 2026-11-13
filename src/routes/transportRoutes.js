@@ -280,7 +280,10 @@ router.put('/:id/stops', protect, transportOn, requirePermission('transport.mana
     { returnDocument: 'after', runValidators: true },
   );
   if (!bus) throw new HttpError(404, 'Bus not found');
+  // A stop that was taken off the route no longer holds anyone's pick-up place.
+  await Student.updateMany({ school: req.schoolId, bus: bus._id, busStopId: { $nin: [null, ...bus.stops.map((x) => x._id)] } }, { $set: { busStopId: null } });
   tracking.forget(bus._id);
+  tracking.stateOf(bus._id, req.schoolId).catch(() => {}); // loads the bus again, which fetches the road for the new stops in the background
   res.json({ success: true, data: bus });
 }));
 
