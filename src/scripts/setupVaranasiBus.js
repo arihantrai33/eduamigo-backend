@@ -2,7 +2,7 @@
 // Puts the demo school "Green Valley Public School" (code GVPS) in Varanasi and gives one of its buses a real route there, so the live bus
 // can be tried on a real road with a real phone. Safe to run again: it updates the same bus instead of adding another.
 //
-//   MONGO_URI="mongodb+srv://.../eduamigo_staging" SEED_DEMO_OK=yes [CAPTAIN_CODE=GVPS-BUS-1] [PARENT_PASSWORD=...] \
+//   MONGO_URI="mongodb+srv://.../eduamigo_staging" SEED_DEMO_OK=yes [CAPTAIN_CODE=GVPS-BUS-1] [PARENT_PASSWORD=...] [DNS_SERVERS=8.8.8.8,1.1.1.1] \
 //     node src/scripts/setupVaranasiBus.js
 //
 // It refuses any database whose name does not end in _staging or _demo. What it does:
@@ -86,6 +86,8 @@ async function main() {
   const dbName = new URL(uri.replace('mongodb+srv://', 'https://').replace('mongodb://', 'http://')).pathname.replace('/', '').split('?')[0];
   if (!/_(staging|demo)$/.test(dbName)) throw new Error(`Refusing database "${dbName}": its name must end in _staging or _demo`);
   if (process.env.SEED_DEMO_OK !== 'yes') throw new Error('Set SEED_DEMO_OK=yes to confirm this is a staging/demo database');
+  // Some networks (phone hotspots, a few ISPs) cannot look up Atlas's mongodb+srv address ("querySrv EBADRESP"): DNS_SERVERS=8.8.8.8,1.1.1.1 asks those servers instead.
+  if (process.env.DNS_SERVERS) require('dns').setServers(process.env.DNS_SERVERS.split(',').map((s) => s.trim()).filter(Boolean));
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 20000 });
   const out = await apply({ captainCode: process.env.CAPTAIN_CODE || undefined, parentPassword: process.env.PARENT_PASSWORD || '' });
   console.log(JSON.stringify(out, null, 2));
