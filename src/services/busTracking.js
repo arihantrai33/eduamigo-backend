@@ -156,41 +156,42 @@ async function mapboxRoute(token, stops, signal) {
 
 // Why a road could not be had is logged (reason codes only: never the token, the URL's query or the stops' coordinates), because the
 // caller falls back to a straight line without saying so and an operator otherwise cannot tell "routing is off" from "the provider failed".
-async function roadGeometry(stops) {
-  if (stops.length < 2) return null;
+// Providers are tried in turn: Mapbox (if a token is set), then ROUTING_URL (default: the public OSRM demo server, then the OpenStreetMap
+// Germany OSRM server, a second public host in case the first one refuses or times out). Returns { line, reason }: `reason` says why
+// there is no road, as a short code (provider_off, timeout, http_429, ...) that the admin screen can show.
+const DEFAULT_ROUTING = ['https://router.project-osrm.org', 'https://routing.openstreetmap.de/routed-car'];
+async function roadRoute(stops) {
+  if (stops.length < 2) return { line: null, reason: 'too_few_stops' };
   const token = process.env.MAPBOX_ACCESS_TOKEN;
-  const base = process.env.ROUTING_URL === undefined ? (process.env.NODE_ENV === 'test' ? 'off' : 'https://router.project-osrm.org') : process.env.ROUTING_URL;
+  const configured = process.env.ROUTING_URL;
+  const bases = configured === undefined ? (process.env.NODE_ENV === 'test' ? [] : DEFAULT_ROUTING) : (configured && configured !== 'off' ? [configured] : []);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return 'invalid_url'; } };
-  if (!token && (!base || base === 'off')) {
-    log.warn('route_provider_off', { reason: base === 'off' ? 'ROUTING_URL is off and no Mapbox token is set' : 'ROUTING_URL is empty and no Mapbox token is set', stops: stops.length });
-    return null;
+  if (!token && !bases.length) {
+    log.warn('route_provider_off', { reason: (configured === 'off' || (configured === undefined && process.env.NODE_ENV === 'test')) ? 'ROUTING_URL is off and no Mapbox token is set' : 'ROUTING_URL is empty and no Mapbox token is set', stops: stops.length });
+    return { line: null, reason: 'provider_off' };
   }
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 9000);
-  const why = (e) => (e?.name === 'AbortError' ? 'timeout' : String(e?.cause?.code || e?.message || 'error').slice(0, 80));
-  try {
-    let line = null;
-    if (token) {
-      line = await mapboxRoute(token, stops, ctl.signal).catch((e) => { log.warn('route_provider_failed', { provider: 'mapbox', reason: why(e) }); return null; });
-      if (!line) log.warn('route_provider_failed', { provider: 'mapbox', reason: 'no_geometry' });
-    }
-    if (!line && base && base !== 'off') { // Mapbox failed or is not set: the OSRM service
-      try {
-        line = await osrmRoute(base, stops, ctl.signal);
-      } catch (e) {
-        log.warn('route_provider_failed', { provider: 'osrm', host: hostOf(base), reason: why(e), stops: stops.length });
-        return null;
-      }
-    }
-    if (line) log.info('route_provider_ok', { provider: token ? 'mapbox' : 'osrm', points: line.length });
-    return line ? simplify(line, 3).slice(0, 4000) : null;
-  } catch (e) {
-    log.warn('route_provider_failed', { provider: 'unknown', reason: why(e) });
-    return null;
-  } finally {
-    clearTimeout(timer);
+  const why = (e) => (e?.name === 'AbortError' ? 'timeout' : String(e?.cause?.code || e?.message || 'error').slice(0, 40));
+  const attempt = async (label, run) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    try { return { line: await run(ctl.signal), reason: null }; } catch (e) { return { line: null, reason: why(e) }; } finally { clearTimeout(timer); }
+  };
+  let reason = 'no_geometry';
+  if (token) {
+    const r = await attempt('mapbox', (signal) => mapboxRoute(token, stops, signal));
+    if (r.line) { log.info('route_provider_ok', { provider: 'mapbox', points: r.line.length }); return { line: simplify(r.line, 3).slice(0, 4000), reason: null }; }
+    reason = r.reason || 'no_geometry';
+    log.warn('route_provider_failed', { provider: 'mapbox', reason });
   }
+  for (const base of bases) {
+    const r = await attempt('osrm', (signal) => osrmRoute(base, stops, signal));
+    if (r.line) { log.info('route_provider_ok', { provider: 'osrm', host: hostOf(base), points: r.line.length }); return { line: simplify(r.line, 3).slice(0, 4000), reason: null }; }
+    reason = r.reason || 'no_geometry';
+    log.warn('route_provider_failed', { provider: 'osrm', host: hostOf(base), reason, stops: stops.length });
+  }
+  return { line: null, reason };
 }
+const roadGeometry = async (stops) => (await roadRoute(stops)).line;
 
 // Stops in the order of this trip: as stored for a pickup run, reversed for the drop run. Each keeps its stored index.
 function tripStops(bus) {
@@ -616,6 +617,6 @@ async function closeAbandonedTrips(hours = 3, now = Date.now()) {
 const resetForTests = () => { runtime.clear(); bus.removeAllListeners(); watchers.forEach((w) => clearInterval(w.timer)); watchers.clear(); upgrading.forEach((t) => clearTimeout(t)); upgrading.clear(); };
 
 module.exports = {
-  distance, bearing, buildRoute, project, simplify, roadGeometry, tripStops, cfg,
+  distance, bearing, buildRoute, project, simplify, roadGeometry, roadRoute, tripStops, cfg,
   startTrip, endTrip, advance, ingest, snapshot, snapshotFor, subscribe, requestRecheck, onRecheck, stateOf, forget, signal, etas, closeAbandonedTrips, resetForTests,
 };
