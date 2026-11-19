@@ -251,11 +251,24 @@ async function loadState(busId, school) {
 const upgrading = new Map();
 async function upgradeRoute(st) {
   if (upgrading.has(st.id) || st.stops.length < 2) return;
-  upgrading.set(st.id, setTimeout(() => upgrading.delete(st.id), 10 * 60 * 1000));
-  upgrading.get(st.id).unref?.();
-  const road = await roadGeometry(st.stops);
-  if (!road) return;
+  const hold = (ms) => {
+    clearTimeout(upgrading.get(st.id));
+    const t = setTimeout(() => upgrading.delete(st.id), ms);
+    t.unref?.();
+    upgrading.set(st.id, t);
+  };
+  hold(10 * 60 * 1000);
+  const { line: road, reason } = await roadRoute(st.stops);
+  if (!road) {
+    // No road this time. The reason travels with the route (viewers and the admin screen can show it) and the next try comes soon,
+    // not in ten minutes: a routing service that was busy a moment ago is usually fine a minute later.
+    st.routeReason = reason || 'no_geometry';
+    hold(Number(process.env.BUS_ROUTE_RETRY_MS) || 60 * 1000);
+    emit(st, snapshot(st));
+    return;
+  }
   const route = buildRoute(road);
+  st.routeReason = null;
   Object.assign(st, { route, routeSource: 'road', ...layOut(route, st.stops) });
   await Transport.updateOne({ _id: st.id, school: st.school }, { $set: { route: { points: road, source: 'road', key: routeKey(st.stops, st.direction), meters: Math.round(route.meters) } } });
   emit(st, snapshot(st));
@@ -264,6 +277,7 @@ async function upgradeRoute(st) {
 // `school` is the signed-in viewer's school (a viewer never gets another school's bus); the driver app passes none.
 async function stateOf(busId, school) {
   const hit = runtime.get(String(busId));
+  if (hit && hit.routeSource !== 'road') upgradeRoute(hit).catch(() => {}); // a viewer asking again is the signal to try for the road again (at most once a minute)
   if (hit) return !school || String(hit.school) === String(school) ? ((await syncIfStale(hit)) || null) : null;
   return loadState(busId, school);
 }
@@ -364,7 +378,7 @@ function snapshot(st, { withRoute = true, now = Date.now() } = {}) {
   return {
     type: 'snapshot', busId: st.id, busNumber: st.busNumber, tripId: st.tripId, status: st.status, direction: st.direction, startedAt: st.startedAt ?? null, endedAt: st.endedAt ?? null,
     signal: signal(st, now), position: publicPosition(st.live), currentStopIndex: st.current, stops: publicStops(st),
-    route: withRoute ? { points: st.route.pts, source: st.routeSource, meters: Math.round(st.route.meters) } : undefined,
+    route: withRoute ? { points: st.route.pts, source: st.routeSource, meters: Math.round(st.route.meters), ...(st.routeSource !== 'road' && st.routeReason ? { reason: st.routeReason } : {}) } : undefined,
     staleMs: cfg().staleMs, serverTime: now,
   };
 }

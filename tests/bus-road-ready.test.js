@@ -67,3 +67,18 @@ test('a stop taken off the route is cleared from the students who used it', asyn
   expect(res.status).toBe(200);
   expect((await Student.findById(A.student._id)).busStopId).toBeNull();
 });
+
+test('when no road can be had, the route says why (viewers and the admin screen can show it), and a viewer asking again tries once more', async () => {
+  process.env.BUS_ROUTE_RETRY_MS = '150';
+  global.fetch = jest.fn(async () => ({ ok: false, status: 429, json: async () => ({}) })); // the routing service refuses
+  await live();
+  const refused = await until(async () => { const r = (await live()).route; return r.reason ? r : null; });
+  expect(refused.source).toBe('straight');
+  expect(refused.reason).toBe('http_429');
+  // The service recovers; the next look (after the short wait) gets the road, and the reason is gone.
+  global.fetch = osrm();
+  await until(async () => (await live()).route.source === 'road', 5000);
+  const road = (await live()).route;
+  expect(road.reason).toBeUndefined();
+  delete process.env.BUS_ROUTE_RETRY_MS;
+});
