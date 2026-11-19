@@ -96,7 +96,7 @@ line, the target button follows again).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ROUTING_URL` | public OSRM demo server | An OSRM-compatible routing service for the road line. `off` = straight lines between stops. The public demo server has no promise of availability: for a school fleet use your own OSRM or a paid provider with the same API. Called once when a trip starts, never per viewer. |
+| `ROUTING_URL` | public OSRM demo server | An OSRM-compatible routing service for the road line. `off` = no road (tests and local demos). **On a live server (`NODE_ENV=production`) `off` or an empty value is ignored with a `route_url_off_ignored` warning**, because a stray value had silently left a staging server without road lines; to turn the road off on purpose there, set `ROUTING_DISABLED=yes`. The public demo server has no promise of availability: for a school fleet use your own OSRM or a paid provider with the same API. Called once when a trip starts, never per viewer. |
 | `BUS_STALE_MS` | 45000 | No reading for this long = "signal lost" |
 | `BUS_MAX_ACCURACY_M` | 100 | Readings less accurate than this are ignored |
 | `BUS_MAX_SPEED_KMH` | 120 | A jump faster than this between two readings is ignored |
@@ -200,7 +200,7 @@ and `loadtests/mixed-check.js`. All of these use controlled readings; none repla
 Not built: SMS or push confirmation to the office, an alert to the driver, escalation when nobody reads it, and a screen listing SOS events for the office. Adding a provider means calling it where the recipients are notified and recording its receipt in `recipients[].push`.
 
 ## Road routing: reading the logs
-`roadGeometry` logs (JSON lines, no secrets, no coordinates): `route_provider_off` (ROUTING_URL is `off` or empty and no Mapbox token), `route_provider_failed` with `provider` (`osrm`/`mapbox`), `host` and a `reason` (`timeout`, `http_<status>`, `osrm_<code>`, `no_geometry`, or a network error code such as `ENOTFOUND`), and `route_provider_ok`. A stored straight route is no longer reused at trip start: the road is tried again every trip. If a trip stays `straight`, search the service logs for `route_provider`.
+`roadGeometry` logs (JSON lines, no secrets, no coordinates): `route_url_off_ignored` (production ignored an `off`/empty ROUTING_URL), `route_provider_off` (the road is off on purpose and no Mapbox token), `route_provider_failed` with `provider` (`osrm`/`mapbox`), `host` and a `reason` (`timeout`, `http_<status>`, `osrm_<code>`, `no_geometry`, or a network error code such as `ENOTFOUND`), and `route_provider_ok`. A stored straight route is no longer reused at trip start: the road is tried again every trip. If a trip stays `straight`, search the service logs for `route_provider`.
 
 ## Trying it on a real road (Varanasi demo)
 `src/scripts/setupVaranasiBus.js` puts the demo school GVPS in Varanasi and gives the bus Riya Sharma rides a four-stop route: CHS Boys School,
@@ -212,3 +212,6 @@ It only runs on a database whose name ends in `_staging` or `_demo`, and running
 
 A simple code like `GVPS-BUS-1` is easy to guess. Use it only on a demo/staging database and regenerate the code afterwards
 (Admin > Transport > Copy the captain code / Regenerate).
+
+
+Why a trip has no road is also in the data: the live route (`route.reason`, shown by the admin Stops screen) carries a short code such as `provider_off`, `timeout` or `http_429`, and a viewer asking again retries at most once a minute (`BUS_ROUTE_RETRY_MS`).

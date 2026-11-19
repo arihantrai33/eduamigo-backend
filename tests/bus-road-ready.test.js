@@ -82,3 +82,24 @@ test('when no road can be had, the route says why (viewers and the admin screen 
   expect(road.reason).toBeUndefined();
   delete process.env.BUS_ROUTE_RETRY_MS;
 });
+
+test('on a live server a stray ROUTING_URL=off does not switch the road off; ROUTING_DISABLED=yes does', async () => {
+  const was = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.ROUTING_URL = 'off';
+    await live();
+    await until(async () => (await live()).route.source === 'road');
+    // On purpose: the road is off, and the route says why.
+    await Transport.updateOne({ _id: bus._id }, { $unset: { route: 1 } });
+    tracking.resetForTests();
+    process.env.ROUTING_DISABLED = 'yes';
+    await live();
+    const off = await until(async () => { const r = (await live()).route; return r.reason ? r : null; });
+    expect(off.source).toBe('straight');
+    expect(off.reason).toBe('provider_off');
+  } finally {
+    process.env.NODE_ENV = was;
+    delete process.env.ROUTING_DISABLED;
+  }
+});

@@ -163,7 +163,15 @@ const DEFAULT_ROUTING = ['https://router.project-osrm.org', 'https://routing.ope
 async function roadRoute(stops) {
   if (stops.length < 2) return { line: null, reason: 'too_few_stops' };
   const token = process.env.MAPBOX_ACCESS_TOKEN;
-  const configured = process.env.ROUTING_URL;
+  let configured = process.env.ROUTING_URL;
+  // On a live server the road is the bus screen's main feature, so a stray "off" or empty ROUTING_URL (left over from testing, or an empty box in the
+  // hosting dashboard) must not switch it off without anyone noticing: it is ignored there, with a warning. Turning the road off on purpose
+  // in production takes ROUTING_DISABLED=yes. Tests and local demos keep ROUTING_URL=off.
+  if (process.env.NODE_ENV === 'production' && process.env.ROUTING_DISABLED !== 'yes' && (configured === 'off' || configured === '')) {
+    log.warn('route_url_off_ignored', { was: configured === '' ? 'empty' : 'off', hint: 'set ROUTING_DISABLED=yes to turn the road off on purpose' });
+    configured = undefined;
+  }
+  if (process.env.ROUTING_DISABLED === 'yes') configured = 'off';
   const bases = configured === undefined ? (process.env.NODE_ENV === 'test' ? [] : DEFAULT_ROUTING) : (configured && configured !== 'off' ? [configured] : []);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return 'invalid_url'; } };
   if (!token && !bases.length) {
