@@ -516,12 +516,15 @@ async function followStops(st, live, c) {
   // much, and having driven on along the road beyond the stop counts as having passed it.
   const slack = Math.min(st.offRoad[st.current] || 0, 300);
   const passed = !live.offRoute && live.routeMeters >= st.offsets[st.current] + c.departM;
-  if (d <= c.arriveM + slack || passed) await markArrived(st);
+  // A road that doubles back (stops in an order that makes a loop) passes near stops long before the bus is due at them. Being near a
+  // stop only counts while the bus is also about there along the road: a stop that is still far ahead on the road is not reached yet.
+  const farAhead = (i) => !live.offRoute && Number.isFinite(live.routeMeters) && (st.offsets[i] || 0) - live.routeMeters > Math.max(250, c.arriveM * 3);
+  if ((d <= c.arriveM + slack && !farAhead(st.current)) || passed) await markArrived(st);
   if (here.arrivedAt && (d >= c.departM + slack || passed) && st.current < st.stops.length - 1) { await advance(st); return; }
   if (!here.arrivedAt && st.current < st.stops.length - 1) {
     // The bus has gone past without the stop being marked (and the driver forgot the button): reaching the next stop moves on.
     const nxt = st.stops[st.current + 1];
-    if (nxt && distance(live.lat, live.lng, nxt.lat, nxt.lng) <= c.arriveM + Math.min(st.offRoad[st.current + 1] || 0, 300)) { await advance(st, { arrived: false }); await markArrived(st); }
+    if (nxt && !farAhead(st.current + 1) && distance(live.lat, live.lng, nxt.lat, nxt.lng) <= c.arriveM + Math.min(st.offRoad[st.current + 1] || 0, 300)) { await advance(st, { arrived: false }); await markArrived(st); }
   }
 }
 

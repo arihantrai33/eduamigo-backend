@@ -182,7 +182,29 @@ describe('a route that doubles back over the same street', () => {
     // 650 m driven east: still on the way out (progress about 650 m), not on the return pass (about 1750 m), and no stop beyond the first is passed.
     expect(s.position.routeMeters).toBeLessThan(900);
     expect(s.currentStopIndex).toBeLessThanOrEqual(1);
+    expect(s.stops[2].status).not.toBe('Departed'); // the third stop is 4 m from the road the bus is on, but 1.2 km further along it
     expect(last.accepted).toBe(1);
+  });
+});
+
+describe('a later stop that lies beside an earlier stretch of the road', () => {
+  test('passing close to it on the way out does not make the bus skip the stop it is heading for', async () => {
+    const north = (m) => LAT + m / 110540;
+    const east = (m) => 84.99 + m / M_PER_DEG;
+    const loop = await Transport.create({
+      school: A.school._id, busNumber: 'BR02 LP 0002', driverName: 'Ramesh', driverPhone: '9000011111', routeName: 'Loop2', driverToken: 'LOOPTOKEN-0002', trackingId: 'trkloop2',
+      stops: [[0, 0], [1200, 0], [400, 6]].map(([e, n], i) => ({ name: `Stop ${i + 1}`, latitude: north(n), longitude: east(e), order: i + 1 })),
+    });
+    const url = (path = '') => `/api/transport/driver/LOOPTOKEN-0002${path}`;
+    expect((await api().patch(url('/start-trip')).send({})).status).toBe(200);
+    for (let i = 0; i < 10; i += 1) {
+      const res = await api().post(url('/location')).send({ points: [{ lat: north(0), lng: east(i * 50), accuracy: 8, at: T0 + i * 5000 }] });
+      expect(res.status).toBe(200);
+    }
+    // 450 m out: the bus has gone right past the third stop (6 m from the road) but it is 1.2 km before it on the road: the second stop is still next.
+    const s = (await api().get(`/api/transport/live/${loop._id}`).set(auth(A.admin))).body.data;
+    expect(s.currentStopIndex).toBe(1);
+    expect(s.stops[2].status).not.toBe('Departed');
   });
 });
 
