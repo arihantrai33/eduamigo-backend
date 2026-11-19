@@ -231,6 +231,16 @@ function layOut(route, stops) {
 async function loadState(busId, school) {
   const doc = await Transport.findOne(school ? { _id: busId, school } : { _id: busId }).setOptions(school ? {} : { crossTenant: 'the driver app has no school session; the bus is found by its own id' }).lean();
   if (!doc) return null;
+  // A trip nobody has heard from for hours (a phone that died, a school that never ended it) is closed the moment someone looks at the bus. The
+  // clean-up job does the same every 15 minutes, but a sleeping server (a free hosting plan) or a server with jobs switched off never runs it,
+  // and the bus then shows "signal lost, last seen 485 h ago" for weeks.
+  if (doc.busStatus === 'On Route') {
+    const lastHeard = Math.max(doc.live?.receivedAt || 0, doc.tripStartedAt ? new Date(doc.tripStartedAt).getTime() : 0);
+    if (lastHeard && Date.now() - lastHeard > (Number(process.env.BUS_ABANDON_HOURS) || 3) * 3600 * 1000) {
+      await Transport.updateOne({ _id: doc._id, school: doc.school, busStatus: 'On Route' }, { $set: { busStatus: 'Completed', tripEndedAt: new Date(), boardedStudents: [] }, $unset: { live: 1, driverDevice: 1 } });
+      Object.assign(doc, { busStatus: 'Completed', tripEndedAt: new Date(), boardedStudents: [], live: undefined, driverDevice: undefined });
+    }
+  }
   const stops = tripStops(doc);
   // The stored road is used only if it was built for these very stops in this direction; after the stops are edited it is not (it would run
   // through the old places), and a new road is fetched below.
@@ -553,7 +563,12 @@ async function ingest(busId, rawPoints, { now = Date.now() } = {}) {
     const prev = live;
     const jitter = prev && distance(prev.lat, prev.lng, p.lat, p.lng) < Math.max(6, (p.accuracy || 0) * 0.4) && kmh < 2;
     // Along the road: snap when close to it, otherwise show the raw position and say the bus is off the route.
-    const proj = project(st.route, p.lat, p.lng, prev?.routeMeters ?? 0);
+    // The bus can only be a little further along than it was: how far depends on the time since the last reading. A route that doubles back
+    // over streets it already used (stops in an order that makes a loop) has later stretches a few metres from earlier ones, and a search
+    // window as long as the whole route would jump to the later one, marking stops as passed that the bus has not reached. The first reading
+    // of a trip is looked for near the start (the captain starts the trip at the first stop); a bus started elsewhere is found by the wider search below.
+    const gapS = prev ? Math.max(1, (p.at - prev.at) / 1000) : 0;
+    const proj = project(st.route, p.lat, p.lng, prev?.routeMeters ?? 0, 400, prev ? Math.min(4000, 200 + gapS * (c.maxSpeedKmh / 3.6)) : 800);
     // A phone that says its position is only good to 40 m may really be 40 m from the line it is driving on, so the distance that
     // still counts as "on the road" grows with the reported accuracy (up to 120 m): the bus stays on the street, not in a house.
     const snapLimit = Math.max(c.snapM, Math.min(120, (p.accuracy || 0) * 1.5));

@@ -160,6 +160,32 @@ describe('following the bus along the road', () => {
   });
 });
 
+describe('a route that doubles back over the same street', () => {
+  test('the bus is not placed on the later pass: stops are not passed before the bus gets there', async () => {
+    // Out 1.2 km east, then back west along the same street (a few metres apart), then to the school: stops in an order that makes a loop.
+    const north = (m) => LAT + m / 110540;
+    const east = (m) => 84.99 + m / M_PER_DEG;
+    const loop = await Transport.create({
+      school: A.school._id, busNumber: 'BR02 LP 0001', driverName: 'Ramesh', driverPhone: '9000011111', routeName: 'Loop', driverToken: 'LOOPTOKEN-0001', trackingId: 'trkloop',
+      stops: [[0, 0], [1200, 0], [0, 4], [600, 4]].map(([e, n], i) => ({ name: `Stop ${i + 1}`, latitude: north(n), longitude: east(e), order: i + 1 })),
+    });
+    const url = (path = '') => `/api/transport/driver/LOOPTOKEN-0001${path}`;
+    expect((await api().patch(url('/start-trip')).send({})).status).toBe(200);
+    // Driving east on the outbound street, 4 m north of it (so nearer to the return street than to the road it is on).
+    let last;
+    for (let i = 0; i < 12; i += 1) {
+      const res = await api().post(url('/location')).send({ points: [{ lat: north(3.5), lng: east(100 + i * 50), accuracy: 8, at: T0 + i * 5000 }] });
+      expect(res.status).toBe(200);
+      last = res.body.data;
+    }
+    const s = (await api().get(`/api/transport/live/${loop._id}`).set(auth(A.admin))).body.data;
+    // 650 m driven east: still on the way out (progress about 650 m), not on the return pass (about 1750 m), and no stop beyond the first is passed.
+    expect(s.position.routeMeters).toBeLessThan(900);
+    expect(s.currentStopIndex).toBeLessThanOrEqual(1);
+    expect(last.accepted).toBe(1);
+  });
+});
+
 describe('staying on the street', () => {
   test('a phone that reports a poor fix 70 m off the road is still shown on the road, a good fix that far off is not', async () => {
     await start();
@@ -346,6 +372,19 @@ describe('signal and the end of the trip', () => {
     await post(drive(LNGS[0], 2, 0));
     expect(await tracking.closeAbandonedTrips(3)).toBe(0);
     expect(await tracking.closeAbandonedTrips(3, Date.now() + 4 * 3600 * 1000)).toBe(1);
+    expect((await Transport.findById(bus._id)).busStatus).toBe('Completed');
+  });
+
+  test('a trip nobody has heard from for hours is closed when someone looks at the bus, without waiting for the clean-up job', async () => {
+    await start();
+    await post(drive(LNGS[0], 2, 0));
+    // The last reading is 4 hours old; the server's picture of the bus is gone (a restart), as after a sleeping host wakes.
+    await Transport.updateOne({ _id: bus._id }, { $set: { 'live.receivedAt': Date.now() - 4 * 3600 * 1000, tripStartedAt: new Date(Date.now() - 5 * 3600 * 1000) } });
+    tracking.resetForTests();
+    const res = await api().get(`/api/transport/live/${bus._id}`).set(auth(A.parentUser));
+    const s = res.body.data;
+    expect(s.status).toBe('Completed');
+    expect(s.position).toBeNull();
     expect((await Transport.findById(bus._id)).busStatus).toBe('Completed');
   });
 
